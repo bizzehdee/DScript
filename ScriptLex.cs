@@ -55,8 +55,6 @@ namespace DScript
 		private bool _dataOwned;
 		private Int32 _dataStart, _dataEnd, _dataPos;
 
-		public delegate void ScriptCallbackCB(ScriptVar var, object userdata);
-
 		public char CurrentChar { get; set; }
 		public char NextChar { get; set; }
 		public LexTypes TokenType { get; set; }
@@ -517,6 +515,16 @@ namespace DScript
 		public String GetSubString(Int32 pos)
 		{
 			return (_data.Substring(pos));
+		}
+
+		public void Match(LexTypes type)
+		{
+			if (TokenType != type)
+			{
+				throw new ScriptException("Unexpected token type");
+			}
+
+			GetNextToken();
 		}
 	}
 }

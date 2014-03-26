@@ -53,7 +53,7 @@ namespace DScript
 		private object _data;
 		private int _intData;
 		private double _doubleData;
-		private ScriptLex.ScriptCallbackCB _callback;
+		private ScriptEngine.ScriptCallbackCB _callback;
 		private object _callbackUserData;
 
 		public const String ReturnVarName = "return";
@@ -711,10 +711,15 @@ namespace DScript
 			return newVar;
 		}
 
-		public void SetCallback(ScriptLex.ScriptCallbackCB callback, object userdata)
+		public void SetCallback(ScriptEngine.ScriptCallbackCB callback, object userdata)
 		{
 			_callback = callback;
 			_callbackUserData = userdata;
+		}
+
+		internal void SetData(object data)
+		{
+			_data = data;
 		}
 
 		/* void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
