@@ -27,7 +27,73 @@ namespace DScript
 	{
 		private ScriptVarLink Expression(bool execute)
 		{
-			return null;
+			bool negate = false;
+			if (_currentLexer.TokenType == (ScriptLex.LexTypes) '-')
+			{
+				_currentLexer.Match((ScriptLex.LexTypes)'-');
+				negate = true;
+			}
+
+			ScriptVarLink a = Term(execute);
+
+			if (negate)
+			{
+				ScriptVar zero = new ScriptVar(0);
+				ScriptVar res = zero.MathsOp(a.Var, (ScriptLex.LexTypes) '-');
+
+				if (a.Owned)
+				{
+					a = new ScriptVarLink(res, null);
+				}
+				else
+				{
+					a.ReplaceWith(res);
+				}
+			}
+
+			while (_currentLexer.TokenType == (ScriptLex.LexTypes) '+' ||
+			       _currentLexer.TokenType == (ScriptLex.LexTypes) '-' ||
+			       _currentLexer.TokenType == ScriptLex.LexTypes.PlusPlus ||
+			       _currentLexer.TokenType == ScriptLex.LexTypes.MinusMinus)
+			{
+				ScriptLex.LexTypes op = _currentLexer.TokenType;
+				_currentLexer.Match(op);
+
+				if (op == ScriptLex.LexTypes.PlusPlus || op == ScriptLex.LexTypes.MinusMinus)
+				{
+					if (execute)
+					{
+						ScriptVar one = new ScriptVar(1);
+						ScriptVar res = a.Var.MathsOp(one, (ScriptLex.LexTypes) (op == ScriptLex.LexTypes.PlusPlus ? '+' : '-'));
+						ScriptVarLink oldVal = new ScriptVarLink(a.Var, null);
+
+						a.ReplaceWith(res);
+						Clean(a);
+						a = oldVal;
+					}
+				}
+				else
+				{
+					ScriptVarLink b = Term(execute);
+					if (execute)
+					{
+						ScriptVar res = a.Var.MathsOp(b.Var, op);
+
+						if (a.Owned)
+						{
+							a = new ScriptVarLink(res, null);
+						}
+						else
+						{
+							a.ReplaceWith(res);
+						}
+
+					}
+					Clean(b);
+				}
+			}
+
+			return a;
 		}
 	}
 }
