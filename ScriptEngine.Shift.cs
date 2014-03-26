@@ -25,9 +25,9 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private ScriptVarLink Shift(bool execute)
+		private ScriptVarLink Shift(ref bool execute)
 		{
-			ScriptVarLink a = Expression(execute);
+			ScriptVarLink a = Expression(ref execute);
 
 			if (_currentLexer.TokenType == ScriptLex.LexTypes.LShift ||
 			    _currentLexer.TokenType == ScriptLex.LexTypes.RShift ||
@@ -35,7 +35,7 @@ namespace DScript
 			{
 				ScriptLex.LexTypes op = _currentLexer.TokenType;
 				_currentLexer.Match(op);
-				ScriptVarLink b = Base(execute);
+				ScriptVarLink b = Base(ref execute);
 
 				Int32 shift = execute ? b.Var.GetInt() : 0;
 

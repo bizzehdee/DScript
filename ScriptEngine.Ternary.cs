@@ -25,9 +25,9 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private ScriptVarLink Ternary(bool execute)
+		private ScriptVarLink Ternary(ref bool execute)
 		{
-			ScriptVarLink a = Logic(execute);
+			ScriptVarLink a = Logic(ref execute);
 
 			if (_currentLexer.TokenType == (ScriptLex.LexTypes) '?')
 			{
@@ -36,11 +36,11 @@ namespace DScript
 				if (!execute)
 				{
 					Clean(a);
-					Clean(Base(false));
+					Clean(Base(ref execute));
 
 					_currentLexer.Match((ScriptLex.LexTypes)':');
 
-					Clean(Base(false));
+					Clean(Base(ref execute));
 				}
 				else
 				{
@@ -49,15 +49,15 @@ namespace DScript
 
 					if (first)
 					{
-						a = Base(execute);
+						a = Base(ref execute);
 						_currentLexer.Match((ScriptLex.LexTypes)':');
-						Clean(Base(false));
+						Clean(Base(ref execute));
 					}
 					else
 					{
-						Clean(Base(false));
+						Clean(Base(ref execute));
 						_currentLexer.Match((ScriptLex.LexTypes)':');
-						a = Base(execute);
+						a = Base(ref execute);
 					}
 				}
 			}

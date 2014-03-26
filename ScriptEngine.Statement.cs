@@ -26,7 +26,7 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private void Statement(bool execute)
+		private void Statement(ref bool execute)
 		{
 			if (_currentLexer.TokenType == ScriptLex.LexTypes.Id ||
 			    _currentLexer.TokenType == ScriptLex.LexTypes.Int ||
@@ -35,13 +35,13 @@ namespace DScript
 			    _currentLexer.TokenType == (ScriptLex.LexTypes) '-')
 			{
 				//execite a basic statement
-				Clean(Base(execute));
+				Clean(Base(ref execute));
 				_currentLexer.Match((ScriptLex.LexTypes)';');
 			}
 			else if (_currentLexer.TokenType == (ScriptLex.LexTypes)'{')
 			{
 				//code block
-				Block(execute);
+				Block(ref execute);
 			}
 			else if (_currentLexer.TokenType == (ScriptLex.LexTypes)';')
 			{
@@ -82,7 +82,7 @@ namespace DScript
 					if (_currentLexer.TokenType == (ScriptLex.LexTypes)'=')
 					{
 						_currentLexer.Match((ScriptLex.LexTypes)'=');
-						ScriptVarLink varLink = Base(execute);
+						ScriptVarLink varLink = Base(ref execute);
 						if (execute)
 						{
 							a.ReplaceWith(varLink);
@@ -103,18 +103,19 @@ namespace DScript
 				//if condition
 				_currentLexer.Match(ScriptLex.LexTypes.RIf);
 				_currentLexer.Match((ScriptLex.LexTypes)'(');
-				ScriptVarLink varLink = Base(execute);
+				ScriptVarLink varLink = Base(ref execute);
 				_currentLexer.Match((ScriptLex.LexTypes)')');
 
 				bool condition = execute && varLink.Var.GetBool();
-				Statement(condition);
+				Statement(ref condition);
 
 				if (_currentLexer.TokenType == ScriptLex.LexTypes.RElse)
 				{
 					//else part of an if
 					_currentLexer.Match(ScriptLex.LexTypes.RElse);
 
-					Statement(!condition);
+					bool notCondition = !condition;
+					Statement(ref notCondition);
 				}
 			}
 			else if (_currentLexer.TokenType == ScriptLex.LexTypes.RWhile)
@@ -124,7 +125,7 @@ namespace DScript
 				_currentLexer.Match((ScriptLex.LexTypes)'(');
 
 				Int32 whileConditionStart = _currentLexer.TokenStart;
-				ScriptVarLink condition = Base(execute);
+				ScriptVarLink condition = Base(ref execute);
 				bool loopCondition = execute && condition.Var.GetBool();
 
 				Clean(condition);
@@ -134,7 +135,7 @@ namespace DScript
 
 				Int32 whileBodyStart = _currentLexer.TokenStart;
 
-				Statement(loopCondition);
+				Statement(ref loopCondition);
 
 				ScriptLex whileBody = _currentLexer.GetSubLex(whileBodyStart);
 				ScriptLex oldLex = _currentLexer;
@@ -146,7 +147,7 @@ namespace DScript
 					
 					_currentLexer = whileCond;
 					
-					condition = Base(true);
+					condition = Base(ref execute);
 					
 					loopCondition = condition.Var.GetBool();
 
@@ -156,7 +157,7 @@ namespace DScript
 					{
 						whileBody.Reset();
 						_currentLexer = whileBody;
-						Statement(true);
+						Statement(ref execute);
 					}
 				}
 
@@ -181,10 +182,10 @@ namespace DScript
 				_currentLexer.Match(ScriptLex.LexTypes.RFor);
 				_currentLexer.Match((ScriptLex.LexTypes)'(');
 
-				Statement(execute); //init
+				Statement(ref execute); //init
 
 				int forConditionStart = _currentLexer.TokenStart;
-				ScriptVarLink condition = Base(execute);
+				ScriptVarLink condition = Base(ref execute);
 				bool loopCondition = execute && condition.Var.GetBool();
 
 				Clean(condition);
@@ -195,7 +196,7 @@ namespace DScript
 
 				int forIterStart = _currentLexer.TokenStart;
 
-				Clean(Base(false));
+				Clean(Base(ref execute));
 
 				ScriptLex forIter = _currentLexer.GetSubLex(forIterStart);
 
@@ -203,7 +204,7 @@ namespace DScript
 
 				int forBodyStart = _currentLexer.TokenStart;
 
-				Statement(loopCondition);
+				Statement(ref loopCondition);
 
 				ScriptLex forBody = _currentLexer.GetSubLex(forBodyStart);
 				ScriptLex oldLex = _currentLexer;
@@ -212,7 +213,7 @@ namespace DScript
 					forIter.Reset();
 					_currentLexer = forIter;
 
-					Clean(Base(true));
+					Clean(Base(ref execute));
 				}
 
 				//TODO: limit number of iterations?
@@ -221,7 +222,7 @@ namespace DScript
 					forCondition.Reset();
 					_currentLexer = forCondition;
 
-					condition = Base(true);
+					condition = Base(ref execute);
 
 					loopCondition = condition.Var.GetBool();
 
@@ -232,7 +233,7 @@ namespace DScript
 						forBody.Reset();
 						_currentLexer = forBody;
 
-						Statement(true);
+						Statement(ref execute);
 					}
 
 					if (loopCondition)
@@ -240,7 +241,7 @@ namespace DScript
 						forIter.Reset();
 						_currentLexer = forIter;
 
-						Clean(Base(true));
+						Clean(Base(ref execute));
 					}
 				}
 
@@ -256,7 +257,7 @@ namespace DScript
 				ScriptVarLink res = null;
 				if (_currentLexer.TokenType != (ScriptLex.LexTypes)';')
 				{
-					res = Base(execute);
+					res = Base(ref execute);
 				}
 				if (execute)
 				{

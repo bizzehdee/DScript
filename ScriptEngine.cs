@@ -102,7 +102,8 @@ namespace DScript
 				{
 					while (_currentLexer.TokenType != 0)
 					{
-						Statement(true);
+						bool execute = true;
+						Statement(ref execute);
 					}
 				}
 				catch (ScriptException ex)
@@ -219,7 +220,8 @@ namespace DScript
 			ParseFunctionArguments(funcVar.Var);
 
 			Int32 funcBegin = _currentLexer.TokenStart;
-			Block(false);
+			bool execute = false;
+			Block(ref execute);
 			funcVar.Var.SetData(_currentLexer.GetSubString(funcBegin));
 
 			return funcVar;

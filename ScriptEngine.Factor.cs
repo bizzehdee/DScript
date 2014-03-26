@@ -25,12 +25,12 @@ namespace DScript
 {
     public partial class ScriptEngine
     {
-		private ScriptVarLink Factor(bool execute)
+		private ScriptVarLink Factor(ref bool execute)
 		{
 			if (_currentLexer.TokenType == (ScriptLex.LexTypes)'(')
 			{
 				_currentLexer.Match((ScriptLex.LexTypes)'(');
-				ScriptVarLink a = Base(execute);
+				ScriptVarLink a = Base(ref execute);
 				_currentLexer.Match((ScriptLex.LexTypes)')');
 				return a;
 			}
@@ -71,7 +71,7 @@ namespace DScript
 				{
 					if (_currentLexer.TokenType == (ScriptLex.LexTypes)'(') // function call
 					{
-						a = FunctionCall(execute, a, parent);
+						a = FunctionCall(ref execute, a, parent);
 					}
 					else if (_currentLexer.TokenType == (ScriptLex.LexTypes)'.') // child access
 					{
@@ -113,7 +113,7 @@ namespace DScript
 					else if (_currentLexer.TokenType == (ScriptLex.LexTypes)'[') // array access
 					{
 						_currentLexer.Match((ScriptLex.LexTypes)'[');
-						ScriptVarLink index = Base(execute);
+						ScriptVarLink index = Base(ref execute);
 						_currentLexer.Match((ScriptLex.LexTypes)']');
 
 						if (execute)
@@ -170,7 +170,7 @@ namespace DScript
 
 					if (execute)
 					{
-						ScriptVarLink a = Base(true);
+						ScriptVarLink a = Base(ref execute);
 						contents.AddChild(id, a.Var);
 
 						Clean(a);
@@ -198,7 +198,7 @@ namespace DScript
 					{
 						String id = String.Format("{0}", idx);
 
-						ScriptVarLink a = Base(true);
+						ScriptVarLink a = Base(ref execute);
 						contents.AddChild(id, a.Var);
 
 						Clean(a);
@@ -246,7 +246,7 @@ namespace DScript
 					ScriptVarLink objLink = new ScriptVarLink(obj, null);
 					if (classOrFuncObject.Var.IsFunction)
 					{
-						Clean(FunctionCall(true, classOrFuncObject, obj));
+						Clean(FunctionCall(ref execute, classOrFuncObject, obj));
 					}
 					else
 					{

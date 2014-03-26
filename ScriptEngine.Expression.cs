@@ -25,7 +25,7 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private ScriptVarLink Expression(bool execute)
+		private ScriptVarLink Expression(ref bool execute)
 		{
 			bool negate = false;
 			if (_currentLexer.TokenType == (ScriptLex.LexTypes) '-')
@@ -34,7 +34,7 @@ namespace DScript
 				negate = true;
 			}
 
-			ScriptVarLink a = Term(execute);
+			ScriptVarLink a = Term(ref execute);
 
 			if (negate)
 			{
@@ -74,7 +74,7 @@ namespace DScript
 				}
 				else
 				{
-					ScriptVarLink b = Term(execute);
+					ScriptVarLink b = Term(ref execute);
 					if (execute)
 					{
 						ScriptVar res = a.Var.MathsOp(b.Var, op);

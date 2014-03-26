@@ -25,7 +25,7 @@ namespace DScript
 {
 	public partial class ScriptEngine
     {
-		private ScriptVarLink FunctionCall(bool execute, ScriptVarLink function, ScriptVar parent)
+		private ScriptVarLink FunctionCall(ref bool execute, ScriptVarLink function, ScriptVar parent)
 		{
 			if (execute)
 			{
@@ -45,7 +45,7 @@ namespace DScript
 				ScriptVarLink v = function.Var.FirstChild;
 				while (v != null)
 				{
-					ScriptVarLink value = Base(true);
+					ScriptVarLink value = Base(ref execute);
 					if (value.Var.IsBasic)
 					{
 						//pass by val
@@ -92,7 +92,7 @@ namespace DScript
 
 					try
 					{
-						Block(true);
+						Block(ref execute);
 
 						execute = true;
 					}
@@ -125,7 +125,7 @@ namespace DScript
 
 			while (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
 			{
-				ScriptVarLink val = Base(false);
+				ScriptVarLink val = Base(ref execute);
 				Clean(val);
 				if (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
 				{
@@ -137,7 +137,7 @@ namespace DScript
 
 			if (_currentLexer.TokenType == (ScriptLex.LexTypes) '{') //WTF?
 			{
-				Block(false);
+				Block(ref execute);
 			}
 
 			return function;

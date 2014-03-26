@@ -193,7 +193,8 @@ namespace DScript
 
 		public int GetInt()
 		{
-			if (IsInt) return _intData;
+			if (IsInt && _data == null) return _intData;
+			if (IsInt && _data != null) return Convert.ToInt32(_data);
 			if (IsNull) return 0;
 			if (IsUndefined) return 0;
 			if (IsDouble) return (int)_doubleData;
@@ -207,7 +208,8 @@ namespace DScript
 
 		public double GetDouble()
 		{
-			if (IsDouble) return _doubleData;
+			if (IsDouble && _data == null) return _doubleData;
+			if (IsDouble && _data != null) return Convert.ToDouble(_data);
 			if (IsInt) return _intData;
 			if (IsNull) return 0;
 			if (IsUndefined) return 0;

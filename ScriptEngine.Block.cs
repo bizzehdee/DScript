@@ -25,14 +25,14 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private void Block(bool execute)
+		private void Block(ref bool execute)
 		{
 			_currentLexer.Match((ScriptLex.LexTypes)'{');
 			if (execute)
 			{
 				while (_currentLexer.TokenType != 0 && _currentLexer.TokenType != (ScriptLex.LexTypes)'}')
 				{
-					Statement(execute);
+					Statement(ref execute);
 					_currentLexer.Match((ScriptLex.LexTypes)'}');
 				}
 			}

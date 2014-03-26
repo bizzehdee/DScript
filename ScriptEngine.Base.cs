@@ -25,13 +25,13 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private ScriptVarLink Base(bool execute)
+		private ScriptVarLink Base(ref bool execute)
 		{
-			ScriptVarLink a = Ternary(execute);
+			ScriptVarLink a = Ternary(ref execute);
 
 			if (_currentLexer.TokenType == (ScriptLex.LexTypes) '=' ||
-				_currentLexer.TokenType == ScriptLex.LexTypes.PlusEqual ||
-				_currentLexer.TokenType == ScriptLex.LexTypes.MinusEqual)
+			    _currentLexer.TokenType == ScriptLex.LexTypes.PlusEqual ||
+			    _currentLexer.TokenType == ScriptLex.LexTypes.MinusEqual)
 			{
 				if (execute && a.Owned)
 				{
@@ -47,36 +47,37 @@ namespace DScript
 						System.Diagnostics.Trace.TraceWarning("Trying to assign to an unnamed type...");
 					}
 				}
+
+
+				ScriptLex.LexTypes op = _currentLexer.TokenType;
+				_currentLexer.Match(op);
+
+				ScriptVarLink b = Base(ref execute);
+
+				if (execute)
+				{
+					if (op == (ScriptLex.LexTypes) '=')
+					{
+						a.ReplaceWith(b);
+					}
+					else if (op == ScriptLex.LexTypes.PlusEqual)
+					{
+						ScriptVar res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes) '+');
+						a.ReplaceWith(res);
+					}
+					else if (op == ScriptLex.LexTypes.MinusEqual)
+					{
+						ScriptVar res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes) '-');
+						a.ReplaceWith(res);
+					}
+					else
+					{
+						throw new ScriptException("Base broke");
+					}
+				}
+
+				Clean(b);
 			}
-
-			ScriptLex.LexTypes op = _currentLexer.TokenType;
-			_currentLexer.Match(op);
-
-			ScriptVarLink b = Base(execute);
-			if (execute)
-			{
-				if (op == (ScriptLex.LexTypes)'=')
-				{
-					a.ReplaceWith(b);
-				}
-				else if (op == ScriptLex.LexTypes.PlusEqual)
-				{
-					ScriptVar res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes)'+');
-					a.ReplaceWith(res);
-				}
-				else if (op == ScriptLex.LexTypes.MinusEqual)
-				{
-					ScriptVar res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes)'-');
-					a.ReplaceWith(res);
-				}
-				else
-				{
-					throw new ScriptException("Base broke");
-				}
-			}
-
-			Clean(b);
-
 			return a;
 		}
 	}

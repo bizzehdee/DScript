@@ -24,9 +24,9 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private ScriptVarLink Logic(bool execute)
+		private ScriptVarLink Logic(ref bool execute)
 		{
-			ScriptVarLink a = Condition(execute);
+			ScriptVarLink a = Condition(ref execute);
 
 			while (_currentLexer.TokenType == (ScriptLex.LexTypes) '&' ||
 				_currentLexer.TokenType == (ScriptLex.LexTypes) '|' ||
@@ -53,7 +53,8 @@ namespace DScript
 					isBool = true;
 				}
 
-				ScriptVarLink b = Condition(!shortcut && execute);
+				bool condition = !shortcut && execute;
+				ScriptVarLink b = Condition(ref condition);
 
 				if (execute && !shortcut)
 				{

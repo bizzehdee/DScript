@@ -24,13 +24,13 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private ScriptVarLink Unary(bool execute)
+		private ScriptVarLink Unary(ref bool execute)
 		{
 			ScriptVarLink a;
 			if (_currentLexer.TokenType == (ScriptLex.LexTypes)'!')
 			{
 				_currentLexer.Match((ScriptLex.LexTypes)'!');
-				a = Factor(execute);
+				a = Factor(ref execute);
 				if (execute)
 				{
 					ScriptVar zero = new ScriptVar(0);
@@ -48,7 +48,7 @@ namespace DScript
 			}
 			else
 			{
-				a = Factor(execute);
+				a = Factor(ref execute);
 			}
 
 			return a;

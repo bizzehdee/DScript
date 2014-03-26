@@ -24,9 +24,9 @@ namespace DScript
 {
 	public partial class ScriptEngine
 	{
-		private ScriptVarLink Term(bool execute)
+		private ScriptVarLink Term(ref bool execute)
 		{
-			ScriptVarLink a = Unary(execute);
+			ScriptVarLink a = Unary(ref execute);
 
 			while (_currentLexer.TokenType == (ScriptLex.LexTypes) '*' || 
 				_currentLexer.TokenType == (ScriptLex.LexTypes) '/' || 
@@ -35,7 +35,7 @@ namespace DScript
 				ScriptLex.LexTypes op = _currentLexer.TokenType;
 				_currentLexer.Match(_currentLexer.TokenType);
 
-				ScriptVarLink b = Unary(execute);
+				ScriptVarLink b = Unary(ref execute);
 				if (execute)
 				{
 					ScriptVar res = a.Var.MathsOp(b.Var, op);
