@@ -509,7 +509,7 @@ namespace DScript
 
 		public String GetPosition(Int32 pos)
 		{
-			return "";
+			return String.Format("{0}", pos);
 		}
 
 		public String GetSubString(Int32 pos)

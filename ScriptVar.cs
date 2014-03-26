@@ -722,6 +722,16 @@ namespace DScript
 			_data = data;
 		}
 
+		internal ScriptEngine.ScriptCallbackCB GetCallback()
+		{
+			return _callback;
+		}
+
+		internal object GetCallbackUserData()
+		{
+			return _callbackUserData;
+		}
+
 		/* void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
     std::string getFlagsAsString(); ///< For debugging - just dump a string version of the flags
     void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)

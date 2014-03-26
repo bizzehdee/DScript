@@ -27,7 +27,120 @@ namespace DScript
     {
 		private ScriptVarLink FunctionCall(bool execute, ScriptVarLink function, ScriptVar parent)
 		{
-			return null;
+			if (execute)
+			{
+				if (!function.Var.IsFunction)
+				{
+					throw new ScriptException(String.Format("{0} is not a function", function.Name));
+				}
+
+				_currentLexer.Match((ScriptLex.LexTypes) '(');
+				ScriptVar functionRoot = new ScriptVar(null, ScriptVar.Flags.Function);
+
+				if (parent != null)
+				{
+					functionRoot.AddChildNoDup("this", parent);
+				}
+
+				ScriptVarLink v = function.Var.FirstChild;
+				while (v != null)
+				{
+					ScriptVarLink value = Base(true);
+					if (value.Var.IsBasic)
+					{
+						//pass by val
+						functionRoot.AddChild(v.Name, value.Var.DeepCopy());
+					}
+					else
+					{
+						//pass by ref
+						functionRoot.AddChild(v.Name, value.Var);
+					}
+
+					Clean(value);
+
+					if (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
+					{
+						_currentLexer.Match((ScriptLex.LexTypes) ',');
+					}
+
+					v = v.Next;
+				}
+
+				_currentLexer.Match((ScriptLex.LexTypes) ')');
+
+				ScriptVarLink returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
+
+				_scopes.Add(functionRoot);
+
+				_callStack.Push(String.Format("{0} from {1}", function.Name, _currentLexer.GetPosition(0))); //TODO: Real Position
+
+				if (function.Var.IsNative)
+				{
+					ScriptCallbackCB func = function.Var.GetCallback();
+					if (func != null)
+					{
+						func(functionRoot, function.Var.GetCallbackUserData());
+					}
+				}
+				else
+				{
+					ScriptException ex = null;
+					ScriptLex oldLex = _currentLexer;
+					ScriptLex newLex = new ScriptLex(function.Var.GetString());
+					_currentLexer = newLex;
+
+					try
+					{
+						Block(true);
+
+						execute = true;
+					}
+					catch (ScriptException e)
+					{
+						ex = e;
+					}
+
+					newLex.Dispose();
+					_currentLexer = oldLex;
+
+					if (ex != null)
+					{
+						throw ex;
+					}
+				}
+
+				_callStack.Pop();
+				_scopes.RemoveAt(_scopes.Count - 1);
+
+				ScriptVarLink returnVar = new ScriptVarLink(returnVarLink.Var, null);
+				functionRoot.RemoveLink(returnVarLink);
+				functionRoot.Dispose();
+
+				return returnVar;
+			}
+
+			//not executing the function, just parsing it out
+			_currentLexer.Match((ScriptLex.LexTypes)'(');
+
+			while (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
+			{
+				ScriptVarLink val = Base(false);
+				Clean(val);
+				if (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
+				{
+					_currentLexer.Match((ScriptLex.LexTypes)',');
+				}
+			}
+
+			_currentLexer.Match((ScriptLex.LexTypes)')');
+
+			if (_currentLexer.TokenType == (ScriptLex.LexTypes) '{') //WTF?
+			{
+				Block(false);
+			}
+
+			return function;
 		}
     }
 }
