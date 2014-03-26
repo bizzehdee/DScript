@@ -57,8 +57,6 @@ namespace DScript
 						functionRoot.AddChild(v.Name, value.Var);
 					}
 
-					Clean(value);
-
 					if (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
 					{
 						_currentLexer.Match((ScriptLex.LexTypes) ',');
@@ -101,7 +99,6 @@ namespace DScript
 						ex = e;
 					}
 
-					newLex.Dispose();
 					_currentLexer = oldLex;
 
 					if (ex != null)
@@ -115,7 +112,6 @@ namespace DScript
 
 				ScriptVarLink returnVar = new ScriptVarLink(returnVarLink.Var, null);
 				functionRoot.RemoveLink(returnVarLink);
-				functionRoot.Dispose();
 
 				return returnVar;
 			}
@@ -126,7 +122,6 @@ namespace DScript
 			while (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
 			{
 				ScriptVarLink val = Base(ref execute);
-				Clean(val);
 				if (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
 				{
 					_currentLexer.Match((ScriptLex.LexTypes)',');

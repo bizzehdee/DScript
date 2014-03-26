@@ -122,8 +122,6 @@ namespace DScript
 							parent = a.Var;
 							a = child;
 						}
-
-						Clean(index);
 					}
 					else
 					{
@@ -172,8 +170,6 @@ namespace DScript
 					{
 						ScriptVarLink a = Base(ref execute);
 						contents.AddChild(id, a.Var);
-
-						Clean(a);
 					}
 
 					if (_currentLexer.TokenType != (ScriptLex.LexTypes)'}')
@@ -200,8 +196,6 @@ namespace DScript
 
 						ScriptVarLink a = Base(ref execute);
 						contents.AddChild(id, a.Var);
-
-						Clean(a);
 					}
 
 					if (_currentLexer.TokenType != (ScriptLex.LexTypes)']')
@@ -246,7 +240,7 @@ namespace DScript
 					ScriptVarLink objLink = new ScriptVarLink(obj, null);
 					if (classOrFuncObject.Var.IsFunction)
 					{
-						Clean(FunctionCall(ref execute, classOrFuncObject, obj));
+						FunctionCall(ref execute, classOrFuncObject, obj);
 					}
 					else
 					{

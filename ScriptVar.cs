@@ -410,8 +410,6 @@ namespace DScript
 			{
 				FirstChild = link.Next;
 			}
-
-			link.Dispose();
 		}
 
 		public void RemoveAllChildren()
@@ -421,7 +419,6 @@ namespace DScript
 			while (c != null)
 			{
 				ScriptVarLink t = c.Next;
-				c.Dispose();
 				c = t;
 			}
 
@@ -548,7 +545,6 @@ namespace DScript
 				{
 					ScriptVar contents = a.MathsOp(b, ScriptLex.LexTypes.Equal);
 					if (!contents.GetBool()) equal = false;
-					if(contents._refs == 0) contents.Dispose();
 				}
 
 				if (op == ScriptLex.LexTypes.TypeEqual)

@@ -35,7 +35,7 @@ namespace DScript
 			    _currentLexer.TokenType == (ScriptLex.LexTypes) '-')
 			{
 				//execite a basic statement
-				Clean(Base(ref execute));
+				Base(ref execute);
 				_currentLexer.Match((ScriptLex.LexTypes)';');
 			}
 			else if (_currentLexer.TokenType == (ScriptLex.LexTypes)'{')
@@ -72,7 +72,10 @@ namespace DScript
 						if (execute)
 						{
 							ScriptVarLink aLast = a;
-							a = aLast.Var.FindChildOrCreate(_currentLexer.TokenString);
+							if (aLast != null)
+							{
+								a = aLast.Var.FindChildOrCreate(_currentLexer.TokenString);
+							}
 						}
 
 						_currentLexer.Match(ScriptLex.LexTypes.Id);
@@ -85,9 +88,11 @@ namespace DScript
 						ScriptVarLink varLink = Base(ref execute);
 						if (execute)
 						{
-							a.ReplaceWith(varLink);
+							if (a != null)
+							{
+								a.ReplaceWith(varLink);
+							}
 						}
-						Clean(varLink);
 					}
 
 					if (_currentLexer.TokenType != (ScriptLex.LexTypes)';')
@@ -128,8 +133,6 @@ namespace DScript
 				ScriptVarLink condition = Base(ref execute);
 				bool loopCondition = execute && condition.Var.GetBool();
 
-				Clean(condition);
-
 				ScriptLex whileCond = _currentLexer.GetSubLex(whileConditionStart);
 				_currentLexer.Match((ScriptLex.LexTypes)')');
 
@@ -151,8 +154,6 @@ namespace DScript
 					
 					loopCondition = condition.Var.GetBool();
 
-					Clean(condition);
-
 					if (loopCondition)
 					{
 						whileBody.Reset();
@@ -162,9 +163,6 @@ namespace DScript
 				}
 
 				_currentLexer = oldLex;
-
-				whileCond.Dispose();
-				whileBody.Dispose();
 			}
 			else if (_currentLexer.TokenType == ScriptLex.LexTypes.RFor)
 			{
@@ -188,15 +186,13 @@ namespace DScript
 				ScriptVarLink condition = Base(ref execute);
 				bool loopCondition = execute && condition.Var.GetBool();
 
-				Clean(condition);
-
 				ScriptLex forCondition = _currentLexer.GetSubLex(forConditionStart);
 
 				_currentLexer.Match((ScriptLex.LexTypes)';');
 
 				int forIterStart = _currentLexer.TokenStart;
 
-				Clean(Base(ref execute));
+				Base(ref execute);
 
 				ScriptLex forIter = _currentLexer.GetSubLex(forIterStart);
 
@@ -213,7 +209,7 @@ namespace DScript
 					forIter.Reset();
 					_currentLexer = forIter;
 
-					Clean(Base(ref execute));
+					Base(ref execute);
 				}
 
 				//TODO: limit number of iterations?
@@ -225,8 +221,6 @@ namespace DScript
 					condition = Base(ref execute);
 
 					loopCondition = condition.Var.GetBool();
-
-					Clean(condition);
 
 					if (loopCondition)
 					{
@@ -241,14 +235,11 @@ namespace DScript
 						forIter.Reset();
 						_currentLexer = forIter;
 
-						Clean(Base(ref execute));
+						Base(ref execute);
 					}
 				}
 
 				_currentLexer = oldLex;
-				forCondition.Dispose();
-				forIter.Dispose();
-				forBody.Dispose();
 			}
 			else if (_currentLexer.TokenType == ScriptLex.LexTypes.RReturn)
 			{
@@ -272,8 +263,6 @@ namespace DScript
 					}
 				}
 
-				Clean(res);
-
 				execute = false;
 				_currentLexer.Match((ScriptLex.LexTypes)';');
 			}
@@ -292,8 +281,6 @@ namespace DScript
 						_scopes[_scopes.Count - 1].AddChildNoDup(funcVar.Name, funcVar.Var);
 					}
 				}
-
-				Clean(funcVar);
 			}
 			else
 			{

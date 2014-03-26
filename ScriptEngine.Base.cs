@@ -38,7 +38,6 @@ namespace DScript
 					if (a.Name.Length > 0)
 					{
 						ScriptVarLink aReal = Root.AddChildNoDup(a.Name, a.Var);
-						Clean(a);
 						a = aReal;
 					}
 					else
@@ -75,8 +74,6 @@ namespace DScript
 						throw new ScriptException("Base broke");
 					}
 				}
-
-				Clean(b);
 			}
 			return a;
 		}

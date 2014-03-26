@@ -68,7 +68,6 @@ namespace DScript
 						ScriptVarLink oldVal = new ScriptVarLink(a.Var, null);
 
 						a.ReplaceWith(res);
-						Clean(a);
 						a = oldVal;
 					}
 				}
@@ -89,7 +88,6 @@ namespace DScript
 						}
 
 					}
-					Clean(b);
 				}
 			}
 

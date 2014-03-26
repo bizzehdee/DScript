@@ -243,14 +243,5 @@ namespace DScript
 
 			_currentLexer.Match((ScriptLex.LexTypes)')');
 		}
-
-		private void Clean(ScriptVarLink link)
-		{
-			ScriptVarLink v = link;
-			if (link != null && !link.Owned)
-			{
-				link.Dispose();
-			}
-		}
 	}
 }

@@ -39,8 +39,6 @@ namespace DScript
 
 				Int32 shift = execute ? b.Var.GetInt() : 0;
 
-				Clean(b);
-
 				if (execute)
 				{
 					if (op == ScriptLex.LexTypes.LShift)

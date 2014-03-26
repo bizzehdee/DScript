@@ -93,8 +93,6 @@ namespace DScript
 						a.ReplaceWith(res);
 					}
 				}
-
-				Clean(b);
 			}
 
 			return a;

@@ -35,27 +35,25 @@ namespace DScript
 
 				if (!execute)
 				{
-					Clean(a);
-					Clean(Base(ref execute));
+					Base(ref execute);
 
 					_currentLexer.Match((ScriptLex.LexTypes)':');
 
-					Clean(Base(ref execute));
+					Base(ref execute);
 				}
 				else
 				{
 					bool first = a.Var.GetBool();
-					Clean(a);
 
 					if (first)
 					{
 						a = Base(ref execute);
 						_currentLexer.Match((ScriptLex.LexTypes)':');
-						Clean(Base(ref execute));
+						Base(ref execute);
 					}
 					else
 					{
-						Clean(Base(ref execute));
+						Base(ref execute);
 						_currentLexer.Match((ScriptLex.LexTypes)':');
 						a = Base(ref execute);
 					}
