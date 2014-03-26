@@ -166,16 +166,6 @@ namespace DScript
 			}
 			else if (_currentLexer.TokenType == ScriptLex.LexTypes.RFor)
 			{
-				/*
-        int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
-        while (execute && loopCond && loopCount-->0) {
-            if (execute && loopCond) {
-                forIter->reset();
-                l = forIter;
-                CLEAN(base(execute));
-            }
-        }
-*/
 				//for loop
 				_currentLexer.Match(ScriptLex.LexTypes.RFor);
 				_currentLexer.Match((ScriptLex.LexTypes)'(');
