@@ -122,7 +122,24 @@ namespace DScript
 			_scopes = oldScopes;
 		}
 
-		public void AddNative(String funcProto, ScriptCallbackCB callback, Object userdata)
+		public void AddMethod(String funcName, String[] args, ScriptCallbackCB callback, Object userdata)
+		{
+			ScriptVar funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+			funcVar.SetCallback(callback, userdata);
+
+			if (args != null)
+			{
+				foreach (string arg in args)
+				{
+					funcVar.AddChildNoDup(arg, null);
+				}
+			}
+
+			Root.AddChild(funcName, funcVar);
+		}
+
+		[Obsolete("Do not use, this is the old way of binding native methods to language functions")]
+		public void AddMethod(String funcProto, ScriptCallbackCB callback, Object userdata)
 		{
 			ScriptLex oldLex = _currentLexer;
 
@@ -176,7 +193,7 @@ namespace DScript
 
 		private ScriptVarLink FindInParentClasses(ScriptVar obj, String name)
 		{
-			ScriptVarLink implementation = null;
+			ScriptVarLink implementation;
 			ScriptVarLink parentClass = obj.FindChild(ScriptVar.PrototypeClassName);
 
 			while (parentClass != null)
