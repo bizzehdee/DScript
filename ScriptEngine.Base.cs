@@ -19,7 +19,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-using System;
 
 namespace DScript
 {
@@ -55,26 +54,30 @@ namespace DScript
 
 				if (execute)
 				{
-					if (op == (ScriptLex.LexTypes) '=')
+					switch (op)
 					{
-						a.ReplaceWith(b);
-					}
-					else if (op == ScriptLex.LexTypes.PlusEqual)
-					{
-						ScriptVar res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes) '+');
-						a.ReplaceWith(res);
-					}
-					else if (op == ScriptLex.LexTypes.MinusEqual)
-					{
-						ScriptVar res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes) '-');
-						a.ReplaceWith(res);
-					}
-					else
-					{
-						throw new ScriptException("Base broke");
+						case (ScriptLex.LexTypes) '=':
+							a.ReplaceWith(b);
+							break;
+						case ScriptLex.LexTypes.PlusEqual:
+						{
+							ScriptVar res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes) '+');
+							a.ReplaceWith(res);
+						}
+							break;
+						case ScriptLex.LexTypes.MinusEqual:
+						{
+							ScriptVar res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes) '-');
+							a.ReplaceWith(res);
+						}
+							break;
+						default:
+							throw new ScriptException("Base broke");
 					}
 				}
+
 			}
+
 			return a;
 		}
 	}

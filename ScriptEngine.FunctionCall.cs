@@ -121,7 +121,8 @@ namespace DScript
 
 			while (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
 			{
-				ScriptVarLink val = Base(ref execute);
+				Base(ref execute);
+
 				if (_currentLexer.TokenType != (ScriptLex.LexTypes) ')')
 				{
 					_currentLexer.Match((ScriptLex.LexTypes)',');
