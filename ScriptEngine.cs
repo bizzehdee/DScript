@@ -108,7 +108,7 @@ namespace DScript
 				}
 				catch (ScriptException ex)
 				{
-					String errorMessage = "";
+					String errorMessage = ex.Message;
 					int i = 0;
 					foreach (ScriptVar scriptVar in _scopes)
 					{
@@ -122,11 +122,49 @@ namespace DScript
 			_scopes = oldScopes;
 		}
 
+		public void AddMethod(String[] ns, String funcName, String[] args, ScriptCallbackCB callback, Object userdata)
+		{
+			String fName = funcName;
+			ScriptVar baseVar = Root;
+
+			if (ns != null)
+			{
+				int x = 0;
+				for (; x < ns.Length; x++)
+				{
+					ScriptVarLink link = baseVar.FindChild(ns[x]);
+
+					if (link == null)
+					{
+						link = baseVar.AddChild(ns[x], new ScriptVar(null, ScriptVar.Flags.Object));
+					}
+
+					baseVar = link.Var;
+				}
+			}
+
+
+			ScriptVar funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+			funcVar.SetCallback(callback, userdata);
+
+			//do we have any arguments to create?
+			if (args != null)
+			{
+				foreach (string arg in args)
+				{
+					funcVar.AddChildNoDup(arg, null);
+				}
+			}
+
+			baseVar.AddChild(fName, funcVar);
+		}
+
 		public void AddMethod(String funcName, String[] args, ScriptCallbackCB callback, Object userdata)
 		{
 			ScriptVar funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
 			funcVar.SetCallback(callback, userdata);
 
+			//do we have any arguments to create?
 			if (args != null)
 			{
 				foreach (string arg in args)
@@ -136,6 +174,14 @@ namespace DScript
 			}
 
 			Root.AddChild(funcName, funcVar);
+		}
+
+		public void AddFunctionProvider(IFunctionProvider provider)
+		{
+			if (provider != null)
+			{
+				provider.RegisterFunctions(this);
+			}
 		}
 
 		[Obsolete("Do not use, this is the old way of binding native methods to language functions")]
