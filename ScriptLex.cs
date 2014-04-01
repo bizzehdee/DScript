@@ -106,6 +106,7 @@ namespace DScript
 			RNull,
 			RUndefined,
 			RNew,
+			RClass,
 			RListEnd
 		}
 
@@ -214,7 +215,8 @@ namespace DScript
 					case "false": TokenType = LexTypes.RFalse; break;
 					case "null": TokenType = LexTypes.RFalse; break;
 					case "undefined": TokenType = LexTypes.RNull; break;
-					case "new": TokenType = LexTypes.RUndefined; break;
+					case "new": TokenType = LexTypes.RNew; break;
+					case "class": TokenType = LexTypes.RClass; break;
 				}
 			}
 			else if (CurrentChar.IsNumeric()) //Numbers
@@ -514,6 +516,13 @@ namespace DScript
 
 		public String GetSubString(Int32 pos)
 		{
+			Int32 lastCharIndex = TokenLastEnd + 1;
+			
+			if (lastCharIndex < _dataEnd)
+			{
+				return _data.Substring(pos, lastCharIndex - pos);
+			}
+
 			return (_data.Substring(pos));
 		}
 
@@ -521,7 +530,7 @@ namespace DScript
 		{
 			if (TokenType != type)
 			{
-				throw new ScriptException("Unexpected token type");
+				throw new ScriptException(String.Format("Unexpected token type. Expected {0}, found {1}", Enum.GetName(typeof(LexTypes), type), Enum.GetName(typeof(LexTypes), TokenType)));
 			}
 
 			GetNextToken();

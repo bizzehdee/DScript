@@ -69,7 +69,7 @@ namespace DScript
 
 				ScriptVarLink returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
 
-				_scopes.Add(functionRoot);
+				_scopes.Push(functionRoot);
 
 				_callStack.Push(String.Format("{0} from {1}", function.Name, _currentLexer.GetPosition(0))); //TODO: Real Position
 
@@ -108,7 +108,7 @@ namespace DScript
 				}
 
 				_callStack.Pop();
-				_scopes.RemoveAt(_scopes.Count - 1);
+				_scopes.Pop();
 
 				ScriptVarLink returnVar = new ScriptVarLink(returnVarLink.Var, null);
 				functionRoot.RemoveLink(returnVarLink);

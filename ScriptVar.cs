@@ -62,15 +62,15 @@ namespace DScript
 		[Flags]
 		public enum Flags
 		{
-			Undefined,
-			Function,
-			Object,
-			Array,
-			Double,
-			Integer,
-			String,
-			Null,
-			Native,
+			Undefined = 1,
+			Function = 2,
+			Object = 4,
+			Array = 8,
+			Double = 16,
+			Integer = 32,
+			String = 64,
+			Null = 128,
+			Native = 256,
 			NumericMask = Null | Double | Integer,
 			VarTypeMask = Double | Integer | String | Function | Object | Array | Null
 		}
@@ -189,6 +189,11 @@ namespace DScript
 		public bool IsBasic
 		{
 			get { return FirstChild == null; }
+		}
+
+		public ScriptVar this[String index]
+		{
+			get { return GetParameter(index); }
 		}
 
 		public int GetInt()

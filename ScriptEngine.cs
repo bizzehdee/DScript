@@ -21,6 +21,7 @@ SOFTWARE.
 */
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace DScript
 {
@@ -55,7 +56,7 @@ namespace DScript
 		private readonly ScriptVar _stringClass;
 		private readonly ScriptVar _objectClass;
 		private readonly ScriptVar _arrayClass;
-		private IList<ScriptVar> _scopes;
+		private Stack<ScriptVar> _scopes;
 		private readonly Stack<String> _callStack;
 
 		private ScriptLex _currentLexer;
@@ -68,7 +69,7 @@ namespace DScript
 		{
 			_currentLexer = null;
 
-			_scopes = new List<ScriptVar>();
+			_scopes = new Stack<ScriptVar>();
 			_callStack = new Stack<string>();
 
 			Root = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
@@ -90,12 +91,12 @@ namespace DScript
 		public void Execute(String code)
 		{
 			ScriptLex oldLex = _currentLexer;
-			IList<ScriptVar> oldScopes = _scopes;
+			Stack<ScriptVar> oldScopes = _scopes;
 
 			using (_currentLexer = new ScriptLex(code))
 			{
 				_scopes.Clear();
-				_scopes.Add(Root);
+				_scopes.Push(Root);
 				_callStack.Clear();
 
 				try
@@ -120,6 +121,71 @@ namespace DScript
 
 			_currentLexer = oldLex;
 			_scopes = oldScopes;
+		}
+
+		public ScriptVarLink EvalComplex(String code)
+		{
+			ScriptLex oldLex = _currentLexer;
+			Stack<ScriptVar> oldScopes = _scopes;
+
+			_currentLexer = new ScriptLex(code);
+
+			_callStack.Clear();
+			_scopes.Clear();
+			_scopes.Push(Root);
+
+			ScriptVarLink v = null;
+
+			try
+			{
+				bool execute = true;
+				do
+				{
+					v = Base(ref execute);
+					if (_currentLexer.TokenType != ScriptLex.LexTypes.Eof)
+					{
+						_currentLexer.Match((ScriptLex.LexTypes) ';');
+					}
+				} while (_currentLexer.TokenType != ScriptLex.LexTypes.Eof);
+			}
+			catch (ScriptException ex)
+			{
+				
+				throw;
+			}
+
+			_currentLexer = oldLex;
+			_scopes = oldScopes;
+
+			if (v != null)
+			{
+				return v;
+			}
+
+			return new ScriptVarLink(new ScriptVar(null), null);
+		}
+
+		public void AddObject(String[] ns, String objectName, ScriptVar val)
+		{
+			ScriptVar baseVar = Root;
+
+			if (ns != null)
+			{
+				int x = 0;
+				for (; x < ns.Length; x++)
+				{
+					ScriptVarLink link = baseVar.FindChild(ns[x]);
+
+					if (link == null)
+					{
+						link = baseVar.AddChild(ns[x], new ScriptVar(null, ScriptVar.Flags.Object));
+					}
+
+					baseVar = link.Var;
+				}
+			}
+
+			baseVar.AddChild(objectName, val);
 		}
 
 		public void AddMethod(String[] ns, String funcName, String[] args, ScriptCallbackCB callback, Object userdata)
@@ -265,6 +331,19 @@ namespace DScript
 			if (implementation != null) return implementation;
 
 			return null;
+		}
+
+		private ScriptVarLink ParseClassDefinition()
+		{
+			_currentLexer.Match(ScriptLex.LexTypes.RClass);
+
+			//classes must have a name for now
+			string className = _currentLexer.TokenString;
+			_currentLexer.Match(ScriptLex.LexTypes.Id);
+
+			ScriptVarLink classVar = new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Object), className);
+
+			return classVar;
 		}
 
 		private ScriptVarLink ParseFunctionDefinition()

@@ -21,6 +21,8 @@ SOFTWARE.
 */
 
 using System;
+using System.Collections;
+using System.Collections.Generic;
 
 namespace DScript
 {
@@ -60,7 +62,7 @@ namespace DScript
 					ScriptVarLink a = null;
 					if (execute)
 					{
-						a = _scopes[_scopes.Count - 1].FindChildOrCreate(_currentLexer.TokenString);
+						a = _scopes.Peek().FindChildOrCreate(_currentLexer.TokenString);
 					}
 
 					_currentLexer.Match(ScriptLex.LexTypes.Id);
@@ -242,7 +244,7 @@ namespace DScript
 				}
 				if (execute)
 				{
-					ScriptVarLink resultVar = _scopes[_scopes.Count - 1].FindChild(ScriptVar.ReturnVarName);
+					ScriptVarLink resultVar = _scopes.Peek().FindChild(ScriptVar.ReturnVarName);
 					if (resultVar != null)
 					{
 						resultVar.ReplaceWith(res);
@@ -269,9 +271,31 @@ namespace DScript
 					}
 					else
 					{
-						_scopes[_scopes.Count - 1].AddChildNoDup(funcVar.Name, funcVar.Var);
+						ScriptVar v = _scopes.Peek();
+						v.AddChildNoDup(funcVar.Name, funcVar.Var);
 					}
 				}
+			}
+			else if (_currentLexer.TokenType == ScriptLex.LexTypes.RClass)
+			{
+				ScriptVarLink classVar = ParseClassDefinition();
+				_currentLexer.Match((ScriptLex.LexTypes)'{');
+
+				Stack<ScriptVar> oldScopes = _scopes;
+				_scopes = new Stack<ScriptVar>();
+
+				_scopes.Push(classVar.Var);
+
+				if (_currentLexer.TokenType != (ScriptLex.LexTypes) '}')
+				{
+					Statement(ref execute);
+				}
+
+				_scopes = oldScopes;
+
+				_scopes.Peek().AddChildNoDup(classVar.Name, classVar.Var);
+
+				_currentLexer.Match((ScriptLex.LexTypes)'}');
 			}
 			else
 			{
