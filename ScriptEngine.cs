@@ -22,6 +22,7 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using DScript.FunctionProviders;
 
 namespace DScript
 {

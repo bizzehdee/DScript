@@ -35,10 +35,11 @@
     <Reference Include="System.Data" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="EngineFunctionProvider.cs" />
-    <Compile Include="IFunctionProvider.cs" />
-    <Compile Include="MathFunctionProvider.cs" />
-    <Compile Include="RNGFunctionProvider.cs" />
+    <Compile Include="FunctionProviders\ConsoleFunctionProvider.cs" />
+    <Compile Include="FunctionProviders\EngineFunctionProvider.cs" />
+    <Compile Include="FunctionProviders\IFunctionProvider.cs" />
+    <Compile Include="FunctionProviders\MathFunctionProvider.cs" />
+    <Compile Include="FunctionProviders\RNGFunctionProvider.cs" />
     <Compile Include="ScriptClassAttribute.cs" />
     <Compile Include="ScriptEngine.Base.cs" />
     <Compile Include="ScriptEngine.Block.cs" />
