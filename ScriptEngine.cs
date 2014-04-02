@@ -155,8 +155,14 @@ namespace DScript
 			}
 			catch (ScriptException ex)
 			{
-				
-				throw;
+				String errorMessage = ex.Message;
+				int i = 0;
+				foreach (ScriptVar scriptVar in _scopes)
+				{
+					errorMessage += "\n" + i++ + ": " + scriptVar;
+				}
+
+				Console.Write(errorMessage);
 			}
 
 			_currentLexer = oldLex;
