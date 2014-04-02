@@ -24,254 +24,164 @@ using System;
 
 namespace DScript.FunctionProviders
 {
-	public class MathFunctionProvider : IFunctionProvider
+	[ScriptClass("Math")]
+	public class MathFunctionProvider
 	{
-		public void RegisterFunctions(ScriptEngine engine)
+		public static double Pi()
 		{
-			if(engine == null) return;
-
-			String[] ns = {"Math"};
-
-			engine.AddObject(ns, "PI", Pi());
-			engine.AddObject(ns, "E", E());
-			engine.AddMethod(ns, "Abs", new[] { "a" }, Abs, null);
-			engine.AddMethod(ns, "Round", new[] { "a", "b" }, Round, null);
-			engine.AddMethod(ns, "Ceil", new[] { "a" }, Ceil, null);
-			engine.AddMethod(ns, "Floor", new[] { "a" }, Floor, null);
-			engine.AddMethod(ns, "Min", new[] { "a", "b" }, Min, null);
-			engine.AddMethod(ns, "Max", new[] { "a", "b" }, Max, null);
-			engine.AddMethod(ns, "Range", new[] { "x", "a", "b" }, Range, null);
-			engine.AddMethod(ns, "Sign", new[] { "a" }, Sign, null);
-			engine.AddMethod(ns, "Sin", new[] { "a" }, Sin, null);
-			engine.AddMethod(ns, "Cos", new[] { "a" }, Cos, null);
-			engine.AddMethod(ns, "Tan", new[] { "a" }, Tan, null);
-			engine.AddMethod(ns, "Sinh", new[] { "a" }, Sinh, null);
-			engine.AddMethod(ns, "Cosh", new[] { "a" }, Cosh, null);
-			engine.AddMethod(ns, "Tanh", new[] { "a" }, Tanh, null);
-			engine.AddMethod(ns, "Asin", new[] { "a" }, ASin, null);
-			engine.AddMethod(ns, "Acos", new[] { "a" }, ACos, null);
-			engine.AddMethod(ns, "Atan", new[] { "a" }, ATan, null);
-			engine.AddMethod(ns, "Asinh", new[] { "a" }, ASinh, null);
-			engine.AddMethod(ns, "Acosh", new[] { "a" }, ACosh, null);
-			engine.AddMethod(ns, "Atanh", new[] { "a" }, ATan, null);
-			engine.AddMethod(ns, "Atan2", new[] { "a", "b" }, ATan2, null);
-			engine.AddMethod(ns, "Pow", new[] { "a", "b" }, Pow, null);
-			engine.AddMethod(ns, "Sqrt", new[] { "a" }, Sqrt, null);
-			engine.AddMethod(ns, "Log", new[] { "a" }, Log, null);
-			engine.AddMethod(ns, "Log10", new[] { "a" }, Log10, null);
-			engine.AddMethod(ns, "Exp", new[] { "a" }, Exp, null);
+			return Math.PI;
 		}
 
-		private static ScriptVar Pi()
+		public static double E()
 		{
-			return (new ScriptVar(Math.PI));
+			return Math.E;
 		}
 
-		private static ScriptVar E()
+		public static double Abs(double v, object userdata)
 		{
-			return (new ScriptVar(Math.E));
+			return Math.Abs(v);
 		}
 
-		private static void Abs(ScriptVar var, object userdata)
+		public static double Round(double val, int digits, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Abs(a)));
+			return Math.Round(val, digits);
 		}
 
-		private static void Round(ScriptVar var, object userdata)
+		public static double Ceil(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-			Int32 b = var.GetParameter("b").GetInt();
-
-			var.SetReturnVar(new ScriptVar(Math.Round(a, b)));
+			return Math.Ceiling(val);
 		}
 
-		private static void Ceil(ScriptVar var, object userdata)
+		public static double Floor(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Ceiling(a)));
+			return Math.Floor(val);
 		}
 
-		private static void Floor(ScriptVar var, object userdata)
+		public static double Min(double a, double b, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Floor(a)));
+			return Math.Min(a, b);
 		}
 
-		private static void Min(ScriptVar var, object userdata)
+		public static double Max(double a, double b, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-			double b = var.GetParameter("b").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Min(a, b)));
+			return Math.Max(a, b);
 		}
 
-		private static void Max(ScriptVar var, object userdata)
+		public static double Range(double a, double b, double x, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-			double b = var.GetParameter("b").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Max(a, b)));
+			return (x < a ? a : (x > b ? b : a));
 		}
 
-		private static void Range(ScriptVar var, object userdata)
+		public static double Sign(double val, object userdata)
 		{
-			double x = var.GetParameter("x").GetDouble();
-			double a = var.GetParameter("a").GetDouble();
-			double b = var.GetParameter("b").GetDouble();
-
-			var.SetReturnVar(new ScriptVar((x < a ? a : (x > b ? b : a ))));
+			return Math.Sign(val);
 		}
 
-		private static void Sign(ScriptVar var, object userdata)
+		public static double Sin(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Sign(a)));
+			return Math.Sin(val);
 		}
 
-		private static void Sin(ScriptVar var, object userdata)
+		public static double Cos(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Sin(a)));
+			return Math.Cos(val);
 		}
 
-		private static void Cos(ScriptVar var, object userdata)
+		public static double Tan(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Cos(a)));
+			return Math.Tan(val);
 		}
 
-		private static void Tan(ScriptVar var, object userdata)
+		public static double Sinh(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Tan(a)));
+			return Math.Sinh(val);
 		}
 
-		private static void Sinh(ScriptVar var, object userdata)
+		public static double Cosh(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Sinh(a)));
+			return Math.Cosh(val);
 		}
 
-		private static void Cosh(ScriptVar var, object userdata)
+		public static double Tanh(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Cosh(a)));
+			return Math.Tanh(val);
 		}
 
-		private static void Tanh(ScriptVar var, object userdata)
+		public static double ASin(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Tanh(a)));
+			return Math.Asin(val);
 		}
 
-		private static void ASin(ScriptVar var, object userdata)
+		public static double ACos(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Asin(a)));
+			return Math.Acos(val);
 		}
 
-		private static void ACos(ScriptVar var, object userdata)
+		public static double ATan(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Acos(a)));
+			return Math.Atan(val);
 		}
 
-		private static void ATan(ScriptVar var, object userdata)
+		public static double ASinh(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Atan(a)));
-		}
-
-		private static void ASinh(ScriptVar var, object userdata)
-		{
-			double a = var.GetParameter("a").GetDouble();
 			double returnVal;
 
-			if (a > 0)
+			if (val > 0)
 			{
-				returnVal = Math.Log(a + Math.Sqrt(a*a + 1));
+				returnVal = Math.Log(val + Math.Sqrt(val * val + 1));
 			}
 			else
 			{
-				returnVal = -Math.Log(-a + Math.Sqrt(a * a + 1));
+				returnVal = -Math.Log(-val + Math.Sqrt(val * val + 1));
 			}
 
-			var.SetReturnVar(new ScriptVar(returnVal));
+			return returnVal;
 		}
 
-		private static void ACosh(ScriptVar var, object userdata)
+		public static double ACosh(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
 			double returnVal;
 
-			if (a > 0)
+			if (val > 0)
 			{
-				returnVal = Math.Log(a + Math.Sqrt(a * a - 1));
+				returnVal = Math.Log(val + Math.Sqrt(val * val - 1));
 			}
 			else
 			{
-				returnVal = -Math.Log(-a + Math.Sqrt(a * a - 1));
+				returnVal = -Math.Log(-val + Math.Sqrt(val * val - 1));
 			}
 
-			var.SetReturnVar(new ScriptVar(returnVal));
+			return returnVal;
 		}
 
-		private static void ATan2(ScriptVar var, object userdata)
+		public static double ATan2(double a, double b, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-			double b = var.GetParameter("b").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Atan2(a, b)));
+			return Math.Atan2(a, b);
 		}
 
-		private static void Pow(ScriptVar var, object userdata)
+		public static double Pow(double a, double b, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-			double b = var.GetParameter("b").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Pow(a, b)));
+			return Math.Pow(a, b);
 		}
 
-		private static void Sqrt(ScriptVar var, object userdata)
+		public static double Sqrt(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Sqrt(a)));
+			return Math.Sqrt(val);
 		}
 
-		private static void Log(ScriptVar var, object userdata)
+		public static double Log(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Log(a)));
+			return Math.Log(val);
 		}
 
-		private static void Log10(ScriptVar var, object userdata)
+		public static double Log10(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Log10(a)));
+			return Math.Log10(val);
 		}
 
-		private static void Exp(ScriptVar var, object userdata)
+		public static double Exp(double val, object userdata)
 		{
-			double a = var.GetParameter("a").GetDouble();
-
-			var.SetReturnVar(new ScriptVar(Math.Exp(a)));
+			return Math.Exp(val);
 		}
 	}
 }

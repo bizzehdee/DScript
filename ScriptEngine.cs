@@ -253,14 +253,6 @@ namespace DScript
 			Root.AddChild(funcName, funcVar);
 		}
 
-		public void AddFunctionProvider(IFunctionProvider provider)
-		{
-			if (provider != null)
-			{
-				provider.RegisterFunctions(this);
-			}
-		}
-
 		public void LoadAllFunctionProviders()
 		{
 			Assembly execAssembly = Assembly.GetExecutingAssembly();
@@ -305,42 +297,54 @@ namespace DScript
 
 				MethodInfo methodCopy = method;
 				String[] ns = attr.Namespace ?? new string[0];
-				Array.Resize(ref ns, ns.Length + 1);
-				ns[ns.Length - 1] = attr.ClassName;
 
-				AddMethod(ns, method.Name, argNames, (var, userdata) =>
-				                                     {
-					                                     object[] args = new object[parameters.Length];
+				if (attr.ClassName == null && ns.Length == 0)
+				{
+					ns = null;
+				}
+				else
+				{
+					Array.Resize(ref ns, ns.Length + 1);
+					ns[ns.Length - 1] = attr.ClassName;
+				}
 
-					                                     int i = 0;
-					                                     for(; i < parameters.Length - 1; i++)
-					                                     {
-						                                     args[i] = var.GetParameter(parameters[i].Name).GetData();
-					                                     }
-
-					                                     args[i] = userdata;
-
-					                                     object returnVal = methodCopy.Invoke(null, args);
-
-					                                     if(methodCopy.ReturnType == typeof(Int32))
-					                                     {
-						                                     var.SetReturnVar(new ScriptVar(Convert.ToInt32(returnVal), ScriptVar.Flags.Integer));
-					                                     }
-					                                     else if(methodCopy.ReturnType == typeof(bool))
-					                                     {
-						                                     var.SetReturnVar(new ScriptVar(Convert.ToBoolean(returnVal) ? 1 : 0, ScriptVar.Flags.Integer));
-					                                     }
-					                                     else if(methodCopy.ReturnType == typeof(double))
-					                                     {
-						                                     var.SetReturnVar(new ScriptVar(Convert.ToDouble(returnVal), ScriptVar.Flags.Double));
-					                                     }
-					                                     else if(methodCopy.ReturnType == typeof(String))
-					                                     {
-						                                     var.SetReturnVar(new ScriptVar(Convert.ToString(returnVal), ScriptVar.Flags.String));
-					                                     }
-				                                     }, 
-													 this);
+				AddMethod(ns, method.Name, argNames, CreateScriptFunction(methodCopy, parameters), this);
 			}
+		}
+
+		private ScriptCallbackCB CreateScriptFunction(MethodInfo method, ParameterInfo[] parameters)
+		{
+			return delegate(ScriptVar var, object userdata)
+			{
+				object[] args = new object[parameters.Length];
+
+				int i = 0;
+				for (; i < parameters.Length - 1; i++)
+				{
+					args[i] = var.GetParameter(parameters[i].Name).GetData();
+				}
+
+				args[i] = userdata;
+
+				object returnVal = method.Invoke(null, args);
+
+				if (method.ReturnType == typeof (Int32))
+				{
+					var.SetReturnVar(new ScriptVar(Convert.ToInt32(returnVal), ScriptVar.Flags.Integer));
+				}
+				else if (method.ReturnType == typeof (bool))
+				{
+					var.SetReturnVar(new ScriptVar(Convert.ToBoolean(returnVal) ? 1 : 0, ScriptVar.Flags.Integer));
+				}
+				else if (method.ReturnType == typeof (double))
+				{
+					var.SetReturnVar(new ScriptVar(Convert.ToDouble(returnVal), ScriptVar.Flags.Double));
+				}
+				else if (method.ReturnType == typeof (String))
+				{
+					var.SetReturnVar(new ScriptVar(Convert.ToString(returnVal), ScriptVar.Flags.String));
+				}
+			};
 		}
 
 		[Obsolete("Do not use, this is the old way of binding native methods to language functions")]

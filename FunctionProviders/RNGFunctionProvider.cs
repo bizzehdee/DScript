@@ -24,40 +24,22 @@ using System;
 
 namespace DScript.FunctionProviders
 {
-	public class RNGFunctionProvider : IFunctionProvider
+	[ScriptClass("Random")]
+	public class RNGFunctionProvider
 	{
-		public void RegisterFunctions(ScriptEngine engine)
+		public static Int32 Next(object userdata)
 		{
-			if (engine == null) return;
-
-			String[] ns = { "Random" };
-
-			engine.AddMethod(ns, "Next", null, Next, null);
-			engine.AddMethod(ns, "NextMax", new[] { "a" }, NextMax, null);
-			engine.AddMethod(ns, "NextMinMax", new[] { "a", "b" }, NextMinMax, null);
+			return (new Random()).Next();
 		}
 
-		private static void Next(ScriptVar var, object userdata)
+		public static Int32 NextMax(Int32 max, object userdata)
 		{
-
-			var.SetReturnVar(new ScriptVar((new Random()).Next()));
+			return (new Random()).Next(max);
 		}
 
-		private static void NextMax(ScriptVar var, object userdata)
+		public static Int32 NextMinMax(Int32 min, Int32 max, object userdata)
 		{
-			Int32 a = var.GetParameter("a").GetInt();
-
-			var.SetReturnVar(new ScriptVar((new Random()).Next(a)));
+			return (new Random()).Next(min, max);
 		}
-
-		private static void NextMinMax(ScriptVar var, object userdata)
-		{
-			Int32 a = var.GetParameter("a").GetInt();
-			Int32 b = var.GetParameter("b").GetInt();
-
-			var.SetReturnVar(new ScriptVar((new Random()).Next(a, b)));
-		}
-
-
 	}
 }

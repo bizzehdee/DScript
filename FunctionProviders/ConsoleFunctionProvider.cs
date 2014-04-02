@@ -24,40 +24,29 @@ using System;
 
 namespace DScript.FunctionProviders
 {
-	public class ConsoleFunctionProvider : IFunctionProvider
+	[ScriptClass("Console")]
+	public class ConsoleFunctionProvider
 	{
-		public void RegisterFunctions(ScriptEngine engine)
+		public static void WriteLine(String text, object userData)
 		{
-			String[] ns = {"Console"};
-
-			engine.AddMethod(ns, "WriteLine", new[] { "a" }, WriteLine, null);
-			engine.AddMethod(ns, "ReadLine", null, ReadLine, null);
-			engine.AddMethod(ns, "Write", new[] { "a" }, Write, null);
-			engine.AddMethod(ns, "ReadChar", null, ReadChar, null);
+			Console.WriteLine(text);
 		}
 
-		public static void WriteLine(ScriptVar var, object userData)
-		{
-			String a = var.GetParameter("a").GetString();
-			Console.WriteLine(a);
-		}
-
-		public static void ReadLine(ScriptVar var, object userData)
+		public static String ReadLine(object userData)
 		{
 			String retVal = Console.ReadLine();
-			var.SetReturnVar(new ScriptVar(retVal));
+			return retVal;
 		}
 
-		public static void Write(ScriptVar var, object userData)
+		public static void Write(String text, object userData)
 		{
-			String a = var.GetParameter("a").GetString();
-			Console.Write(a);
+			Console.Write(text);
 		}
 
-		public static void ReadChar(ScriptVar var, object userData)
+		public static Int32 ReadChar(object userData)
 		{
 			Int32 retVal = Console.Read();
-			var.SetReturnVar(new ScriptVar(retVal));
+			return retVal;
 		}
 	}
 }

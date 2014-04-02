@@ -30,6 +30,12 @@ namespace DScript
 		public String[] Namespace { get; set; }
 		public String ClassName { get; set; }
 
+		public ScriptClassAttribute()
+		{
+			ClassName = null;
+			Namespace = null;
+		}
+
 		public ScriptClassAttribute(String name)
 		{
 			ClassName = name;

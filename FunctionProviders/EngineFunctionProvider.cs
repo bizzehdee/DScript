@@ -24,34 +24,22 @@ using System;
 
 namespace DScript.FunctionProviders
 {
-	public class EngineFunctionProvider : IFunctionProvider
+	[ScriptClass]
+	public class EngineFunctionProvider
 	{
-		public void RegisterFunctions(ScriptEngine engine)
-		{
-			if (engine == null) return;
-
-			String[] objectNs = { "Object" };
-			String[] strNs = { "String" };
-			String[] intNs = { "Integer" };
-
-			engine.AddMethod(null, "exec", new[] { "a" }, Exec, engine);
-			engine.AddMethod(null, "eval", new[] { "a" }, Eval, engine);
-		}
-
-		private static void Exec(ScriptVar var, object userdata)
+		public static void Exec(String code, object userdata)
 		{
 			ScriptEngine engine = (ScriptEngine)userdata;
-			String code = var.GetParameter("a").GetString();
 			engine.Execute(code);
 		}
 
-		private static void Eval(ScriptVar var, object userdata)
+		public static String Eval(String code, object userdata)
 		{
 			ScriptEngine engine = (ScriptEngine)userdata;
-			String code = var.GetParameter("a").GetString();
 
 			ScriptVarLink returnLink = engine.EvalComplex(code);
-			var.SetReturnVar(returnLink.Var);
+
+			return returnLink.Var.GetString();
 		}
 	}
 }
