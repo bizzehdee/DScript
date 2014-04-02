@@ -22,6 +22,7 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Reflection;
 using DScript.FunctionProviders;
 
 namespace DScript
@@ -250,6 +251,66 @@ namespace DScript
 			if (provider != null)
 			{
 				provider.RegisterFunctions(this);
+			}
+		}
+
+		public void LoadAllFunctionProviders()
+		{
+			Assembly execAssembly = Assembly.GetExecutingAssembly();
+
+			TestForAttribute(execAssembly);
+
+			AssemblyName[] referencedAssemblies = execAssembly.GetReferencedAssemblies();
+			foreach (AssemblyName assembly in referencedAssemblies)
+			{
+				Assembly asm = Assembly.Load(assembly);
+
+				TestForAttribute(asm);
+			}
+		}
+
+		private void TestForAttribute(Assembly asm)
+		{
+			Type[] types = asm.GetTypes();
+			foreach (Type type in types)
+			{
+				object[] scObjects = type.GetCustomAttributes(typeof(ScriptClassAttribute), false);
+				if (scObjects.Length > 0)
+				{
+					ProcessType(type, scObjects[0] as ScriptClassAttribute);
+				}
+			}
+		}
+
+		private void ProcessType(Type type, ScriptClassAttribute attr)
+		{
+			MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static);
+			foreach(MethodInfo method in methods)
+			{
+				ParameterInfo[] parameters = method.GetParameters();
+				if(parameters.Length < 1) continue;
+
+				String[] argNames = new string[parameters.Length - 1];
+				for(int i = 0; i < parameters.Length - 1; i++)
+				{
+					argNames[i] = parameters[i].Name;
+				}
+
+				MethodInfo methodCopy = method;
+				AddMethod(new[] { attr.ClassName }, method.Name, argNames, (var, userdata) =>
+				                                          {
+															  object[] args = new object[parameters.Length];
+
+					                                          int i = 0;
+															  for (; i < parameters.Length - 1; i++)
+															  {
+																  args[i] = var.GetParameter(parameters[i].Name).GetData();
+															  }
+
+					                                          args[i] = userdata;
+
+															  methodCopy.Invoke(null, args);
+				                                          }, this);
 			}
 		}
 

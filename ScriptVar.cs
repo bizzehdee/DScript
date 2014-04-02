@@ -237,6 +237,18 @@ namespace DScript
 			return (String)_data;
 		}
 
+		public object GetData()
+		{
+			if (IsNull) return null;
+			if (IsUndefined) return null;
+			if (IsInt && _data == null) return _intData;
+			if (IsInt && _data != null) return Convert.ToInt32(_data);
+			if (IsDouble && _data == null) return _doubleData;
+			if (IsDouble && _data != null) return Convert.ToDouble(_data);
+
+			return _data;
+		}
+
 		public void SetInt(int num)
 		{
 			_flags = (_flags & ~Flags.VarTypeMask) | Flags.Integer;
@@ -730,6 +742,11 @@ namespace DScript
 				link.Var.Trace(indent + 2, link.Name);
 				link = link.Next;
 			}
+		}
+
+		public static implicit operator String(ScriptVar d)
+		{
+			return d.GetString();
 		}
 
 		public override string ToString()
