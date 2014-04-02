@@ -30,8 +30,10 @@ namespace DScript.FunctionProviders
 		{
 			String[] ns = {"Console"};
 
-			engine.AddMethod(ns, "WriteLine", new [] { "a" }, WriteLine, null);
-			engine.AddMethod(ns, "ReadLine", new[] { "a" }, ReadLine, null);
+			engine.AddMethod(ns, "WriteLine", new[] { "a" }, WriteLine, null);
+			engine.AddMethod(ns, "ReadLine", null, ReadLine, null);
+			engine.AddMethod(ns, "Write", new[] { "a" }, Write, null);
+			engine.AddMethod(ns, "ReadChar", null, ReadChar, null);
 		}
 
 		public static void WriteLine(ScriptVar var, object userData)
@@ -43,6 +45,18 @@ namespace DScript.FunctionProviders
 		public static void ReadLine(ScriptVar var, object userData)
 		{
 			String retVal = Console.ReadLine();
+			var.SetReturnVar(new ScriptVar(retVal));
+		}
+
+		public static void Write(ScriptVar var, object userData)
+		{
+			String a = var.GetParameter("a").GetString();
+			Console.Write(a);
+		}
+
+		public static void ReadChar(ScriptVar var, object userData)
+		{
+			Int32 retVal = Console.Read();
 			var.SetReturnVar(new ScriptVar(retVal));
 		}
 	}
