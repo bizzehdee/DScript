@@ -720,6 +720,23 @@ namespace DScript
 			_callbackUserData = userdata;
 		}
 
+		public void Trace(Int32 indent, String name)
+		{
+			System.Diagnostics.Trace.TraceInformation("{0}{1} = '{2}' ({3})", new String(' ', indent), name ?? "ROOT", GetString(), _flags);
+
+			ScriptVarLink link = FirstChild;
+			while(link != null)
+			{
+				link.Var.Trace(indent + 2, link.Name);
+				link = link.Next;
+			}
+		}
+
+		public override string ToString()
+		{
+			return String.Format("{0}", GetHashCode());
+		}
+
 		internal void SetData(object data)
 		{
 			_data = data;
@@ -734,10 +751,5 @@ namespace DScript
 		{
 			return _callbackUserData;
 		}
-
-		/* void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
-    std::string getFlagsAsString(); ///< For debugging - just dump a string version of the flags
-    void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
-    void setCallback(JSCallback callback, void *userdata); ///< Set the callback for native functions*/
 	}
 }

@@ -86,7 +86,7 @@ namespace DScript
 
 		public void Trace()
 		{
-			//Root.Trace();
+			Root.Trace(0, null);
 		}
 
 		public void Execute(String code)
@@ -116,7 +116,9 @@ namespace DScript
 					{
 						errorMessage += "\n" + i++ + ": " + scriptVar;
 					}
-					throw new ScriptException(errorMessage, ex);
+
+					//throw new ScriptException(errorMessage, ex);
+					Console.Write(errorMessage);
 				}
 			}
 

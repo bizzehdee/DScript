@@ -52,8 +52,11 @@ namespace DScript
 		#endregion
 
 		private String _data;
-		private bool _dataOwned;
-		private Int32 _dataStart, _dataEnd, _dataPos;
+		private readonly bool _dataOwned;
+		private readonly Int32 _dataStart;
+		private readonly Int32 _dataEnd;
+		private Int32 _dataPos;
+		private Int32 _currColumnNumber;
 
 		public char CurrentChar { get; set; }
 		public char NextChar { get; set; }
@@ -61,6 +64,8 @@ namespace DScript
 		public Int32 TokenStart { get; set; }
 		public Int32 TokenEnd { get; set; }
 		public Int32 TokenLastEnd { get; set; }
+		public Int32 LineNumber { get; private set; }
+		public int ColumnNumber { get; private set; }
 		public String TokenString { get; set; }
 
 		public enum LexTypes 
@@ -147,6 +152,7 @@ namespace DScript
 		public void GetNextChar()
 		{
 			CurrentChar = NextChar;
+
 			if (_dataPos < _dataEnd)
 			{
 				NextChar = _data[_dataPos];
@@ -157,10 +163,20 @@ namespace DScript
 			}
 
 			_dataPos++;
+
+			_currColumnNumber++;
+
+			if(CurrentChar == '\n')
+			{
+				LineNumber++;
+				_currColumnNumber = 0;
+			}
 		}
 
 		public void GetNextToken()
 		{
+			ColumnNumber = _currColumnNumber;
+
 			TokenType = LexTypes.Eof;
 			TokenString = String.Empty;
 
@@ -528,9 +544,21 @@ namespace DScript
 
 		public void Match(LexTypes type)
 		{
-			if (TokenType != type)
+			if(TokenType != type)
 			{
-				throw new ScriptException(String.Format("Unexpected token type. Expected {0}, found {1}", Enum.GetName(typeof(LexTypes), type), Enum.GetName(typeof(LexTypes), TokenType)));
+				String expectedName = Enum.GetName(typeof(LexTypes), type);
+				if(String.IsNullOrEmpty(expectedName))
+				{
+					expectedName = String.Format("{0}", ((char)type));
+				}
+
+				String foundName = Enum.GetName(typeof(LexTypes), TokenType);
+				if(String.IsNullOrEmpty(foundName))
+				{
+					foundName = String.Format("{0}", ((char)TokenType));
+				}
+
+				throw new ScriptException(String.Format("Unexpected token type on line {2} column {3}. Expected {0}, found {1}", expectedName, foundName, LineNumber, ColumnNumber));
 			}
 
 			GetNextToken();
