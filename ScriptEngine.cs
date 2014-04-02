@@ -20,6 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -297,20 +298,42 @@ namespace DScript
 				}
 
 				MethodInfo methodCopy = method;
-				AddMethod(new[] { attr.ClassName }, method.Name, argNames, (var, userdata) =>
-				                                          {
-															  object[] args = new object[parameters.Length];
+				String[] ns = attr.Namespace ?? new string[0];
+				Array.Resize(ref ns, ns.Length + 1);
+				ns[ns.Length - 1] = attr.ClassName;
 
-					                                          int i = 0;
-															  for (; i < parameters.Length - 1; i++)
-															  {
-																  args[i] = var.GetParameter(parameters[i].Name).GetData();
-															  }
+				AddMethod(ns, method.Name, argNames, (var, userdata) =>
+				                                     {
+					                                     object[] args = new object[parameters.Length];
 
-					                                          args[i] = userdata;
+					                                     int i = 0;
+					                                     for(; i < parameters.Length - 1; i++)
+					                                     {
+						                                     args[i] = var.GetParameter(parameters[i].Name).GetData();
+					                                     }
 
-															  methodCopy.Invoke(null, args);
-				                                          }, this);
+					                                     args[i] = userdata;
+
+					                                     object returnVal = methodCopy.Invoke(null, args);
+
+					                                     if(methodCopy.ReturnType == typeof(Int32))
+					                                     {
+						                                     var.SetReturnVar(new ScriptVar(Convert.ToInt32(returnVal), ScriptVar.Flags.Integer));
+					                                     }
+					                                     else if(methodCopy.ReturnType == typeof(bool))
+					                                     {
+						                                     var.SetReturnVar(new ScriptVar(Convert.ToBoolean(returnVal) ? 1 : 0, ScriptVar.Flags.Integer));
+					                                     }
+					                                     else if(methodCopy.ReturnType == typeof(double))
+					                                     {
+						                                     var.SetReturnVar(new ScriptVar(Convert.ToDouble(returnVal), ScriptVar.Flags.Double));
+					                                     }
+					                                     else if(methodCopy.ReturnType == typeof(String))
+					                                     {
+						                                     var.SetReturnVar(new ScriptVar(Convert.ToString(returnVal), ScriptVar.Flags.String));
+					                                     }
+				                                     }, 
+													 this);
 			}
 		}
 
