@@ -68,7 +68,7 @@ namespace DScript
 
 		public ScriptVar Root { get; private set; }
 
-		public ScriptEngine()
+		public ScriptEngine(bool loadProviders = true)
 		{
 			_currentLexer = null;
 
@@ -84,6 +84,11 @@ namespace DScript
 			Root.AddChild("String", _stringClass);
 			Root.AddChild("Object", _objectClass);
 			Root.AddChild("Array", _arrayClass);
+
+			if (loadProviders)
+			{
+				LoadAllFunctionProviders();
+			}
 		}
 
 		public void Trace()

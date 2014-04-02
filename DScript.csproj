@@ -36,6 +36,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="FunctionProviders\ConsoleFunctionProvider.cs" />
+    <Compile Include="FunctionProviders\ConvertFunctionProvider.cs" />
     <Compile Include="FunctionProviders\EngineFunctionProvider.cs" />
     <Compile Include="FunctionProviders\MathFunctionProvider.cs" />
     <Compile Include="FunctionProviders\RNGFunctionProvider.cs" />
