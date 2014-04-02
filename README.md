@@ -17,3 +17,20 @@ Open sourced object oriented scripting language implemented in C#.
     var x = inst.doSomethingComplicated(1, 2);
     
     Console.WriteLine(x);
+
+***Supports***
+- Variables
+- Classes
+- Class methods
+- Global methods
+- Class scope
+- Global scope
+- Method scope
+- Arithmetic
+- Eval/Exec
+- ...more
+
+***Provides***
+- Console I/O
+- Math library
+- Random number library
