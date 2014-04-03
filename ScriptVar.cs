@@ -71,6 +71,7 @@ namespace DScript
 			String = 64,
 			Null = 128,
 			Native = 256,
+			Class = 512,
 			NumericMask = Null | Double | Integer,
 			VarTypeMask = Double | Integer | String | Function | Object | Array | Null
 		}
@@ -189,6 +190,11 @@ namespace DScript
 		public bool IsBasic
 		{
 			get { return FirstChild == null; }
+		}
+
+		public bool IsClass
+		{
+			get { return (_flags & Flags.Class) != 0; }
 		}
 
 		public ScriptVar this[String index]
@@ -668,10 +674,10 @@ namespace DScript
 				case '+': return new ScriptVar(sda + sdb, Flags.String);
 				case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(sda == sdb);
 				case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(sda != sdb);
-				//case '<': return new ScriptVar(sda < sdb);
-				//case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar(sda <= sdb);
-				//case '>': return new ScriptVar(sda > sdb);
-				//case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar(sda >= sdb);
+				case '<': return new ScriptVar(String.CompareOrdinal(sda, sdb) < 0);
+				case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar((String.CompareOrdinal(sda, sdb) < 0) || sda == sdb);
+				case '>': return new ScriptVar(String.CompareOrdinal(sda, sdb) > 0);
+				case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar((String.CompareOrdinal(sda, sdb) > 0) || sda == sdb);
 				default: throw new ScriptException("Operation not supported on the String datatype");
 			}
 		}

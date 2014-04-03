@@ -117,14 +117,14 @@ namespace DScript
 				}
 				catch (ScriptException ex)
 				{
-					String errorMessage = ex.Message;
+					String errorMessage = String.Format("ERROR on line {0} column {1} [{2}]", _currentLexer.LineNumber, _currentLexer.ColumnNumber, ex.Message);
+
 					int i = 0;
 					foreach (ScriptVar scriptVar in _scopes)
 					{
 						errorMessage += "\n" + i++ + ": " + scriptVar;
 					}
 
-					//throw new ScriptException(errorMessage, ex);
 					Console.Write(errorMessage);
 				}
 			}
@@ -443,7 +443,7 @@ namespace DScript
 			string className = _currentLexer.TokenString;
 			_currentLexer.Match(ScriptLex.LexTypes.Id);
 
-			ScriptVarLink classVar = new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Object), className);
+			ScriptVarLink classVar = new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Class), className);
 
 			return classVar;
 		}

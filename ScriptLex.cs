@@ -558,7 +558,7 @@ namespace DScript
 					foundName = String.Format("{0}", ((char)TokenType));
 				}
 
-				throw new ScriptException(String.Format("Unexpected token type on line {2} column {3}. Expected {0}, found {1}", expectedName, foundName, LineNumber, ColumnNumber));
+				throw new ScriptException(String.Format("Unexpected token type. Expected {0}, found {1}", expectedName, foundName));
 			}
 
 			GetNextToken();

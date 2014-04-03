@@ -78,6 +78,11 @@ namespace DScript
 						_currentLexer.Match((ScriptLex.LexTypes)'.');
 						if (execute)
 						{
+							if (!a.Var.IsObject)
+							{
+								throw new ScriptException("Trying to call object member on non object type");
+							}
+
 							String name = _currentLexer.TokenString;
 							ScriptVarLink child = a.Var.FindChild(name);
 
