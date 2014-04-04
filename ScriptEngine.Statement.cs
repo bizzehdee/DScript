@@ -21,7 +21,6 @@ SOFTWARE.
 */
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
 
 namespace DScript
@@ -286,7 +285,7 @@ namespace DScript
 
 				_scopes.Push(classVar.Var);
 
-				if (_currentLexer.TokenType != (ScriptLex.LexTypes) '}')
+				while (_currentLexer.TokenType != (ScriptLex.LexTypes) '}')
 				{
 					Statement(ref execute);
 				}

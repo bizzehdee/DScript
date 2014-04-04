@@ -71,7 +71,7 @@ namespace DScript
 
 				_scopes.Push(functionRoot);
 
-				_callStack.Push(String.Format("{0} from {1}", function.Name, _currentLexer.GetPosition(0))); //TODO: Real Position
+				_callStack.Push(String.Format("{0} from line {1}", function.Name, _currentLexer.LineNumber));
 
 				if (function.Var.IsNative)
 				{
