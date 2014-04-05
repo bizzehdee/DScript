@@ -27,23 +27,23 @@ namespace DScript.FunctionProviders
 	[ScriptClass("Console")]
 	public class ConsoleFunctionProvider
 	{
-		public static void WriteLine(String text, object userData)
+		public void WriteLine(String text, object userData)
 		{
 			Console.WriteLine(text);
 		}
 
-		public static String ReadLine(object userData)
+		public String ReadLine(object userData)
 		{
 			String retVal = Console.ReadLine();
 			return retVal;
 		}
 
-		public static void Write(String text, object userData)
+		public void Write(String text, object userData)
 		{
 			Console.Write(text);
 		}
 
-		public static Int32 ReadChar(object userData)
+		public Int32 ReadChar(object userData)
 		{
 			Int32 retVal = Console.Read();
 			return retVal;

@@ -774,5 +774,9 @@ namespace DScript
 		{
 			return _callbackUserData;
 		}
+
+		internal Type ClassType { get; set; }
+		internal Object ClassInstance { get; set; }
+
 	}
 }

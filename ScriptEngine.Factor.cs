@@ -243,13 +243,21 @@ namespace DScript
 
 					ScriptVar obj = new ScriptVar(null, ScriptVar.Flags.Object);
 					ScriptVarLink objLink = new ScriptVarLink(obj, null);
+
 					if (classOrFuncObject.Var.IsFunction)
 					{
 						FunctionCall(ref execute, classOrFuncObject, obj);
 					}
 					else
 					{
+						//creating new instance of a class
+						if (classOrFuncObject.Var.ClassType != null)
+						{
+							obj.ClassInstance = Activator.CreateInstance(classOrFuncObject.Var.ClassType);
+						}
+
 						obj.AddChild(ScriptVar.PrototypeClassName, classOrFuncObject.Var);
+
 						if (_currentLexer.TokenType == (ScriptLex.LexTypes)'(')
 						{
 							_currentLexer.Match((ScriptLex.LexTypes)'(');

@@ -78,7 +78,7 @@ namespace DScript
 					ScriptCallbackCB func = function.Var.GetCallback();
 					if (func != null)
 					{
-						func(functionRoot, function.Var.GetCallbackUserData());
+						func(functionRoot, function.Var.GetCallbackUserData(), parent);
 					}
 				}
 				else

@@ -61,7 +61,7 @@ namespace DScript
 
 		private ScriptLex _currentLexer;
 
-		public delegate void ScriptCallbackCB(ScriptVar var, object userdata);
+		public delegate void ScriptCallbackCB(ScriptVar var, object userdata, ScriptVar parent = null);
 
 		public ScriptVar Root { get; private set; }
 
@@ -285,14 +285,26 @@ namespace DScript
 
 		private void ProcessType(Type type, ScriptClassAttribute attr)
 		{
-			MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static);
-			foreach(MethodInfo method in methods)
+			AddObject(attr.Namespace ?? new string[0], attr.ClassName ?? type.Name, new ScriptVar(null, ScriptVar.Flags.Class | ScriptVar.Flags.Native) { ClassType = type });
+
+			MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+			ProcessMethods(methods, attr);
+
+			methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static);
+			ProcessMethods(methods, attr);
+		}
+
+		private void ProcessMethods(MethodInfo[] methods, ScriptClassAttribute attr)
+		{
+			foreach (MethodInfo method in methods)
 			{
+				if (method.IsSpecialName) continue;
+
 				ParameterInfo[] parameters = method.GetParameters();
-				if(parameters.Length < 1) continue;
+				if (parameters.Length < 1) continue;
 
 				String[] argNames = new string[parameters.Length - 1];
-				for(int i = 0; i < parameters.Length - 1; i++)
+				for (int i = 0; i < parameters.Length - 1; i++)
 				{
 					argNames[i] = parameters[i].Name;
 				}
@@ -316,7 +328,7 @@ namespace DScript
 
 		private ScriptCallbackCB CreateScriptFunction(MethodInfo method, ParameterInfo[] parameters)
 		{
-			return delegate(ScriptVar var, object userdata)
+			return delegate(ScriptVar var, object userdata, ScriptVar parent)
 			{
 				object[] args = new object[parameters.Length];
 
@@ -328,7 +340,16 @@ namespace DScript
 
 				args[i] = userdata;
 
-				object returnVal = method.Invoke(null, args);
+				object returnVal;
+
+				if (method.IsStatic)
+				{
+					returnVal = method.Invoke(null, args);
+				}
+				else
+				{
+					returnVal = method.Invoke(parent.ClassInstance, args);
+				}
 
 				if (method.ReturnType == typeof (Int32))
 				{
