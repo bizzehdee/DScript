@@ -113,15 +113,29 @@ namespace DScript
 				_currentLexer.Match((ScriptLex.LexTypes)')');
 
 				bool condition = execute && varLink.Var.GetBool();
-				Statement(ref condition);
+				bool noExecute = false;
+				if (condition)
+				{
+					Statement(ref execute);
+				}
+				else
+				{
+					Statement(ref noExecute);
+				}
 
 				if (_currentLexer.TokenType == ScriptLex.LexTypes.RElse)
 				{
 					//else part of an if
 					_currentLexer.Match(ScriptLex.LexTypes.RElse);
 
-					bool notCondition = !condition;
-					Statement(ref notCondition);
+					if (condition)
+					{
+						Statement(ref noExecute);
+					}
+					else
+					{
+						Statement(ref execute);
+					}
 				}
 			}
 			else if (_currentLexer.TokenType == ScriptLex.LexTypes.RWhile)
@@ -175,6 +189,7 @@ namespace DScript
 
 				int forConditionStart = _currentLexer.TokenStart;
 				ScriptVarLink condition = Base(ref execute);
+				bool noExecute = false;
 				bool loopCondition = execute && condition.Var.GetBool();
 
 				ScriptLex forCondition = _currentLexer.GetSubLex(forConditionStart);
@@ -183,7 +198,7 @@ namespace DScript
 
 				int forIterStart = _currentLexer.TokenStart;
 
-				Base(ref execute);
+				Base(ref noExecute);
 
 				ScriptLex forIter = _currentLexer.GetSubLex(forIterStart);
 
@@ -191,7 +206,14 @@ namespace DScript
 
 				int forBodyStart = _currentLexer.TokenStart;
 
-				Statement(ref loopCondition);
+				if (loopCondition)
+				{
+					Statement(ref execute);
+				}
+				else
+				{
+					Statement(ref noExecute);
+				}
 
 				ScriptLex forBody = _currentLexer.GetSubLex(forBodyStart);
 				ScriptLex oldLex = _currentLexer;
@@ -213,7 +235,7 @@ namespace DScript
 
 					loopCondition = condition.Var.GetBool();
 
-					if (loopCondition)
+					if (execute && loopCondition)
 					{
 						forBody.Reset();
 						_currentLexer = forBody;
@@ -221,7 +243,7 @@ namespace DScript
 						Statement(ref execute);
 					}
 
-					if (loopCondition)
+					if (execute && loopCondition)
 					{
 						forIter.Reset();
 						_currentLexer = forIter;
@@ -274,27 +296,6 @@ namespace DScript
 						v.AddChildNoDup(funcVar.Name, funcVar.Var);
 					}
 				}
-			}
-			else if (_currentLexer.TokenType == ScriptLex.LexTypes.RClass)
-			{
-				ScriptVarLink classVar = ParseClassDefinition();
-				_currentLexer.Match((ScriptLex.LexTypes)'{');
-
-				Stack<ScriptVar> oldScopes = _scopes;
-				_scopes = new Stack<ScriptVar>();
-
-				_scopes.Push(classVar.Var);
-
-				while (_currentLexer.TokenType != (ScriptLex.LexTypes) '}')
-				{
-					Statement(ref execute);
-				}
-
-				_scopes = oldScopes;
-
-				_scopes.Peek().AddChildNoDup(classVar.Name, classVar.Var);
-
-				_currentLexer.Match((ScriptLex.LexTypes)'}');
 			}
 			else
 			{

@@ -359,7 +359,7 @@ namespace DScript
 				{
 					var.SetReturnVar(new ScriptVar(Convert.ToBoolean(returnVal) ? 1 : 0, ScriptVar.Flags.Integer));
 				}
-				else if (method.ReturnType == typeof (double))
+				else if (method.ReturnType == typeof (double) || method.ReturnType == typeof(float))
 				{
 					var.SetReturnVar(new ScriptVar(Convert.ToDouble(returnVal), ScriptVar.Flags.Double));
 				}
@@ -451,19 +451,6 @@ namespace DScript
 			if (implementation != null) return implementation;
 
 			return null;
-		}
-
-		private ScriptVarLink ParseClassDefinition()
-		{
-			_currentLexer.Match(ScriptLex.LexTypes.RClass);
-
-			//classes must have a name for now
-			string className = _currentLexer.TokenString;
-			_currentLexer.Match(ScriptLex.LexTypes.Id);
-
-			ScriptVarLink classVar = new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Class), className);
-
-			return classVar;
 		}
 
 		private ScriptVarLink ParseFunctionDefinition()

@@ -33,8 +33,9 @@ namespace DScript
 				while (_currentLexer.TokenType != 0 && _currentLexer.TokenType != (ScriptLex.LexTypes)'}')
 				{
 					Statement(ref execute);
-					_currentLexer.Match((ScriptLex.LexTypes)'}');
 				}
+
+				_currentLexer.Match((ScriptLex.LexTypes)'}');
 			}
 			else
 			{
