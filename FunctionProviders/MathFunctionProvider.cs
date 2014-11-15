@@ -24,12 +24,12 @@ using System;
 
 namespace DScript.FunctionProviders
 {
-	[ScriptClass("Math")]
+	[ScriptClass("Math", PropertiesAsObjects = true)]
 	public class MathFunctionProvider
 	{
-		public static double Pi()
+		public static double Pi
 		{
-			return Math.PI;
+			get { return Math.PI; }
 		}
 
 		public static double E()

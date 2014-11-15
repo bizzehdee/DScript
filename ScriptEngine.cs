@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -45,6 +46,11 @@ namespace DScript
 					_arrayClass.UnRef();
 					_objectClass.UnRef();
 					Root.UnRef();
+
+					if (_currentLexer != null)
+					{
+						_currentLexer.Dispose();
+					}
 				}
 
 				// Indicate that the instance has been disposed.
@@ -285,13 +291,19 @@ namespace DScript
 
 		private void ProcessType(Type type, ScriptClassAttribute attr)
 		{
-			AddObject(attr.Namespace ?? new string[0], attr.ClassName ?? type.Name, new ScriptVar(null, ScriptVar.Flags.Class | ScriptVar.Flags.Native) { ClassType = type });
+			AddObject(attr.Namespace ?? new string[0], attr.ClassName ?? type.Name, new ScriptVar(null, ScriptVar.Flags.Object | ScriptVar.Flags.Native) { ClassType = type });
 
 			MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance);
 			ProcessMethods(methods, attr);
 
 			methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static);
 			ProcessMethods(methods, attr);
+
+			PropertyInfo[] properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+			//ProcessProperties(properties, attr, Activator.CreateInstance(type));
+
+			properties = type.GetProperties(BindingFlags.Public | BindingFlags.Static);
+			ProcessProperties(properties, attr, null);
 		}
 
 		private void ProcessMethods(MethodInfo[] methods, ScriptClassAttribute attr)
@@ -323,6 +335,44 @@ namespace DScript
 				}
 
 				AddMethod(ns, method.Name, argNames, CreateScriptFunction(methodCopy, parameters), this);
+			}
+		}
+
+		private void ProcessProperties(PropertyInfo[] properties, ScriptClassAttribute attr, object instance)
+		{
+			foreach (PropertyInfo property in properties)
+			{
+				if (property.IsSpecialName) continue;
+
+				PropertyInfo propertyCopy = property;
+				String[] ns = attr.Namespace ?? new string[0];
+
+				if (attr.ClassName == null && ns.Length == 0)
+				{
+					ns = null;
+				}
+				else
+				{
+					Array.Resize(ref ns, ns.Length + 1);
+					ns[ns.Length - 1] = attr.ClassName;
+				}
+
+				if (property.PropertyType == typeof(bool))
+				{
+					AddObject(ns, property.Name, new ScriptVar((bool)property.GetValue(instance, null)));
+				}
+				else if (property.PropertyType == typeof(string))
+				{
+					AddObject(ns, property.Name, new ScriptVar((string)property.GetValue(instance, null)));
+				}
+				else if (property.PropertyType == typeof(decimal) || property.PropertyType == typeof(float) || property.PropertyType == typeof(double))
+				{
+					AddObject(ns, property.Name, new ScriptVar((double)property.GetValue(instance, null)));
+				}
+				else if (property.PropertyType == typeof(Int32))
+				{
+					AddObject(ns, property.Name, new ScriptVar((Int32)property.GetValue(instance, null)));
+				}
 			}
 		}
 

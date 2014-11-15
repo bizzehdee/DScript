@@ -19,6 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+
 using System;
 
 namespace DScript
@@ -29,6 +30,8 @@ namespace DScript
 	{
 		public String[] Namespace { get; set; }
 		public String ClassName { get; set; }
+		public bool PropertiesAsObjects { get; set; }
+		public bool IsObject { get; set; }
 
 		public ScriptClassAttribute()
 		{
