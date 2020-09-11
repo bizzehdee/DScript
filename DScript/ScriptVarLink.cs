@@ -55,7 +55,7 @@ namespace DScript
         public ScriptVar Var { get; internal set; }
         public bool Owned { get; internal set; }
 
-        public ScriptVarLink(ScriptVar var, String name)
+        public ScriptVarLink(ScriptVar var, string name)
         {
             Name = name;
             Var = var.Ref();

@@ -23,6 +23,7 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 
 namespace DScript
 {
@@ -71,7 +72,7 @@ namespace DScript
 
         public ScriptVar Root { get; private set; }
 
-        public ScriptEngine(bool loadProviders = true)
+        public ScriptEngine()
         {
             currentLexer = null;
 
@@ -87,19 +88,14 @@ namespace DScript
             Root.AddChild("String", stringClass);
             Root.AddChild("Object", objectClass);
             Root.AddChild("Array", arrayClass);
-
-            if (loadProviders)
-            {
-                LoadAllFunctionProviders();
-            }
-        }
+         }
 
         public void Trace()
         {
             Root.Trace(0, null);
         }
 
-        public void Execute(String code)
+        public void Execute(string code)
         {
             var oldLex = currentLexer;
             var oldScopes = scopes;
@@ -120,15 +116,16 @@ namespace DScript
                 }
                 catch (ScriptException ex)
                 {
-                    string errorMessage = string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message);
+                    var errorMessage = new StringBuilder(string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message));
 
                     int i = 0;
                     foreach (ScriptVar scriptVar in scopes)
                     {
-                        errorMessage += "\n" + i++ + ": " + scriptVar;
+                        errorMessage.AppendLine();
+                        errorMessage.Append(i++ + ": " + scriptVar);
                     }
 
-                    Console.Error.WriteLine(errorMessage);
+                    Console.Error.WriteLine(errorMessage.ToString());
                 }
             }
 
@@ -163,14 +160,16 @@ namespace DScript
             }
             catch (ScriptException ex)
             {
-                var errorMessage = ex.Message;
+                var errorMessage = new StringBuilder(string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message));
+
                 int i = 0;
                 foreach (ScriptVar scriptVar in scopes)
                 {
-                    errorMessage += "\n" + i++ + ": " + scriptVar;
+                    errorMessage.AppendLine();
+                    errorMessage.Append(i++ + ": " + scriptVar);
                 }
 
-                Console.Error.WriteLine(errorMessage);
+                Console.Error.WriteLine(errorMessage.ToString());
             }
 
             currentLexer = oldLex;
@@ -184,7 +183,7 @@ namespace DScript
             return new ScriptVarLink(new ScriptVar(null), null);
         }
 
-        public void AddObject(String[] ns, String objectName, ScriptVar val)
+        public void AddObject(string[] ns, string objectName, ScriptVar val)
         {
             var baseVar = Root;
 
@@ -259,201 +258,6 @@ namespace DScript
             }
 
             Root.AddChild(funcName, funcVar);
-        }
-
-        public void LoadAllFunctionProviders()
-        {
-            var execAssembly = Assembly.GetExecutingAssembly();
-
-            TestForAttribute(execAssembly);
-
-            AssemblyName[] referencedAssemblies = execAssembly.GetReferencedAssemblies();
-            foreach (AssemblyName assembly in referencedAssemblies)
-            {
-                Assembly asm = Assembly.Load(assembly);
-
-                TestForAttribute(asm);
-            }
-        }
-
-        private void TestForAttribute(Assembly asm)
-        {
-            Type[] types = asm.GetTypes();
-            foreach (Type type in types)
-            {
-                object[] scObjects = type.GetCustomAttributes(typeof(ScriptClassAttribute), false);
-                if (scObjects.Length > 0)
-                {
-                    ProcessType(type, scObjects[0] as ScriptClassAttribute);
-                }
-            }
-        }
-
-        private void ProcessType(Type type, ScriptClassAttribute attr)
-        {
-            AddObject(attr.Namespace ?? new string[0], attr.ClassName ?? type.Name, new ScriptVar(null, ScriptVar.Flags.Object | ScriptVar.Flags.Native) { ClassType = type });
-
-            MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance);
-            ProcessMethods(methods, attr);
-
-            methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static);
-            ProcessMethods(methods, attr);
-
-            PropertyInfo[] properties = type.GetProperties(BindingFlags.Public | BindingFlags.Static);
-            ProcessProperties(properties, attr, null);
-        }
-
-        private void ProcessMethods(MethodInfo[] methods, ScriptClassAttribute attr)
-        {
-            foreach (MethodInfo method in methods)
-            {
-                if (method.IsSpecialName) continue;
-
-                ParameterInfo[] parameters = method.GetParameters();
-                if (parameters.Length < 1) continue;
-
-                String[] argNames = new string[parameters.Length - 1];
-                for (int i = 0; i < parameters.Length - 1; i++)
-                {
-                    argNames[i] = parameters[i].Name;
-                }
-
-                MethodInfo methodCopy = method;
-                String[] ns = attr.Namespace ?? new string[0];
-
-                if (attr.ClassName == null && ns.Length == 0)
-                {
-                    ns = null;
-                }
-                else
-                {
-                    Array.Resize(ref ns, ns.Length + 1);
-                    ns[ns.Length - 1] = attr.ClassName;
-                }
-
-                AddMethod(ns, method.Name, argNames, CreateScriptFunction(methodCopy, parameters), this);
-            }
-        }
-
-        private void ProcessProperties(PropertyInfo[] properties, ScriptClassAttribute attr, object instance)
-        {
-            foreach (PropertyInfo property in properties)
-            {
-                if (property.IsSpecialName) continue;
-
-                PropertyInfo propertyCopy = property;
-                String[] ns = attr.Namespace ?? new string[0];
-
-                if (attr.ClassName == null && ns.Length == 0)
-                {
-                    ns = null;
-                }
-                else
-                {
-                    Array.Resize(ref ns, ns.Length + 1);
-                    ns[ns.Length - 1] = attr.ClassName;
-                }
-
-                if (property.PropertyType == typeof(bool))
-                {
-                    AddObject(ns, property.Name, new ScriptVar((bool)property.GetValue(instance, null)));
-                }
-                else if (property.PropertyType == typeof(string))
-                {
-                    AddObject(ns, property.Name, new ScriptVar((string)property.GetValue(instance, null)));
-                }
-                else if (property.PropertyType == typeof(decimal) || property.PropertyType == typeof(float) || property.PropertyType == typeof(double))
-                {
-                    AddObject(ns, property.Name, new ScriptVar((double)property.GetValue(instance, null)));
-                }
-                else if (property.PropertyType == typeof(Int32))
-                {
-                    AddObject(ns, property.Name, new ScriptVar((Int32)property.GetValue(instance, null)));
-                }
-            }
-        }
-
-        private ScriptCallbackCB CreateScriptFunction(MethodInfo method, ParameterInfo[] parameters)
-        {
-            return delegate (ScriptVar var, object userdata, ScriptVar parent)
-            {
-                object[] args = new object[parameters.Length];
-
-                int i = 0;
-                for (; i < parameters.Length - 1; i++)
-                {
-                    args[i] = var.GetParameter(parameters[i].Name).GetData();
-                }
-
-                args[i] = userdata;
-
-                object returnVal;
-
-                if (method.IsStatic)
-                {
-                    returnVal = method.Invoke(null, args);
-                }
-                else
-                {
-                    returnVal = method.Invoke(parent.ClassInstance, args);
-                }
-
-                if (method.ReturnType == typeof(Int32))
-                {
-                    var.SetReturnVar(new ScriptVar(Convert.ToInt32(returnVal), ScriptVar.Flags.Integer));
-                }
-                else if (method.ReturnType == typeof(bool))
-                {
-                    var.SetReturnVar(new ScriptVar(Convert.ToBoolean(returnVal) ? 1 : 0, ScriptVar.Flags.Integer));
-                }
-                else if (method.ReturnType == typeof(double) || method.ReturnType == typeof(float))
-                {
-                    var.SetReturnVar(new ScriptVar(Convert.ToDouble(returnVal), ScriptVar.Flags.Double));
-                }
-                else if (method.ReturnType == typeof(String))
-                {
-                    var.SetReturnVar(new ScriptVar(Convert.ToString(returnVal), ScriptVar.Flags.String));
-                }
-            };
-        }
-
-        [Obsolete("Do not use, this is the old way of binding native methods to language functions")]
-        public void AddMethod(String funcProto, ScriptCallbackCB callback, Object userdata)
-        {
-            ScriptLex oldLex = currentLexer;
-
-            using (currentLexer = new ScriptLex(funcProto))
-            {
-                ScriptVar baseVar = Root;
-
-                currentLexer.Match(ScriptLex.LexTypes.RFunction);
-                String funcName = currentLexer.TokenString;
-                currentLexer.Match(ScriptLex.LexTypes.Id);
-
-                while (currentLexer.TokenType == (ScriptLex.LexTypes)'.')
-                {
-                    currentLexer.Match((ScriptLex.LexTypes)'.');
-                    ScriptVarLink link = baseVar.FindChild(funcName);
-
-                    if (link == null)
-                    {
-                        link = baseVar.AddChild(funcName, new ScriptVar(null, ScriptVar.Flags.Object));
-                    }
-
-                    baseVar = link.Var;
-                    funcName = currentLexer.TokenString;
-                    currentLexer.Match(ScriptLex.LexTypes.Id);
-                }
-
-                ScriptVar funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-                funcVar.SetCallback(callback, userdata);
-
-                ParseFunctionArguments(funcVar);
-
-                baseVar.AddChild(funcName, funcVar);
-            }
-
-            currentLexer = oldLex;
         }
 
         private ScriptVarLink FindInScopes(String name)
