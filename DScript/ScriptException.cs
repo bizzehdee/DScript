@@ -1,5 +1,4 @@
-The MIT License (MIT)
-
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,3 +18,25 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+*/
+
+using System;
+
+namespace DScript
+{
+    [Serializable]
+    public class ScriptException : Exception
+    {
+        public ScriptException(string msg)
+            : base(msg)
+        {
+
+        }
+
+        public ScriptException(string msg, Exception innerException)
+            : base(msg, innerException)
+        {
+
+        }
+    }
+}

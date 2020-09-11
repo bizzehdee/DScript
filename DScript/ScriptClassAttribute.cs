@@ -1,5 +1,4 @@
-The MIT License (MIT)
-
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,3 +18,37 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+*/
+
+using System;
+
+namespace DScript
+{
+	//Not currently used
+	[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+	public class ScriptClassAttribute : Attribute
+	{
+		public string[] Namespace { get; set; }
+		public string ClassName { get; set; }
+		public bool PropertiesAsObjects { get; set; }
+		public bool IsObject { get; set; }
+
+		public ScriptClassAttribute()
+		{
+			ClassName = null;
+			Namespace = null;
+		}
+
+		public ScriptClassAttribute(string name)
+		{
+			ClassName = name;
+			Namespace = null;
+		}
+
+		public ScriptClassAttribute(string name, string[] ns)
+		{
+			ClassName = name;
+			Namespace = ns;
+		}
+	}
+}

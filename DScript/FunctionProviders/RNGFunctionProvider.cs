@@ -1,5 +1,4 @@
-The MIT License (MIT)
-
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,3 +18,28 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+*/
+
+using System;
+
+namespace DScript.FunctionProviders
+{
+	[ScriptClass("Random")]
+	public class RNGFunctionProvider
+	{
+		public static int Next(object userdata)
+		{
+			return (new Random()).Next();
+		}
+
+		public static int NextMax(Int32 max, object userdata)
+		{
+			return (new Random()).Next(max);
+		}
+
+		public static int NextMinMax(Int32 min, Int32 max, object userdata)
+		{
+			return (new Random()).Next(min, max);
+		}
+	}
+}

@@ -1,5 +1,4 @@
-The MIT License (MIT)
-
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,3 +18,49 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+*/
+
+using System;
+
+namespace DScript.FunctionProviders
+{
+	[ScriptClass("Convert")]
+	public class ConvertFunctionProvider
+	{
+		public static String IntToString(int val, object userData)
+		{
+			return string.Format("{0}", val);
+		}
+
+		public static double IntToFloat(int val, object userData)
+		{
+			return val;
+		}
+
+		public static string FloatToString(double val, object userData)
+		{
+			return string.Format("{0}", val);
+		}
+
+		public static int FloatToInt(double val, object userData)
+		{
+			return (int)val;
+		}
+
+		public static double StringToFloat(string val, object userData)
+		{
+
+            double.TryParse(val, out double returnVal);
+
+            return returnVal;
+		}
+
+		public static int StringToInt(string val, object userData)
+		{
+
+            int.TryParse(val, out int returnVal);
+
+            return returnVal;
+		}
+	}
+}

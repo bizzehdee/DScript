@@ -1,5 +1,4 @@
-The MIT License (MIT)
-
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,3 +18,40 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+*/
+
+namespace DScript
+{
+    public partial class ScriptEngine
+    {
+        private ScriptVarLink Term(ref bool execute)
+        {
+            var a = Unary(ref execute);
+
+            while (currentLexer.TokenType == (ScriptLex.LexTypes)'*' ||
+                currentLexer.TokenType == (ScriptLex.LexTypes)'/' ||
+                currentLexer.TokenType == (ScriptLex.LexTypes)'%')
+            {
+                var op = currentLexer.TokenType;
+                currentLexer.Match(currentLexer.TokenType);
+
+                var b = Unary(ref execute);
+                if (execute)
+                {
+                    var res = a.Var.MathsOp(b.Var, op);
+
+                    if (a.Owned)
+                    {
+                        a = new ScriptVarLink(res, null);
+                    }
+                    else
+                    {
+                        a.ReplaceWith(res);
+                    }
+                }
+            }
+
+            return a;
+        }
+    }
+}

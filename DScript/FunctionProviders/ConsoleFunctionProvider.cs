@@ -1,5 +1,4 @@
-The MIT License (MIT)
-
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,3 +18,35 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+*/
+
+using System;
+
+namespace DScript.FunctionProviders
+{
+	[ScriptClass("Console")]
+	public class ConsoleFunctionProvider
+	{
+		public void WriteLine(string text, object userData)
+		{
+			Console.WriteLine(text);
+		}
+
+		public string ReadLine(object userData)
+		{
+			var retVal = Console.ReadLine();
+			return retVal;
+		}
+
+		public void Write(string text, object userData)
+		{
+			Console.Write(text);
+		}
+
+		public int ReadChar(object userData)
+		{
+			int retVal = Console.Read();
+			return retVal;
+		}
+	}
+}
