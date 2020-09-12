@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="testscript.js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DScript.Extras\DScript.Extras.csproj" />
+    <ProjectReference Include="..\DScript\DScript.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="testscript.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
