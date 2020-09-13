@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DScript.Extras", "DScript.E
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DScript.Demo", "DScript.Demo\DScript.Demo.csproj", "{75C20ACD-B003-4384-A126-51EDEE5BC6E9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DScript.Test", "DScript.Test\DScript.Test.csproj", "{9B3FAE01-EE1F-4B4B-A0FA-B4FC0EA4E026}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{75C20ACD-B003-4384-A126-51EDEE5BC6E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{75C20ACD-B003-4384-A126-51EDEE5BC6E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{75C20ACD-B003-4384-A126-51EDEE5BC6E9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B3FAE01-EE1F-4B4B-A0FA-B4FC0EA4E026}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B3FAE01-EE1F-4B4B-A0FA-B4FC0EA4E026}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B3FAE01-EE1F-4B4B-A0FA-B4FC0EA4E026}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B3FAE01-EE1F-4B4B-A0FA-B4FC0EA4E026}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

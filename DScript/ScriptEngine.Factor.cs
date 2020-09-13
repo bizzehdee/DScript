@@ -47,7 +47,7 @@ namespace DScript
             }
             if (currentLexer.TokenType == ScriptLex.LexTypes.RNull)
             {
-                currentLexer.Match(ScriptLex.LexTypes.RUndefined);
+                currentLexer.Match(ScriptLex.LexTypes.RNull);
                 return new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Null), null);
             }
             if (currentLexer.TokenType == ScriptLex.LexTypes.RUndefined)

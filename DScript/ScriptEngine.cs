@@ -126,6 +126,7 @@ namespace DScript
                     }
 
                     Console.Error.WriteLine(errorMessage.ToString());
+                    throw;
                 }
             }
 
