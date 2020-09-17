@@ -1,4 +1,5 @@
 using DScript.Extras;
+using DScript.Extras.FunctionProviders;
 using NUnit.Framework;
 using System.IO;
 using System.Linq;
@@ -13,8 +14,8 @@ namespace DScript.Test
         {
             var file = File.ReadAllText(filename);
             var engine = new ScriptEngine();
-            var loader = new FunctionProviderLoader();
-            loader.LoadAllIntoEngine(engine);
+            var loader = new BaseFunctionProvider();
+            loader.RegisterFunctions(engine);
 
             engine.Root.AddChild("result", new ScriptVar(0, ScriptVar.Flags.Integer));
 

@@ -1,4 +1,5 @@
 ﻿using DScript.Extras;
+using DScript.Extras.FunctionProviders;
 using System;
 using System.IO;
 
@@ -9,8 +10,8 @@ namespace DScript.Demo
         static void Main(string[] args)
         {
             var engine = new ScriptEngine();
-            var loader = new FunctionProviderLoader();
-            loader.LoadAllIntoEngine(engine);
+            var loader = new BaseFunctionProvider();
+            loader.RegisterFunctions(engine);
 
             var testScript = File.ReadAllText("testscript.js");
 
