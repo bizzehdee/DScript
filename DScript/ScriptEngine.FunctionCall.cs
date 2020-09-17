@@ -47,15 +47,18 @@ namespace DScript
                 while (v != null)
                 {
                     var value = Base(ref execute);
-                    if (value.Var.IsBasic)
+                    if (execute)
                     {
-                        //pass by val
-                        functionRoot.AddChild(v.Name, value.Var.DeepCopy());
-                    }
-                    else
-                    {
-                        //pass by ref
-                        functionRoot.AddChild(v.Name, value.Var);
+                        if (value.Var.IsBasic)
+                        {
+                            //pass by val
+                            functionRoot.AddChild(v.Name, value.Var.DeepCopy());
+                        }
+                        else
+                        {
+                            //pass by ref
+                            functionRoot.AddChild(v.Name, value.Var);
+                        }
                     }
 
                     if (currentLexer.TokenType != (ScriptLex.LexTypes)')')
@@ -70,14 +73,14 @@ namespace DScript
 
                 var returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
 
-                scopes.Push(functionRoot);
+                scopes.PushBack(functionRoot);
 
-                callStack.Push(string.Format("{0} from line {1}", function.Name, currentLexer.LineNumber));
+                //callStack.PushBack(string.Format("{0} from line {1}", function.Name, currentLexer.LineNumber));
 
                 if (function.Var.IsNative)
                 {
                     var func = function.Var.GetCallback();
-                    func?.Invoke(functionRoot, function.Var.GetCallbackUserData(), parent);
+                    func?.Invoke(functionRoot, function.Var.GetCallbackUserData());
                 }
                 else
                 {
@@ -101,36 +104,39 @@ namespace DScript
                     }
                 }
 
-                callStack.Pop();
-                scopes.Pop();
+                //callStack.PopBack();
+                scopes.PopBack();
 
                 var returnVar = new ScriptVarLink(returnVarLink.Var, null);
                 functionRoot.RemoveLink(returnVarLink);
 
                 return returnVar;
             }
-
-            //not executing the function, just parsing it out
-            currentLexer.Match((ScriptLex.LexTypes)'(');
-
-            while (currentLexer.TokenType != (ScriptLex.LexTypes)')')
+            else
             {
-                Base(ref execute);
 
-                if (currentLexer.TokenType != (ScriptLex.LexTypes)')')
+                //not executing the function, just parsing it out
+                currentLexer.Match((ScriptLex.LexTypes)'(');
+
+                while (currentLexer.TokenType != (ScriptLex.LexTypes)')')
                 {
-                    currentLexer.Match((ScriptLex.LexTypes)',');
+                    Base(ref execute);
+
+                    if (currentLexer.TokenType != (ScriptLex.LexTypes)')')
+                    {
+                        currentLexer.Match((ScriptLex.LexTypes)',');
+                    }
                 }
+
+                currentLexer.Match((ScriptLex.LexTypes)')');
+
+                if (currentLexer.TokenType == (ScriptLex.LexTypes)'{') //WTF?
+                {
+                    Block(ref execute);
+                }
+
+                return function;
             }
-
-            currentLexer.Match((ScriptLex.LexTypes)')');
-
-            if (currentLexer.TokenType == (ScriptLex.LexTypes)'{') //WTF?
-            {
-                Block(ref execute);
-            }
-
-            return function;
         }
     }
 }

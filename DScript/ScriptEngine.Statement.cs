@@ -60,7 +60,7 @@ namespace DScript
                     ScriptVarLink a = null;
                     if (execute)
                     {
-                        a = scopes.Peek().FindChildOrCreate(currentLexer.TokenString);
+                        a = scopes.Back().FindChildOrCreate(currentLexer.TokenString);
                     }
 
                     currentLexer.Match(ScriptLex.LexTypes.Id);
@@ -144,6 +144,7 @@ namespace DScript
                 currentLexer.Match((ScriptLex.LexTypes)'(');
 
                 var whileConditionStart = currentLexer.TokenStart;
+                var noExecute = false;
                 var condition = Base(ref execute);
                 var loopCondition = execute && condition.Var.GetBool();
 
@@ -152,8 +153,15 @@ namespace DScript
 
                 var whileBodyStart = currentLexer.TokenStart;
 
-                Statement(ref loopCondition);
-
+                if(loopCondition)
+                {
+                    Statement(ref execute);
+                }
+                else
+                {
+                    Statement(ref noExecute);
+                }
+                
                 var whileBody = currentLexer.GetSubLex(whileBodyStart);
                 var oldLex = currentLexer;
 
@@ -264,7 +272,7 @@ namespace DScript
                 }
                 if (execute)
                 {
-                    var resultVar = scopes.Peek().FindChild(ScriptVar.ReturnVarName);
+                    var resultVar = scopes.Back().FindChild(ScriptVar.ReturnVarName);
                     if (resultVar != null)
                     {
                         resultVar.ReplaceWith(res);
@@ -274,9 +282,9 @@ namespace DScript
                         //return statement outside of function???
                         System.Diagnostics.Trace.TraceWarning("Return statement outside of a function, what is going on?");
                     }
+                    execute = false;
                 }
 
-                execute = false;
                 currentLexer.Match((ScriptLex.LexTypes)';');
             }
             else if (currentLexer.TokenType == ScriptLex.LexTypes.RFunction)
@@ -291,7 +299,7 @@ namespace DScript
                     }
                     else
                     {
-                        var v = scopes.Peek();
+                        var v = scopes.Back();
                         v.AddChildNoDup(funcVar.Name, funcVar.Var);
                     }
                 }

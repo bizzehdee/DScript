@@ -197,7 +197,7 @@ namespace DScript
             //multi line comment
             if (CurrentChar == '/' && NextChar == '*')
             {
-                while (CurrentChar != '*' && CurrentChar != '/') GetNextChar();
+                while (CurrentChar != 0 && (CurrentChar != '*' || NextChar != '/')) GetNextChar();
                 GetNextChar();
                 GetNextChar();
                 GetNextToken();
@@ -229,8 +229,8 @@ namespace DScript
                     case "var": TokenType = LexTypes.RVar; break;
                     case "true": TokenType = LexTypes.RTrue; break;
                     case "false": TokenType = LexTypes.RFalse; break;
-                    case "null": TokenType = LexTypes.RFalse; break;
-                    case "undefined": TokenType = LexTypes.RNull; break;
+                    case "null": TokenType = LexTypes.RNull; break;
+                    case "undefined": TokenType = LexTypes.RUndefined; break;
                     case "new": TokenType = LexTypes.RNew; break;
 
                 }
@@ -418,17 +418,16 @@ namespace DScript
                 {
                     TokenType = LexTypes.NEqual;
                     GetNextChar();
+                    if(CurrentChar == '=')
+                    {
+                        TokenType = LexTypes.NTypeEqual;
+                        GetNextChar();
+                    }
                 }
                 else if (TokenType == (LexTypes)'<' && CurrentChar == '=') // <=
                 {
                     TokenType = LexTypes.LEqual;
                     GetNextChar();
-
-                    if (CurrentChar == '=') //!==
-                    {
-                        TokenType = LexTypes.NTypeEqual;
-                        GetNextChar();
-                    }
                 }
                 else if (TokenType == (LexTypes)'<' && CurrentChar == '<') // <<
                 {

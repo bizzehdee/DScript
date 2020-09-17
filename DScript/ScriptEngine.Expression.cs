@@ -72,7 +72,7 @@ namespace DScript
                 }
                 else
                 {
-                    ScriptVarLink b = Term(ref execute);
+                    var b = Term(ref execute);
                     if (execute)
                     {
                         var res = a.Var.MathsOp(b.Var, op);

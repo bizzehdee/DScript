@@ -26,7 +26,9 @@ namespace DScript
     {
         private ScriptVarLink Ternary(ref bool execute)
         {
-            var a = Logic(ref execute);
+            var leftHandSide = Logic(ref execute);
+
+            var noExecute = false;
 
             if (currentLexer.TokenType == (ScriptLex.LexTypes)'?')
             {
@@ -34,32 +36,32 @@ namespace DScript
 
                 if (!execute)
                 {
-                    Base(ref execute);
+                    Base(ref noExecute);
 
                     currentLexer.Match((ScriptLex.LexTypes)':');
 
-                    Base(ref execute);
+                    Base(ref noExecute);
                 }
                 else
                 {
-                    bool first = a.Var.GetBool();
+                    bool first = leftHandSide.Var.GetBool();
 
                     if (first)
                     {
-                        a = Base(ref execute);
+                        leftHandSide = Base(ref execute);
                         currentLexer.Match((ScriptLex.LexTypes)':');
-                        Base(ref execute);
+                        Base(ref noExecute);
                     }
                     else
                     {
-                        Base(ref execute);
+                        Base(ref noExecute);
                         currentLexer.Match((ScriptLex.LexTypes)':');
-                        a = Base(ref execute);
+                        leftHandSide = Base(ref execute);
                     }
                 }
             }
 
-            return a;
+            return leftHandSide;
         }
     }
 }

@@ -87,7 +87,7 @@ namespace DScript
 
         public int GetIntName()
         {
-            int retVal = Convert.ToInt32(Name);
+            var retVal = Convert.ToInt32(Name);
 
             return retVal;
         }
@@ -95,6 +95,12 @@ namespace DScript
         public void SetIntName(int n)
         {
             Name = string.Format("{0}", n);
+        }
+
+
+        public override string ToString()
+        {
+            return Name;
         }
     }
 }

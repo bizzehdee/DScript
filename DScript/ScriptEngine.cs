@@ -63,12 +63,12 @@ namespace DScript
         private readonly ScriptVar stringClass;
         private readonly ScriptVar objectClass;
         private readonly ScriptVar arrayClass;
-        private Stack<ScriptVar> scopes;
-        private readonly Stack<string> callStack;
+        private List<ScriptVar> scopes;
+        //private List<string> callStack;
 
         private ScriptLex currentLexer;
 
-        public delegate void ScriptCallbackCB(ScriptVar var, object userdata, ScriptVar parent = null);
+        public delegate void ScriptCallbackCB(ScriptVar var, object userdata);
 
         public ScriptVar Root { get; private set; }
 
@@ -76,17 +76,17 @@ namespace DScript
         {
             currentLexer = null;
 
-            scopes = new Stack<ScriptVar>();
-            callStack = new Stack<string>();
+            scopes = new List<ScriptVar>();
+            //callStack = new List<string>();
 
             Root = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
 
-            stringClass = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
             objectClass = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
+            stringClass = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
             arrayClass = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
 
-            Root.AddChild("String", stringClass);
             Root.AddChild("Object", objectClass);
+            Root.AddChild("String", stringClass);
             Root.AddChild("Array", arrayClass);
          }
 
@@ -99,39 +99,46 @@ namespace DScript
         {
             var oldLex = currentLexer;
             var oldScopes = scopes;
+            scopes = new List<ScriptVar>();
+            //var oldCallStack = callStack;
+
+            scopes.Clear();
+            scopes.PushBack(Root);
 
             using (currentLexer = new ScriptLex(code))
             {
-                scopes.Clear();
-                scopes.Push(Root);
-                callStack.Clear();
+                //callStack.Clear();
 
-                try
+                var execute = true;
+
+                while (currentLexer.TokenType != 0)
                 {
-                    while (currentLexer.TokenType != 0)
+                    try
                     {
-                        bool execute = true;
                         Statement(ref execute);
                     }
-                }
-                catch (ScriptException ex)
-                {
-                    var errorMessage = new StringBuilder(string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message));
-
-                    int i = 0;
-                    foreach (ScriptVar scriptVar in scopes)
+                    catch (ScriptException ex)
                     {
-                        errorMessage.AppendLine();
-                        errorMessage.Append(i++ + ": " + scriptVar);
-                    }
+                        var errorMessage = new StringBuilder(string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message));
 
-                    Console.Error.WriteLine(errorMessage.ToString());
-                    throw;
+                        int i = 0;
+                        foreach (ScriptVar scriptVar in scopes)
+                        {
+                            errorMessage.AppendLine();
+                            errorMessage.Append(i++ + ": " + scriptVar);
+                        }
+
+                        Console.Error.WriteLine(errorMessage.ToString());
+                        throw;
+                    }
                 }
+
+
             }
 
             currentLexer = oldLex;
             scopes = oldScopes;
+            //callStack = oldCallStack;
         }
 
         public ScriptVarLink EvalComplex(string code)
@@ -140,16 +147,16 @@ namespace DScript
             var oldScopes = scopes;
 
             currentLexer = new ScriptLex(code);
-
-            callStack.Clear();
+            scopes = new List<ScriptVar>();
+            //callStack.Clear();
             scopes.Clear();
-            scopes.Push(Root);
+            scopes.PushBack(Root);
 
             ScriptVarLink v = null;
 
             try
             {
-                bool execute = true;
+                var execute = true;
                 do
                 {
                     v = Base(ref execute);
@@ -190,7 +197,7 @@ namespace DScript
 
             if (ns != null)
             {
-                int x = 0;
+                var x = 0;
                 for (; x < ns.Length; x++)
                 {
                     var link = baseVar.FindChild(ns[x]);
@@ -214,7 +221,7 @@ namespace DScript
 
             if (ns != null)
             {
-                int x = 0;
+                var x = 0;
                 for (; x < ns.Length; x++)
                 {
                     var link = baseVar.FindChild(ns[x]);
@@ -261,11 +268,46 @@ namespace DScript
             Root.AddChild(funcName, funcVar);
         }
 
+        public void AddNative(string funcDesc, ScriptCallbackCB callbackCB, object userData)
+        {
+            var oldLex = currentLexer;
+            currentLexer = new ScriptLex(funcDesc);
+
+            var baseVar = Root;
+            currentLexer.Match(ScriptLex.LexTypes.RFunction);
+            var funcName = currentLexer.TokenString;
+
+            currentLexer.Match(ScriptLex.LexTypes.Id);
+
+            while(currentLexer.TokenType == (ScriptLex.LexTypes)'.')
+            {
+                currentLexer.Match((ScriptLex.LexTypes)'.');
+
+                var link = baseVar.FindChild(funcName);
+                if(link == null)
+                {
+                    link = baseVar.AddChild(funcName, new ScriptVar(null, ScriptVar.Flags.Object));
+                }
+                baseVar = link.Var;
+                funcName = currentLexer.TokenString;
+                currentLexer.Match(ScriptLex.LexTypes.Id);
+            }
+
+            var funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            funcVar.SetCallback(callbackCB, userData);
+            ParseFunctionArguments(funcVar);
+
+            currentLexer = oldLex;
+
+            baseVar.AddChild(funcName, funcVar);
+        }
+
         private ScriptVarLink FindInScopes(String name)
         {
-            foreach (ScriptVar scriptVar in scopes)
+            for (var x = scopes.Count - 1; x >= 0; x--)
             {
-                ScriptVarLink a = scriptVar.FindChild(name);
+                var scriptVar = scopes[x];
+                var a = scriptVar.FindChild(name);
                 if (a != null)
                 {
                     return a;
@@ -275,7 +317,7 @@ namespace DScript
             return null;
         }
 
-        private ScriptVarLink FindInParentClasses(ScriptVar obj, String name)
+        private ScriptVarLink FindInParentClasses(ScriptVar obj, string name)
         {
             ScriptVarLink implementation;
             var parentClass = obj.FindChild(ScriptVar.PrototypeClassName);
@@ -333,8 +375,8 @@ namespace DScript
             ParseFunctionArguments(funcVar.Var);
 
             var funcBegin = currentLexer.TokenStart;
-            bool execute = false;
-            Block(ref execute);
+            var noExecute = false;
+            Block(ref noExecute);
             funcVar.Var.SetData(currentLexer.GetSubString(funcBegin));
 
             return funcVar;

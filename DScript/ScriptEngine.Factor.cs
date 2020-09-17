@@ -42,7 +42,7 @@ namespace DScript
             }
             if (currentLexer.TokenType == ScriptLex.LexTypes.RFalse)
             {
-                currentLexer.Match(ScriptLex.LexTypes.RTrue);
+                currentLexer.Match(ScriptLex.LexTypes.RFalse);
                 return new ScriptVarLink(new ScriptVar(0), null);
             }
             if (currentLexer.TokenType == ScriptLex.LexTypes.RNull)
@@ -79,11 +79,6 @@ namespace DScript
                         currentLexer.Match((ScriptLex.LexTypes)'.');
                         if (execute)
                         {
-                            if (!a.Var.IsObject)
-                            {
-                                throw new ScriptException("Trying to call object member on non object type");
-                            }
-
                             var name = currentLexer.TokenString;
                             var child = a.Var.FindChild(name);
 
@@ -124,7 +119,7 @@ namespace DScript
 
                         if (execute)
                         {
-                            ScriptVarLink child = a.Var.FindChildOrCreate(index.Var.GetString());
+                            var child = a.Var.FindChildOrCreate(index.Var.GetString());
                             parent = a.Var;
                             a = child;
                         }
@@ -174,7 +169,7 @@ namespace DScript
 
                     if (execute)
                     {
-                        ScriptVarLink a = Base(ref execute);
+                        var a = Base(ref execute);
                         contents.AddChild(id, a.Var);
                     }
 
@@ -198,7 +193,7 @@ namespace DScript
                 {
                     if (execute)
                     {
-                        var id = String.Format("{0}", idx);
+                        var id = string.Format("{0}", idx);
 
                         var a = Base(ref execute);
                         contents.AddChild(id, a.Var);
@@ -219,7 +214,7 @@ namespace DScript
             if (currentLexer.TokenType == ScriptLex.LexTypes.RFunction)
             {
                 var funcVar = ParseFunctionDefinition();
-                if (funcVar.Name != String.Empty)
+                if (funcVar.Name != string.Empty)
                 {
                     System.Diagnostics.Trace.TraceWarning("Functions not defined at statement level are not supposed to have a name");
                 }
@@ -251,12 +246,6 @@ namespace DScript
                     }
                     else
                     {
-                        //creating new instance of a class
-                        if (classOrFuncObject.Var.ClassType != null)
-                        {
-                            obj.ClassInstance = Activator.CreateInstance(classOrFuncObject.Var.ClassType);
-                        }
-
                         obj.AddChild(ScriptVar.PrototypeClassName, classOrFuncObject.Var);
 
                         if (currentLexer.TokenType == (ScriptLex.LexTypes)'(')
@@ -268,12 +257,14 @@ namespace DScript
 
                     return objLink;
                 }
-
-                currentLexer.Match(ScriptLex.LexTypes.Id);
-                if (currentLexer.TokenType == (ScriptLex.LexTypes)'(')
+                else
                 {
-                    currentLexer.Match((ScriptLex.LexTypes)'(');
-                    currentLexer.Match((ScriptLex.LexTypes)')');
+                    currentLexer.Match(ScriptLex.LexTypes.Id);
+                    if (currentLexer.TokenType == (ScriptLex.LexTypes)'(')
+                    {
+                        currentLexer.Match((ScriptLex.LexTypes)'(');
+                        currentLexer.Match((ScriptLex.LexTypes)')');
+                    }
                 }
             }
 

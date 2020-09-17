@@ -21,6 +21,8 @@ SOFTWARE.
 */
 
 using System;
+using System.IO;
+using System.Text;
 
 namespace DScript
 {
@@ -63,18 +65,17 @@ namespace DScript
         [Flags]
         public enum Flags
         {
-            Undefined = 1,
-            Function = 2,
-            Object = 4,
-            Array = 8,
-            Double = 16,
-            Integer = 32,
-            String = 64,
-            Null = 128,
-            Native = 256,
-            Class = 512,
+            Undefined = 0,
+            Function = 1,
+            Object = 2,
+            Array = 4,
+            Double = 8,
+            Integer = 16,
+            String = 32,
+            Null = 64,
+            Native = 128,
             NumericMask = Null | Double | Integer,
-            VarTypeMask = Double | Integer | String | Function | Object | Array | Null
+            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null
         }
 
         public ScriptVarLink FirstChild { get; set; }
@@ -124,7 +125,26 @@ namespace DScript
             refs = 0;
             this.flags = flags;
             Init();
-            data = val;
+            if (flags.HasFlag(Flags.Integer))
+            {
+                var strData = val.ToString();
+                if (strData.StartsWith("0x"))
+                {
+                    intData = Convert.ToInt32(strData, 16);
+                }
+                else
+                {
+                    intData = int.Parse(strData);
+                }
+            }
+            else if (flags.HasFlag(Flags.Double))
+            {
+                doubleData = Convert.ToDouble(val);
+            }
+            else
+            {
+                data = val;
+            }
         }
 
         private void Init()
@@ -193,11 +213,6 @@ namespace DScript
             get { return FirstChild == null; }
         }
 
-        public bool IsClass
-        {
-            get { return (flags & Flags.Class) != 0; }
-        }
-
         public ScriptVar this[string index]
         {
             get { return GetParameter(index); }
@@ -205,8 +220,7 @@ namespace DScript
 
         public int GetInt()
         {
-            if (IsInt && data == null) return intData;
-            if (IsInt && data != null) return Convert.ToInt32(data);
+            if (IsInt) return intData;
             if (IsNull) return 0;
             if (IsUndefined) return 0;
             if (IsDouble) return (int)doubleData;
@@ -220,9 +234,8 @@ namespace DScript
 
         public double GetDouble()
         {
-            if (IsDouble && data == null) return doubleData;
-            if (IsDouble && data != null) return Convert.ToDouble(data);
-            if (IsInt) return intData;
+            if (IsDouble) return doubleData;
+            if (IsInt) return GetInt();
             if (IsNull) return 0;
             if (IsUndefined) return 0;
             return 0;
@@ -232,11 +245,11 @@ namespace DScript
         {
             if (IsInt)
             {
-                return string.Format("{0:D}", intData);
+                return string.Format("{0:D}", GetInt());
             }
             if (IsDouble)
             {
-                return string.Format("{0}", doubleData);
+                return string.Format("{0}", GetDouble());
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
@@ -248,10 +261,8 @@ namespace DScript
         {
             if (IsNull) return null;
             if (IsUndefined) return null;
-            if (IsInt && data == null) return intData;
-            if (IsInt && data != null) return Convert.ToInt32(data);
-            if (IsDouble && data == null) return doubleData;
-            if (IsDouble && data != null) return Convert.ToDouble(data);
+            if (IsInt) return intData;
+            if (IsDouble) return doubleData;
 
             return data;
         }
@@ -515,7 +526,7 @@ namespace DScript
 
             if (!IsArray) return 0;
 
-            ScriptVarLink link = FirstChild;
+            var link = FirstChild;
 
             while (link != null)
             {
@@ -547,7 +558,7 @@ namespace DScript
         {
             bool res;
 
-            using (ScriptVar resV = MathsOp(v, ScriptLex.LexTypes.Equal))
+            using (var resV = MathsOp(v, ScriptLex.LexTypes.Equal))
             {
                 res = resV.GetBool();
             }
@@ -592,14 +603,13 @@ namespace DScript
 
                 return new ScriptVar();
             }
-
-            if ((a.IsNumeric || a.IsUndefined) && (b.IsNumeric || b.IsUndefined))
+            else if ((a.IsNumeric || a.IsUndefined) && (b.IsNumeric || b.IsUndefined))
             {
                 if (!a.IsDouble && !b.IsDouble)
                 {
                     //ints
-                    int da = a.GetInt();
-                    int db = b.GetInt();
+                    var da = a.GetInt();
+                    var db = b.GetInt();
 
                     switch (opc)
                     {
@@ -624,8 +634,8 @@ namespace DScript
                 else
                 {
                     //doubles
-                    double da = a.GetDouble();
-                    double db = b.GetDouble();
+                    var da = a.GetDouble();
+                    var db = b.GetDouble();
 
                     switch (opc)
                     {
@@ -644,8 +654,7 @@ namespace DScript
                     }
                 }
             }
-
-            if (a.IsArray)
+            else if (a.IsArray)
             {
                 switch (op)
                 {
@@ -655,8 +664,7 @@ namespace DScript
                     default: throw new ScriptException("Operation not supported on the Array datatype");
                 }
             }
-
-            if (a.IsObject)
+            else if (a.IsObject)
             {
                 switch (op)
                 {
@@ -666,20 +674,22 @@ namespace DScript
                     default: throw new ScriptException("Operation not supported on the Object datatype");
                 }
             }
-
-            string sda = a.GetString();
-            string sdb = b.GetString();
-
-            switch (opc)
+            else
             {
-                case '+': return new ScriptVar(sda + sdb, Flags.String);
-                case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(sda == sdb);
-                case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(sda != sdb);
-                case '<': return new ScriptVar(String.CompareOrdinal(sda, sdb) < 0);
-                case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar((String.CompareOrdinal(sda, sdb) < 0) || sda == sdb);
-                case '>': return new ScriptVar(String.CompareOrdinal(sda, sdb) > 0);
-                case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar((String.CompareOrdinal(sda, sdb) > 0) || sda == sdb);
-                default: throw new ScriptException("Operation not supported on the String datatype");
+                var sda = a.GetString();
+                var sdb = b.GetString();
+
+                switch (opc)
+                {
+                    case '+': return new ScriptVar(sda + sdb, Flags.String);
+                    case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(sda == sdb);
+                    case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(sda != sdb);
+                    case '<': return new ScriptVar(String.CompareOrdinal(sda, sdb) < 0);
+                    case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar((String.CompareOrdinal(sda, sdb) < 0) || sda == sdb);
+                    case '>': return new ScriptVar(String.CompareOrdinal(sda, sdb) > 0);
+                    case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar((String.CompareOrdinal(sda, sdb) > 0) || sda == sdb);
+                    default: throw new ScriptException("Operation not supported on the String datatype");
+                }
             }
         }
 
@@ -702,7 +712,7 @@ namespace DScript
 
                 while (link != null)
                 {
-                    ScriptVar copied = link.Name != PrototypeClassName ? link.Var.DeepCopy() : link.Var;
+                    var copied = link.Name != PrototypeClassName ? link.Var.DeepCopy() : link.Var;
 
                     AddChild(link.Name, copied);
 
@@ -751,6 +761,138 @@ namespace DScript
             }
         }
 
+        public void GetJSON(Stream stream, string linePrefix)
+        {
+            var streamWriter = new StreamWriter(stream);
+            
+            if (IsObject)
+            {
+                streamWriter.WriteLine("{");
+
+                var link = FirstChild;
+
+                while(link != null)
+                {
+                    streamWriter.Write(linePrefix);
+                    streamWriter.Write(GetJSString(link.Name));
+                    streamWriter.Write(": ");
+                    streamWriter.Flush();
+
+                    link.Var.GetJSON(stream, linePrefix + "    ");
+
+                    link = link.Next;
+                    if(link != null)
+                    {
+                        streamWriter.WriteLine(",");
+                    }
+                }
+                streamWriter.WriteLine();
+                streamWriter.WriteLine("}");
+            }
+            else if(IsArray)
+            {
+                streamWriter.WriteLine("[");
+
+                var arrayLength = GetArrayLength();
+                for(int x=0; x<arrayLength; x++)
+                {
+                    streamWriter.Flush();
+                    GetArrayIndex(x).GetJSON(stream, linePrefix + "    ");
+                    if(x<arrayLength-1)
+                    {
+                        streamWriter.WriteLine(",");
+                    }
+                }
+
+                streamWriter.WriteLine("]");
+            }
+            else
+            {
+                streamWriter.Write(GetParsableString());
+            }
+
+            streamWriter.Flush();
+        }
+
+        private string GetJSString(string str)
+        {
+            var builder = new StringBuilder();
+            for (int x = 0; x < str.Length; x++)
+            {
+                var chr = str[x];
+                switch(chr)
+                {
+                    case '\\':
+                        builder.Append("\\\\");
+                        break;
+                    case '\n':
+                        builder.Append("\\n");
+                        break;
+                    case '\r':
+                        builder.Append("\\r");
+                        break;
+                    case '\a':
+                        builder.Append("\\a");
+                        break;
+                    case '"':
+                        builder.Append("\\\"");
+                        break;
+                    default:
+                        {
+                            var nChr = (int)chr & 0xff;
+                            if(nChr < 32 || nChr > 127)
+                            {
+                                builder.AppendFormat("\\x{0:X2}", nChr);
+                            }
+                            else
+                            {
+                                builder.Append(chr);
+                            }
+                        }
+                        break;
+                }
+            }
+
+            return "\"" + builder.ToString() + "\"";
+        }
+
+        private string GetParsableString()
+        {
+            if(IsNumeric)
+            {
+                return GetString();
+            }
+            if(IsFunction)
+            {
+                var builder = new StringBuilder();
+                builder.Append("function (");
+                var link = FirstChild;
+                while(link != null)
+                {
+                    builder.Append(link.Name);
+                    if (link.Next != null)
+                    {
+                        builder.Append(", ");
+                    }
+                    link = link.Next;
+                }
+                builder.Append(")");
+                builder.Append(GetString());
+
+                return builder.ToString();
+            }
+            if(IsString)
+            {
+                return GetJSString(GetString());
+            }
+            if(IsNull)
+            {
+                return "null";
+            }
+
+            return "undefined";
+        }
+
         public static implicit operator string(ScriptVar d)
         {
             return d.GetString();
@@ -758,7 +900,7 @@ namespace DScript
 
         public override string ToString()
         {
-            return string.Format("{0}", GetHashCode());
+            return string.Format("{0} , {1}", flags.ToString(), data);
         }
 
         internal void SetData(object data)
@@ -775,9 +917,6 @@ namespace DScript
         {
             return callbackUserData;
         }
-
-        public Type ClassType { get; set; }
-        public object ClassInstance { get; set; }
 
     }
 }

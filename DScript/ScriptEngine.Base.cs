@@ -26,18 +26,18 @@ namespace DScript
     {
         private ScriptVarLink Base(ref bool execute)
         {
-            ScriptVarLink a = Ternary(ref execute);
+            var leftHandSide = Ternary(ref execute);
 
             if (currentLexer.TokenType == (ScriptLex.LexTypes)'=' ||
                 currentLexer.TokenType == ScriptLex.LexTypes.PlusEqual ||
                 currentLexer.TokenType == ScriptLex.LexTypes.MinusEqual)
             {
-                if (execute && a.Owned)
+                if (execute && leftHandSide.Owned == false)
                 {
-                    if (a.Name.Length > 0)
+                    if (leftHandSide.Name.Length > 0)
                     {
-                        var aReal = Root.AddChildNoDup(a.Name, a.Var);
-                        a = aReal;
+                        var leftHandSideReal = Root.AddChildNoDup(leftHandSide.Name, leftHandSide.Var);
+                        leftHandSide = leftHandSideReal;
                     }
                     else
                     {
@@ -49,7 +49,7 @@ namespace DScript
                 var op = currentLexer.TokenType;
                 currentLexer.Match(op);
 
-                var b = Base(ref execute);
+                var rightHandSide = Base(ref execute);
 
                 if (execute)
                 {
@@ -57,19 +57,19 @@ namespace DScript
                     {
                         case (ScriptLex.LexTypes)'=':
                             {
-                                a.ReplaceWith(b);
+                                leftHandSide.ReplaceWith(rightHandSide);
                             }
                             break;
                         case ScriptLex.LexTypes.PlusEqual:
                             {
-                                var res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes)'+');
-                                a.ReplaceWith(res);
+                                var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'+');
+                                leftHandSide.ReplaceWith(res);
                             }
                             break;
                         case ScriptLex.LexTypes.MinusEqual:
                             {
-                                var res = a.Var.MathsOp(b.Var, (ScriptLex.LexTypes)'-');
-                                a.ReplaceWith(res);
+                                var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'-');
+                                leftHandSide.ReplaceWith(res);
                             }
                             break;
                         default:
@@ -79,7 +79,7 @@ namespace DScript
 
             }
 
-            return a;
+            return leftHandSide;
         }
     }
 }

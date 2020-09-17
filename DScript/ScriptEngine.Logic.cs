@@ -34,6 +34,7 @@ namespace DScript
                 currentLexer.TokenType == ScriptLex.LexTypes.AndAnd ||
                 currentLexer.TokenType == ScriptLex.LexTypes.OrOr)
             {
+                var noExecute = false;
                 var op = currentLexer.TokenType;
                 currentLexer.Match(op);
 
@@ -53,8 +54,15 @@ namespace DScript
                     isBool = true;
                 }
 
-                var condition = !shortcut && execute;
-                var b = Condition(ref condition);
+                ScriptVarLink b;
+                if (shortcut)
+                {
+                    b = Condition(ref noExecute);
+                } 
+                else
+                {
+                    b = Condition(ref execute);
+                }
 
                 if (execute && !shortcut)
                 {
