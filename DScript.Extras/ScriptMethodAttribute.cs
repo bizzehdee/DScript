@@ -4,6 +4,7 @@ using System.Text;
 
 namespace DScript.Extras
 {
+    [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
     public class ScriptMethodAttribute : Attribute
     {
         public string MethodName { get; set; }

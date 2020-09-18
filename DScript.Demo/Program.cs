@@ -10,7 +10,7 @@ namespace DScript.Demo
         static void Main(string[] args)
         {
             var engine = new ScriptEngine();
-            var loader = new BaseFunctionProvider();
+            var loader = new EngineFunctionLoader();
             loader.RegisterFunctions(engine);
 
             var testScript = File.ReadAllText("testscript.js");
