@@ -174,7 +174,7 @@ namespace DScript
 
                     condition = Base(ref execute);
 
-                    loopCondition = condition.Var.GetBool();
+                    loopCondition = execute && condition.Var.GetBool();
 
                     if (loopCondition)
                     {

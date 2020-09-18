@@ -100,7 +100,7 @@ namespace DScript
 
         public override string ToString()
         {
-            return Name;
+            return string.Format("{0} = {1}", Name ?? "Unnamed", Var?.GetString() ?? "null");
         }
     }
 }

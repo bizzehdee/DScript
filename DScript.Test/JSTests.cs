@@ -17,7 +17,7 @@ namespace DScript.Test
             var loader = new BaseFunctionProvider();
             loader.RegisterFunctions(engine);
 
-            engine.Root.AddChild("result", new ScriptVar(0, ScriptVar.Flags.Integer));
+            engine.Root.AddChild("result", new ScriptVar(0));
 
             ScriptException ex = null;
 

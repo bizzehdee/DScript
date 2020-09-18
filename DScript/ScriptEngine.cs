@@ -398,5 +398,17 @@ namespace DScript
 
             currentLexer.Match((ScriptLex.LexTypes)')');
         }
+
+        private void CreateLink(ref ScriptVarLink link, ScriptVar res)
+        {
+            if(link == null || link.Owned)
+            {
+                link = new ScriptVarLink(res, null);
+            }
+            else
+            {
+                link.ReplaceWith(res);
+            }
+        }
     }
 }

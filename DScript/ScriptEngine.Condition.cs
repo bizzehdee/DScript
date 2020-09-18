@@ -45,15 +45,7 @@ namespace DScript
                 if (execute)
                 {
                     var res = a.Var.MathsOp(b.Var, op);
-
-                    if (a.Owned)
-                    {
-                        a = new ScriptVarLink(res, null);
-                    }
-                    else
-                    {
-                        a.ReplaceWith(res);
-                    }
+                    CreateLink(ref a, res);
                 }
             }
 

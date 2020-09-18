@@ -120,17 +120,21 @@ namespace DScript
             intData = val ? 1 : 0;
         }
 
-        public ScriptVar(object val, Flags flags)
+        public ScriptVar(string val, Flags flags)
         {
             refs = 0;
             this.flags = flags;
             Init();
             if (flags.HasFlag(Flags.Integer))
             {
-                var strData = val.ToString();
+                var strData = val;
                 if (strData.StartsWith("0x"))
                 {
                     intData = Convert.ToInt32(strData, 16);
+                }
+                else if(strData.StartsWith("0"))
+                {
+                    intData = Convert.ToInt32(strData, 8);
                 }
                 else
                 {
@@ -139,7 +143,11 @@ namespace DScript
             }
             else if (flags.HasFlag(Flags.Double))
             {
-                doubleData = Convert.ToDouble(val);
+                var strData = val;
+                if (double.TryParse(strData, out doubleData) == false)
+                {
+                    doubleData = Convert.ToDouble(strData);
+                }
             }
             else
             {
@@ -235,7 +243,7 @@ namespace DScript
         public double GetDouble()
         {
             if (IsDouble) return doubleData;
-            if (IsInt) return GetInt();
+            if (IsInt) return (double)GetInt();
             if (IsNull) return 0;
             if (IsUndefined) return 0;
             return 0;
@@ -249,7 +257,7 @@ namespace DScript
             }
             if (IsDouble)
             {
-                return string.Format("{0}", GetDouble());
+                return string.Format("{0:E}", GetDouble());
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
@@ -900,7 +908,7 @@ namespace DScript
 
         public override string ToString()
         {
-            return string.Format("{0} , {1}", flags.ToString(), data);
+            return string.Format("{0} , {1}", flags.ToString(), GetString());
         }
 
         internal void SetData(object data)

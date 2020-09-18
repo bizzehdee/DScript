@@ -28,6 +28,8 @@ namespace DScript
         {
             var a = Condition(ref execute);
 
+            ScriptVarLink b;
+
             while (currentLexer.TokenType == (ScriptLex.LexTypes)'&' ||
                 currentLexer.TokenType == (ScriptLex.LexTypes)'|' ||
                 currentLexer.TokenType == (ScriptLex.LexTypes)'^' ||
@@ -54,7 +56,6 @@ namespace DScript
                     isBool = true;
                 }
 
-                ScriptVarLink b;
                 if (shortcut)
                 {
                     b = Condition(ref noExecute);
@@ -71,35 +72,13 @@ namespace DScript
                         var newA = new ScriptVar(a.Var.GetBool());
                         var newB = new ScriptVar(b.Var.GetBool());
 
-                        if (a.Owned)
-                        {
-                            a = new ScriptVarLink(newA, null);
-                        }
-                        else
-                        {
-                            a.ReplaceWith(newA);
-                        }
-
-                        if (b.Owned)
-                        {
-                            b = new ScriptVarLink(newB, null);
-                        }
-                        else
-                        {
-                            b.ReplaceWith(newA);
-                        }
+                        CreateLink(ref a, newA);
+                        CreateLink(ref b, newB);
                     }
 
                     var res = a.Var.MathsOp(b.Var, op);
 
-                    if (a.Owned)
-                    {
-                        a = new ScriptVarLink(res, null);
-                    }
-                    else
-                    {
-                        a.ReplaceWith(res);
-                    }
+                    CreateLink(ref a, res);
                 }
             }
 

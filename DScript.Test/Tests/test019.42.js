@@ -28,5 +28,5 @@ result = foo.length==13 && foo.indexOf("bar")==4 && foo.substring(8,13)=="stuff"
 // in 42tiny-js the Integer-Objecte will be removed
 // Integer.valueOf can be replaced by String.charCodeAt
 //       Integer.valueOf(aChar)==65 && obj1.food=="cake" && obj2.desert=="pie";
-         aChar.charCodeAt()==65 && obj1.food=="cake" && obj2.desert=="pie";
+         aChar.charCodeAt(0)==65 && obj1.food=="cake" && obj2.desert=="pie";
 //<--- 42-tiny-js change end

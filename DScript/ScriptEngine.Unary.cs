@@ -36,14 +36,7 @@ namespace DScript
                     var zero = new ScriptVar(0);
                     var res = a.Var.MathsOp(zero, ScriptLex.LexTypes.Equal);
 
-                    if (a.Owned)
-                    {
-                        a = new ScriptVarLink(res, null);
-                    }
-                    else
-                    {
-                        a.ReplaceWith(res);
-                    }
+                    CreateLink(ref a, res);
                 }
             }
             else

@@ -32,6 +32,7 @@ namespace DScript.Extras.FunctionProviders
             engine.AddNative("function Integer.parseInt(str)", IntParseIntImpl, null);
             engine.AddNative("function Integer.valueOf(str)", IntValueOfImpl, null);
             engine.AddNative("function JSON.stringify(obj,replacer)", JsonStringifyImpl, null);
+            engine.AddNative("function JSON.parse(str)", EvalImpl, engine);
             engine.AddNative("function Array.contains(obj)", ArrayContainsImpl, null);
             engine.AddNative("function Array.remove(obj)", ArrayRemoveImpl, null);
             engine.AddNative("function Array.join(separator)", ArrayJoinImpl, null);
@@ -148,7 +149,7 @@ namespace DScript.Extras.FunctionProviders
             var pos = var.GetParameter("pos").GetInt();
 
             var charCode = 0;
-            if (str.Length < pos)
+            if (str.Length > pos)
             {
                 charCode = Convert.ToInt32(str[pos]);
             }
