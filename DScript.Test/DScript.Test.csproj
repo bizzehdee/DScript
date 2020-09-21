@@ -120,9 +120,6 @@
     <None Update="Tests\test031.js">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="Tests\test032.42.js">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
     <None Update="Tests\test032.js">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

@@ -144,6 +144,9 @@ namespace DScript
             TokenType = 0;
             TokenString = "";
 
+            LineNumber = 1;
+            ColumnNumber = 1;
+
             GetNextChar();
             GetNextChar();
             GetNextToken();
@@ -169,7 +172,7 @@ namespace DScript
             if (CurrentChar == '\n')
             {
                 LineNumber++;
-                currColumnNumber = 0;
+                currColumnNumber = 1;
             }
         }
 
@@ -557,7 +560,7 @@ namespace DScript
                     foundName = string.Format("{0}", (char)TokenType);
                 }
 
-                throw new ScriptException(string.Format("Unexpected token type. Expected {0}, found {1}", expectedName, foundName));
+                throw new ScriptException(string.Format("Unexpected token type. Expected {0}, found {1}. Line: {2}, Col: {3}", expectedName, foundName, LineNumber, ColumnNumber));
             }
 
             GetNextToken();

@@ -14,7 +14,7 @@ Open sourced object oriented Javascript based scripting language implemented in 
     var inst = new MyClass();
     var x = inst.doSomethingComplicated(1.0, 2.0);
     
-    Console.WriteLine(x);
+    console.log(x);
 
 ***Supports***
 - Variables
