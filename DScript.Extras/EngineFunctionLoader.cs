@@ -25,44 +25,56 @@ namespace DScript.Extras
 
             foreach (var myType in typesWithMyAttribute)
             {
-                var methods = ProcessTypes(myType.Type, myType.Attributes.FirstOrDefault());
+                ProcessTypes(myType.Type, myType.Attributes.FirstOrDefault(), engine);
 
-                foreach (var method in methods)
-                {
-                    engine.AddNative(method.Key, method.Value, engine);
-                }
             }
         }
 
-        private IDictionary<string, ScriptEngine.ScriptCallbackCB> ProcessTypes(Type t, ScriptClassAttribute attribute)
+        private void ProcessTypes(Type t, ScriptClassAttribute attribute, ScriptEngine engine)
         {
             var publicStaticMethods = t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
-                .Where(f => f.CustomAttributes.Any(x => x.AttributeType == typeof(ScriptMethodAttribute)) && Delegate.CreateDelegate(typeof(ScriptEngine.ScriptCallbackCB), f) != null);
-            var returnDict = new Dictionary<string, ScriptEngine.ScriptCallbackCB>();
+                .Where(f => f.CustomAttributes.Any(x => (x.AttributeType == typeof(ScriptMethodAttribute) || x.AttributeType == typeof(ScriptPropertyAttribute)) && Delegate.CreateDelegate(typeof(ScriptEngine.ScriptCallbackCB), f) != null));
+
             foreach (var method in publicStaticMethods)
             {
-                var methodAttribute = method.GetCustomAttribute<ScriptMethodAttribute>();
+                var methodAttributes = method.GetCustomAttributes<ScriptMethodAttribute>();
+                var propertyAttributes = method.GetCustomAttributes<ScriptPropertyAttribute>();
 
-                var name = methodAttribute.AppearAtRoot ? methodAttribute.MethodName : string.Format("{0}.{1}", attribute.ClassName, methodAttribute.MethodName);
-
-                var definition = "function " + name + "(";
-                var isFirst = true;
-                foreach (var param in methodAttribute.MethodParameters)
+                foreach (var methodAttribute in methodAttributes)
                 {
-                    if(!isFirst)
+                    var name = methodAttribute.AppearAtRoot ? methodAttribute.MethodName : string.Format("{0}.{1}", attribute.ClassName, methodAttribute.MethodName);
+
+                    var definition = "function " + name + "(";
+
+                    if (methodAttribute.MethodParameters != null)
                     {
-                        definition += ",";
+                        var isFirst = true;
+                        foreach (var param in methodAttribute.MethodParameters)
+                        {
+                            if (!isFirst)
+                            {
+                                definition += ",";
+                            }
+                            isFirst = false;
+                            definition += param;
+                        }
                     }
-                    isFirst = false;
-                    definition += param;
+
+                    definition += ")";
+
+
+                    engine.AddNative(definition, (ScriptEngine.ScriptCallbackCB)Delegate.CreateDelegate(typeof(ScriptEngine.ScriptCallbackCB), method), engine);
                 }
 
-                definition += ")";
+                foreach (var propertyAttribute in propertyAttributes)
+                {
+                    var name = propertyAttribute.AppearAtRoot ? propertyAttribute.PropertyName : string.Format("{0}.{1}", attribute.ClassName, propertyAttribute.PropertyName);
 
-                returnDict.Add(definition, (ScriptEngine.ScriptCallbackCB)Delegate.CreateDelegate(typeof(ScriptEngine.ScriptCallbackCB), method));
+                    engine.AddNativeProperty(name, (ScriptEngine.ScriptCallbackCB)Delegate.CreateDelegate(typeof(ScriptEngine.ScriptCallbackCB), method), engine);
+                }
+
+
             }
-
-            return returnDict;
         }
     }
 }

@@ -191,83 +191,6 @@ namespace DScript
             return new ScriptVarLink(new ScriptVar(null), null);
         }
 
-        public void AddObject(string[] ns, string objectName, ScriptVar val)
-        {
-            var baseVar = Root;
-
-            if (ns != null)
-            {
-                var x = 0;
-                for (; x < ns.Length; x++)
-                {
-                    var link = baseVar.FindChild(ns[x]);
-
-                    if (link == null)
-                    {
-                        link = baseVar.AddChild(ns[x], new ScriptVar(null, ScriptVar.Flags.Object));
-                    }
-
-                    baseVar = link.Var;
-                }
-            }
-
-            baseVar.AddChild(objectName, val);
-        }
-
-        public void AddMethod(string[] ns, string funcName, string[] args, ScriptCallbackCB callback, object userdata)
-        {
-            var fName = funcName;
-            var baseVar = Root;
-
-            if (ns != null)
-            {
-                var x = 0;
-                for (; x < ns.Length; x++)
-                {
-                    var link = baseVar.FindChild(ns[x]);
-
-                    if (link == null)
-                    {
-                        link = baseVar.AddChild(ns[x], new ScriptVar(null, ScriptVar.Flags.Object));
-                    }
-
-                    baseVar = link.Var;
-                }
-            }
-
-
-            var funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            funcVar.SetCallback(callback, userdata);
-
-            //do we have any arguments to create?
-            if (args != null)
-            {
-                foreach (string arg in args)
-                {
-                    funcVar.AddChildNoDup(arg, null);
-                }
-            }
-
-            baseVar.AddChild(fName, funcVar);
-        }
-
-        public void AddMethod(string funcName, string[] args, ScriptCallbackCB callback, object userdata)
-        {
-            var funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            funcVar.SetCallback(callback, userdata);
-
-            //do we have any arguments to create?
-            if (args != null)
-            {
-                foreach (string arg in args)
-                {
-                    funcVar.AddChildNoDup(arg, null);
-                }
-            }
-
-            Root.AddChild(funcName, funcVar);
-        }
-
         public void AddNative(string funcDesc, ScriptCallbackCB callbackCB, object userData)
         {
             var oldLex = currentLexer;
@@ -279,12 +202,12 @@ namespace DScript
 
             currentLexer.Match(ScriptLex.LexTypes.Id);
 
-            while(currentLexer.TokenType == (ScriptLex.LexTypes)'.')
+            while (currentLexer.TokenType == (ScriptLex.LexTypes)'.')
             {
                 currentLexer.Match((ScriptLex.LexTypes)'.');
 
                 var link = baseVar.FindChild(funcName);
-                if(link == null)
+                if (link == null)
                 {
                     link = baseVar.AddChild(funcName, new ScriptVar(null, ScriptVar.Flags.Object));
                 }
@@ -302,7 +225,39 @@ namespace DScript
             baseVar.AddChild(funcName, funcVar);
         }
 
-        private ScriptVarLink FindInScopes(String name)
+        public void AddNativeProperty(string propertyDesc, ScriptCallbackCB callbackCB, object userData)
+        {
+            var oldLex = currentLexer;
+            currentLexer = new ScriptLex(propertyDesc);
+
+            var baseVar = Root;
+
+            var propName = currentLexer.TokenString;
+
+            currentLexer.Match(ScriptLex.LexTypes.Id);
+
+            while (currentLexer.TokenType == (ScriptLex.LexTypes)'.')
+            {
+                currentLexer.Match((ScriptLex.LexTypes)'.');
+
+                var link = baseVar.FindChild(propName);
+                if (link == null)
+                {
+                    link = baseVar.AddChild(propName, new ScriptVar(null, ScriptVar.Flags.Object));
+                }
+                baseVar = link.Var;
+                propName = currentLexer.TokenString;
+                currentLexer.Match(ScriptLex.LexTypes.Id);
+            }
+            var propVar = new ScriptVar();
+            callbackCB.Invoke(propVar, null);
+
+            currentLexer = oldLex;
+
+            baseVar.AddChild(propName, propVar);
+        }
+
+        private ScriptVarLink FindInScopes(string name)
         {
             for (var x = scopes.Count - 1; x >= 0; x--)
             {

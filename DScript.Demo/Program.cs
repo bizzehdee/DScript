@@ -15,6 +15,8 @@ namespace DScript.Demo
 
             var testScript = File.ReadAllText("testscript.js");
 
+            engine.Trace();
+
             engine.Execute(testScript);
         }
     }

@@ -257,7 +257,7 @@ namespace DScript
             }
             if (IsDouble)
             {
-                return string.Format("{0:E}", GetDouble());
+                return string.Format("{0}", GetDouble());
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
@@ -864,7 +864,7 @@ namespace DScript
             return "\"" + builder.ToString() + "\"";
         }
 
-        private string GetParsableString()
+        public string GetParsableString()
         {
             if(IsNumeric)
             {

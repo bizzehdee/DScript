@@ -14,7 +14,7 @@ namespace DScript.Test
         {
             var file = File.ReadAllText(filename);
             var engine = new ScriptEngine();
-            var loader = new BaseFunctionProvider();
+            var loader = new EngineFunctionLoader();
             loader.RegisterFunctions(engine);
 
             engine.Root.AddChild("result", new ScriptVar(0));

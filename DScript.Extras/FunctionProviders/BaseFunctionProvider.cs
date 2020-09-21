@@ -17,22 +17,23 @@ namespace DScript.Extras.FunctionProviders
             engine.AddNative("function trace()", TraceImpl, engine);
             engine.AddNative("function charToInt(char)", CharToIntImpl, null);
             engine.AddNative("function parseInt(str)", IntParseIntImpl, null);
+
             engine.AddNative("function Object.dump()", ObjectDumpImpl, null);
             engine.AddNative("function Object.clone()", ObjectCloneImpl, null);
-            engine.AddNative("function Math.rand()", MathRandomImpl, null);
-            engine.AddNative("function Math.floor(double)", MathFloorImpl, null);
-            engine.AddNative("function Math.random()", MathRandomImpl, null);
-            engine.AddNative("function Math.randInt(min,max)", MathRandomIntImpl, null);
+
             engine.AddNative("function String.indexOf(search)", StringIndexOfImpl, null);
             engine.AddNative("function String.substring(lo,hi)", StringSubStringImpl, null);
             engine.AddNative("function String.charAt(pos)", StringCharAtImpl, null);
             engine.AddNative("function String.charCodeAt(pos)", StringCharCodeAtImpl, null);
             engine.AddNative("function String.fromCharCode(char)", StringFromCharCodeImpl, null);
             engine.AddNative("function String.split(sep)", StringSplitImpl, null);
+
             engine.AddNative("function Integer.parseInt(str)", IntParseIntImpl, null);
             engine.AddNative("function Integer.valueOf(str)", IntValueOfImpl, null);
+
             engine.AddNative("function JSON.stringify(obj,replacer)", JsonStringifyImpl, null);
             engine.AddNative("function JSON.parse(str)", EvalImpl, engine);
+
             engine.AddNative("function Array.contains(obj)", ArrayContainsImpl, null);
             engine.AddNative("function Array.remove(obj)", ArrayRemoveImpl, null);
             engine.AddNative("function Array.join(separator)", ArrayJoinImpl, null);
@@ -68,36 +69,6 @@ namespace DScript.Extras.FunctionProviders
         {
             var obj = var.GetParameter("this");
             var.GetReturnVar().CopyValue(obj);
-        }
-
-        private void MathRandomImpl(ScriptVar var, object userData)
-        {
-            var random = new Random();
-            var randomNumber = random.NextDouble();
-            var.GetReturnVar().SetDouble(randomNumber);
-        }
-        private void MathFloorImpl(ScriptVar var, object userData)
-        {
-            var.GetParameter("double");
-            var returnVal = 0;
-            if (var.IsNull == false)
-            {
-                var doubleVal = var.GetDouble();
-                returnVal = (int)Math.Floor(doubleVal);
-            }
-            var.GetReturnVar().SetInt(returnVal);
-        }
-
-        private void MathRandomIntImpl(ScriptVar var, object userData)
-        {
-            var random = new Random();
-
-            var min = var.GetParameter("min").GetInt();
-            var max = var.GetParameter("max").GetInt();
-
-            var randomInt = random.Next(min, max);
-
-            var.GetReturnVar().SetInt(randomInt);
         }
 
         private void CharToIntImpl(ScriptVar var, object userData)

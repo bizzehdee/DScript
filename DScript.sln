@@ -5,11 +5,16 @@ VisualStudioVersion = 16.0.30330.147
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DScript", "DScript\DScript.csproj", "{FC4BD1FC-B545-4EEA-AD76-A2ECE21EEDFE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DScript.Extras", "DScript.Extras\DScript.Extras.csproj", "{D2F3E3B5-18E1-4FFE-8E00-99E8ACDB346B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DScript.Extras", "DScript.Extras\DScript.Extras.csproj", "{D2F3E3B5-18E1-4FFE-8E00-99E8ACDB346B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DScript.Demo", "DScript.Demo\DScript.Demo.csproj", "{75C20ACD-B003-4384-A126-51EDEE5BC6E9}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DScript.Demo", "DScript.Demo\DScript.Demo.csproj", "{75C20ACD-B003-4384-A126-51EDEE5BC6E9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DScript.Test", "DScript.Test\DScript.Test.csproj", "{9B3FAE01-EE1F-4B4B-A0FA-B4FC0EA4E026}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DScript.Test", "DScript.Test\DScript.Test.csproj", "{9B3FAE01-EE1F-4B4B-A0FA-B4FC0EA4E026}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A47C4165-7762-4CCD-A2B9-FD28B941D5F9}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
