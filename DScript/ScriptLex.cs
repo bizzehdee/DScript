@@ -52,6 +52,14 @@ namespace DScript
         }
         #endregion
 
+        private LexTypes[] notAllowedBeforeRegex = new LexTypes[]
+        {
+            LexTypes.Id, LexTypes.Int, LexTypes.Float, LexTypes.Str, 
+            LexTypes.RTrue, LexTypes.RFalse, LexTypes.RNull, (LexTypes)']', 
+            (LexTypes)')', (LexTypes)'.', LexTypes.PlusPlus, LexTypes.MinusMinus,
+            LexTypes.Eof
+        };
+
         private string data;
         private readonly bool dataOwned;
         private readonly int dataStart;
@@ -61,6 +69,7 @@ namespace DScript
         public char CurrentChar { get; private set; }
         public char NextChar { get; private set; }
         public LexTypes TokenType { get; private set; }
+        public LexTypes PreviousTokenType { get; private set; }
         public int TokenStart { get; private set; }
         public int TokenEnd { get; private set; }
         public int TokenLastEnd { get; private set; }
@@ -85,9 +94,12 @@ namespace DScript
             GEqual,
             RShift,
             RShiftUnsigned,
+            RShiftUnsignedEqual,
             RShiftEqual,
             PlusEqual,
             MinusEqual,
+            SlashEqual,
+            PercentEqual,
             PlusPlus,
             MinusMinus,
             AndEqual,
@@ -95,6 +107,7 @@ namespace DScript
             OrEqual,
             OrOr,
             XorEqual,
+            RegExp,
             RListStart,
             RIf = RListStart,
             RElse,
@@ -177,6 +190,7 @@ namespace DScript
 
         public void GetNextToken()
         {
+            PreviousTokenType = TokenType;
             TokenType = LexTypes.Eof;
             TokenString = string.Empty;
 
@@ -386,7 +400,7 @@ namespace DScript
                 {
                     TokenType = LexTypes.NEqual;
                     GetNextChar();
-                    if(CurrentChar == '=')
+                    if (CurrentChar == '=') // !==
                     {
                         TokenType = LexTypes.NTypeEqual;
                         GetNextChar();
@@ -426,6 +440,12 @@ namespace DScript
                     {
                         TokenType = LexTypes.RShiftUnsigned;
                         GetNextChar();
+
+                        if (CurrentChar == '=') // >>>=
+                        {
+                            TokenType = LexTypes.RShiftUnsignedEqual;
+                            GetNextChar();
+                        }
                     }
                 }
                 else if (TokenType == (LexTypes)'+' && CurrentChar == '=') // +=
@@ -471,6 +491,61 @@ namespace DScript
                 else if (TokenType == (LexTypes)'^' && CurrentChar == '=') // ^=
                 {
                     TokenType = LexTypes.XorEqual;
+                    GetNextChar();
+                }
+                else if (TokenType == (LexTypes)'/')
+                {
+                    //omit regex for now
+                    /*
+                    TokenType = LexTypes.RegExp;
+                    foreach (var item in notAllowedBeforeRegex)
+                    {
+                        if(item == PreviousTokenType)
+                        {
+                            TokenType = (LexTypes)'/';
+                            break;
+                        }
+                    }
+
+                    if (TokenType == LexTypes.RegExp)
+                    {
+                        TokenString = "/";
+
+                        while(CurrentChar != 0 && CurrentChar != '/' && CurrentChar != '\n')
+                        {
+                            if(CurrentChar == '\\' && NextChar == '/')
+                            {
+                                TokenString += CurrentChar;
+                                GetNextChar();
+                            }
+
+                            TokenString += CurrentChar;
+                            GetNextChar();
+                        }
+
+                        if(CurrentChar == '/')
+                        {
+
+                            do
+                            {
+                                TokenString += CurrentChar;
+                                GetNextChar();
+                            } while (CurrentChar == 'g' || CurrentChar == 'i' || CurrentChar == 'm' || CurrentChar == 'y');
+                        }
+                        else
+                        {
+
+                        }
+                    }
+                    else */if (CurrentChar == '=') // /=
+                    {
+                        TokenType = LexTypes.SlashEqual;
+                        GetNextChar();
+                    }
+                }
+                else if (TokenType == (LexTypes)'%' && CurrentChar == '=') // %=
+                {
+                    TokenType = LexTypes.PercentEqual;
                     GetNextChar();
                 }
             }

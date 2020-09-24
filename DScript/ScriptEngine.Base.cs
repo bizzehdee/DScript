@@ -30,7 +30,9 @@ namespace DScript
 
             if (currentLexer.TokenType == (ScriptLex.LexTypes)'=' ||
                 currentLexer.TokenType == ScriptLex.LexTypes.PlusEqual ||
-                currentLexer.TokenType == ScriptLex.LexTypes.MinusEqual)
+                currentLexer.TokenType == ScriptLex.LexTypes.MinusEqual ||
+                currentLexer.TokenType == ScriptLex.LexTypes.SlashEqual ||
+                currentLexer.TokenType == ScriptLex.LexTypes.PercentEqual)
             {
                 if (execute && leftHandSide.Owned == false)
                 {
@@ -69,6 +71,18 @@ namespace DScript
                         case ScriptLex.LexTypes.MinusEqual:
                             {
                                 var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'-');
+                                leftHandSide.ReplaceWith(res);
+                            }
+                            break;
+                        case ScriptLex.LexTypes.SlashEqual:
+                            {
+                                var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'/');
+                                leftHandSide.ReplaceWith(res);
+                            }
+                            break;
+                        case ScriptLex.LexTypes.PercentEqual:
+                            {
+                                var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'%');
                                 leftHandSide.ReplaceWith(res);
                             }
                             break;
