@@ -28,17 +28,7 @@ namespace DScript
     {
         private void Statement(ref bool execute)
         {
-            if (currentLexer.TokenType == ScriptLex.LexTypes.Id ||
-                currentLexer.TokenType == ScriptLex.LexTypes.Int ||
-                currentLexer.TokenType == ScriptLex.LexTypes.Float ||
-                currentLexer.TokenType == ScriptLex.LexTypes.Str ||
-                currentLexer.TokenType == (ScriptLex.LexTypes)'-')
-            {
-                //execite a basic statement
-                Base(ref execute);
-                currentLexer.Match((ScriptLex.LexTypes)';');
-            }
-            else if (currentLexer.TokenType == (ScriptLex.LexTypes)'{')
+            if (currentLexer.TokenType == (ScriptLex.LexTypes)'{')
             {
                 //code block
                 Block(ref execute);
@@ -304,9 +294,11 @@ namespace DScript
                     }
                 }
             }
-            else
+            else 
             {
-                currentLexer.Match(ScriptLex.LexTypes.Eof);
+                //execute a basic statement
+                Base(ref execute);
+                currentLexer.Match((ScriptLex.LexTypes)';');
             }
         }
     }
