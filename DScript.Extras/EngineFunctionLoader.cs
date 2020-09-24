@@ -11,9 +11,6 @@ namespace DScript.Extras
     {
         public void RegisterFunctions(ScriptEngine engine)
         {
-            var baseLoader = new BaseFunctionProvider();
-            baseLoader.RegisterFunctions(engine);
-
             var typesWithMyAttribute =
             // Note the AsParallel here, this will parallelize everything after.
             from a in AppDomain.CurrentDomain.GetAssemblies().AsParallel()

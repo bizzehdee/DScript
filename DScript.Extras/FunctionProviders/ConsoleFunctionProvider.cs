@@ -8,8 +8,6 @@ namespace DScript.Extras.FunctionProviders
     [ScriptClass("console")]
     public static class ConsoleFunctionProvider
     {
-
-
         [ScriptMethod("log", "val")]
         public static void ConsoleLogImpl(ScriptVar var, object userData)
         {
