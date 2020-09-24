@@ -287,47 +287,12 @@ namespace DScript
                     }
                 }
             }
-            else if (CurrentChar == '"') //Strings
+            else if (CurrentChar == '\'' || CurrentChar == '\"') //Strings again
             {
-                GetNextChar();
-                while (CurrentChar != (char)0 && CurrentChar != '"')
-                {
-                    if (CurrentChar == '\\')
-                    {
-                        GetNextChar();
-                        switch (CurrentChar)
-                        {
-                            case 'n':
-                                TokenString += '\n';
-                                break;
-                            case '"':
-                                TokenString += '"';
-                                break;
-                            case '\\':
-                                TokenString += '\\';
-                                break;
-                            default:
-                                TokenString += CurrentChar;
-                                break;
-                        }
-                    }
-                    else
-                    {
-                        TokenString += CurrentChar;
-                    }
-
-                    GetNextChar();
-                }
-
+                var endChar = CurrentChar;
                 GetNextChar();
 
-                TokenType = LexTypes.Str;
-            }
-            else if (CurrentChar == '\'') //Strings again
-            {
-                GetNextChar();
-
-                while (CurrentChar != (char)0 && CurrentChar != '\'')
+                while (CurrentChar != (char)0 && CurrentChar != endChar)
                 {
                     if (CurrentChar == '\\')
                     {
@@ -335,23 +300,27 @@ namespace DScript
 
                         switch (CurrentChar)
                         {
+                            case '\n': break;
                             case 'n':
                                 TokenString += '\n';
-                                break;
-                            case 'a':
-                                TokenString += '\a';
                                 break;
                             case 'r':
                                 TokenString += '\r';
                                 break;
+                            case 'a':
+                                TokenString += '\a';
+                                break;
+                            case 'b':
+                                TokenString += '\b';
+                                break;
+                            case 'f':
+                                TokenString += '\f';
+                                break;
                             case 't':
                                 TokenString += '\t';
                                 break;
-                            case '\'':
-                                TokenString += '\'';
-                                break;
-                            case '\\':
-                                TokenString += '\\';
+                            case 'v':
+                                TokenString += '\v';
                                 break;
                             case 'x':
                                 {
