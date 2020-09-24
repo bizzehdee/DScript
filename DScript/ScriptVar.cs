@@ -257,7 +257,7 @@ namespace DScript
             }
             if (IsDouble)
             {
-                return string.Format("{0}", GetDouble());
+                return string.Format("{0:E}", GetDouble());
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
@@ -841,6 +841,18 @@ namespace DScript
                         break;
                     case '\a':
                         builder.Append("\\a");
+                        break;
+                    case '\b':
+                        builder.Append("\\b");
+                        break;
+                    case '\f':
+                        builder.Append("\\f");
+                        break;
+                    case '\t':
+                        builder.Append("\\t");
+                        break;
+                    case '\v':
+                        builder.Append("\\v");
                         break;
                     case '"':
                         builder.Append("\\\"");

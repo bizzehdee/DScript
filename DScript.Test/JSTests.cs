@@ -37,6 +37,7 @@ namespace DScript.Test
             Assert.IsTrue(resultAsBool, ex != null ? ex.Message : string.Empty);
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Used in reflection")]
         private static string[] GetTestCases()
         {
             var files = Directory.EnumerateFiles("Tests", "*.js");

@@ -57,7 +57,6 @@ namespace DScript
         private readonly int dataStart;
         private readonly int dataEnd;
         private int dataPos;
-        private int currColumnNumber;
 
         public char CurrentChar { get; private set; }
         public char NextChar { get; private set; }
@@ -167,19 +166,17 @@ namespace DScript
 
             dataPos++;
 
-            currColumnNumber++;
+            ColumnNumber++;
 
             if (CurrentChar == '\n')
             {
                 LineNumber++;
-                currColumnNumber = 1;
+                ColumnNumber = 1;
             }
         }
 
         public void GetNextToken()
         {
-            ColumnNumber = currColumnNumber;
-
             TokenType = LexTypes.Eof;
             TokenString = string.Empty;
 
@@ -235,7 +232,6 @@ namespace DScript
                     case "null": TokenType = LexTypes.RNull; break;
                     case "undefined": TokenType = LexTypes.RUndefined; break;
                     case "new": TokenType = LexTypes.RNew; break;
-
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers
@@ -564,6 +560,16 @@ namespace DScript
             }
 
             GetNextToken();
+        }
+
+        public static string LexTypesToString(LexTypes lexTypes)
+        {
+            if(lexTypes < (LexTypes)256 && lexTypes > 0)
+            {
+                return string.Format("{0}", (char)lexTypes);
+            }
+
+            return lexTypes.ToString();
         }
     }
 }
