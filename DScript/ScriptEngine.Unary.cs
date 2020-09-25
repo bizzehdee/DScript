@@ -39,6 +39,17 @@ namespace DScript
                     CreateLink(ref a, res);
                 }
             }
+            else if (currentLexer.TokenType == ScriptLex.LexTypes.RTypeOf)
+            {
+                currentLexer.Match(ScriptLex.LexTypes.RTypeOf);
+                a = Factor(ref execute);
+                if (execute)
+                {
+                    var varType = new ScriptVar(a.Var.GetObjectType());
+
+                    CreateLink(ref a, varType);
+                }
+            }
             else if (currentLexer.TokenType == ScriptLex.LexTypes.PlusPlus || currentLexer.TokenType == ScriptLex.LexTypes.MinusMinus)
             {
                 var op = currentLexer.TokenType == ScriptLex.LexTypes.PlusPlus ? '+' : '-';

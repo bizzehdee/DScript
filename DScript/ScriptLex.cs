@@ -124,6 +124,7 @@ namespace DScript
             RNull,
             RUndefined,
             RNew,
+            RTypeOf,
             RListEnd
         }
 
@@ -246,6 +247,7 @@ namespace DScript
                     case "null": TokenType = LexTypes.RNull; break;
                     case "undefined": TokenType = LexTypes.RUndefined; break;
                     case "new": TokenType = LexTypes.RNew; break;
+                    case "typeof": TokenType = LexTypes.RTypeOf; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers
