@@ -23,6 +23,7 @@ SOFTWARE.
 using System;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace DScript
 {
@@ -74,8 +75,9 @@ namespace DScript
             String = 32,
             Null = 64,
             Native = 128,
+            Regexp = 256,
             NumericMask = Null | Double | Integer,
-            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null
+            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp
         }
 
         public ScriptVarLink FirstChild { get; set; }
@@ -147,6 +149,31 @@ namespace DScript
                 if (double.TryParse(strData, out doubleData) == false)
                 {
                     doubleData = Convert.ToDouble(strData);
+                }
+            }
+            else if(flags.HasFlag(Flags.Regexp))
+            {
+                var lastIndexOf = val.LastIndexOf('/');
+                if (lastIndexOf > 0)
+                {
+                    var regexStr = val.Substring(1, lastIndexOf - 1);
+                    var opts = val.Substring(lastIndexOf + 1);
+
+                    var regexOpts = RegexOptions.Compiled | RegexOptions.ECMAScript;
+
+                    foreach (var c in opts)
+                    {
+                        if (c == 'i')
+                        {
+                            regexOpts |= RegexOptions.IgnoreCase;
+                        }
+                        else if(c=='m')
+                        {
+                            regexOpts |= RegexOptions.Multiline;
+                        }
+                    }
+
+                    data = new Regex(regexStr, regexOpts);
                 }
             }
             else

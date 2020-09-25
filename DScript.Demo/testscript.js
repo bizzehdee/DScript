@@ -11,4 +11,11 @@ console.log(x);
 
 var to = typeof x;
 
-console.log(to == "number");
+var p = to == "number" ? "yes" : "no";
+var testString = "For more information, see Chapter 3.4.5.1";
+var myRegex = /see (chapter \d+(\.\d)*)/i;
+
+var matches = testString.match(myRegex);
+console.log(matches[1]);
+
+console.log(p);

@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Text.RegularExpressions;
 
 namespace DScript
 {
@@ -498,7 +499,7 @@ namespace DScript
                 else if (TokenType == (LexTypes)'/')
                 {
                     //omit regex for now
-                    /*
+                    
                     TokenType = LexTypes.RegExp;
                     foreach (var item in notAllowedBeforeRegex)
                     {
@@ -527,7 +528,16 @@ namespace DScript
 
                         if(CurrentChar == '/')
                         {
-
+                            var regexStr = TokenString.Substring(1);
+                            try
+                            {
+                                var regexObj = new Regex(regexStr, RegexOptions.ECMAScript);
+                            }
+                            catch(Exception ex)
+                            {
+                                throw new ScriptException("Invalid RegEx", ex);
+                            }
+                            
                             do
                             {
                                 TokenString += CurrentChar;
@@ -539,7 +549,7 @@ namespace DScript
 
                         }
                     }
-                    else */if (CurrentChar == '=') // /=
+                    else if (CurrentChar == '=') // /=
                     {
                         TokenType = LexTypes.SlashEqual;
                         GetNextChar();

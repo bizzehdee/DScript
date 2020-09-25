@@ -268,6 +268,13 @@ namespace DScript
                 }
             }
 
+            if(currentLexer.TokenType == ScriptLex.LexTypes.RegExp)
+            {
+                var a = new ScriptVar(currentLexer.TokenString, ScriptVar.Flags.Regexp);
+                currentLexer.Match(currentLexer.TokenType);
+                return new ScriptVarLink(a, null);
+            }
+
             currentLexer.Match(ScriptLex.LexTypes.Eof);
 
             return null;

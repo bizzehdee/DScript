@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace DScript.Extras.FunctionProviders
 {
@@ -83,6 +84,31 @@ namespace DScript.Extras.FunctionProviders
             for (int x = 0; x < spltStrs.Length; x++)
             {
                 var.ReturnVar.SetArrayIndex(x, new ScriptVar(spltStrs[x]));
+            }
+
+        }
+
+        [ScriptMethod("match", "regex")]
+        public static void StringMatchImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var regex = (Regex)var.GetParameter("regex").GetData();
+
+            var.ReturnVar.SetArray();
+
+            var match = regex.Match(str);
+
+            if (match.Success)
+            {
+                var idx = 0;
+                foreach (Group m in match.Groups)
+                {
+                    var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(m.Value));
+                }
+            }
+            else
+            {
+                var.ReturnVar.SetArrayIndex(0, new ScriptVar(""));
             }
 
         }
