@@ -28,6 +28,15 @@ Open sourced object oriented Javascript based scripting language implemented in 
 - Eval/Exec
 - ...more
 
+***Arithmetic operators***
+++, --, +, -, *, /, %
+
+***Comparison operators***
+<, >, <=, >=, ==, !=
+
+***Boolean operators***
+!, &, |, ^, &&, ||
+
 ***Provides***
 - Console I/O
   - log
