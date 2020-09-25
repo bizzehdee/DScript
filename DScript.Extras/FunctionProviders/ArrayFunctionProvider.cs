@@ -25,7 +25,7 @@ namespace DScript.Extras.FunctionProviders
                 v = v.Next;
             }
 
-            var.GetReturnVar().SetInt(contains ? 1 : 0);
+            var.ReturnVar.Int = (contains ? 1 : 0);
         }
 
         [ScriptMethod("remove", "obj")]
@@ -72,7 +72,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var builder = new StringBuilder();
 
-            var separator = var.GetParameter("separator").GetString();
+            var separator = var.GetParameter("separator").String;
             var arr = var.GetParameter("this");
 
             var arrayLength = arr.GetArrayLength();
@@ -83,12 +83,12 @@ namespace DScript.Extras.FunctionProviders
                     builder.Append(separator);
                 }
 
-                var str = arr.GetArrayIndex(x).GetString();
+                var str = arr.GetArrayIndex(x).String;
                 builder.Append(str);
 
             }
 
-            var.GetReturnVar().SetString(builder.ToString());
+            var.ReturnVar.String = builder.ToString();
         }
     }
 }

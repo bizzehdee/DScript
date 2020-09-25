@@ -46,13 +46,13 @@ namespace DScript
                 if (op == ScriptLex.LexTypes.AndAnd)
                 {
                     op = (ScriptLex.LexTypes)'&';
-                    shortcut = !a.Var.GetBool();
+                    shortcut = !a.Var.Bool;
                     isBool = true;
                 }
                 else if (op == ScriptLex.LexTypes.OrOr)
                 {
                     op = (ScriptLex.LexTypes)'|';
-                    shortcut = a.Var.GetBool();
+                    shortcut = a.Var.Bool;
                     isBool = true;
                 }
 
@@ -69,8 +69,8 @@ namespace DScript
                 {
                     if (isBool)
                     {
-                        var newA = new ScriptVar(a.Var.GetBool());
-                        var newB = new ScriptVar(b.Var.GetBool());
+                        var newA = new ScriptVar(a.Var.Bool);
+                        var newB = new ScriptVar(b.Var.Bool);
 
                         CreateLink(ref a, newA);
                         CreateLink(ref b, newB);

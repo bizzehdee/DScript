@@ -96,7 +96,7 @@ namespace DScript
                                 }
                                 else if (a.Var.IsString && name == "length")
                                 {
-                                    var length = a.Var.GetString().Length;
+                                    var length = a.Var.String.Length;
                                     child = new ScriptVarLink(new ScriptVar(length), null);
                                 }
                                 else
@@ -119,7 +119,7 @@ namespace DScript
 
                         if (execute)
                         {
-                            var child = a.Var.FindChildOrCreate(index.Var.GetString());
+                            var child = a.Var.FindChildOrCreate(index.Var.String);
                             parent = a.Var;
                             a = child;
                         }

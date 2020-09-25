@@ -38,23 +38,23 @@ namespace DScript
                 currentLexer.Match(op);
                 var b = Base(ref execute);
 
-                var shift = execute ? b.Var.GetInt() : 0;
+                var shift = execute ? b.Var.Int : 0;
 
                 if (execute)
                 {
                     if (op == ScriptLex.LexTypes.LShift)
                     {
-                        a.Var.SetInt(a.Var.GetInt() << shift);
+                        a.Var.Int = (a.Var.Int << shift);
                     }
 
                     if (op == ScriptLex.LexTypes.RShift)
                     {
-                        a.Var.SetInt(a.Var.GetInt() >> shift);
+                        a.Var.Int = (a.Var.Int >> shift);
                     }
 
                     if (op == ScriptLex.LexTypes.RShiftUnsigned)
                     {
-                        a.Var.SetInt((int)(((uint)a.Var.GetInt()) >> shift));
+                        a.Var.Int = ((int)(((uint)a.Var.Int) >> shift));
                     }
                 }
             }

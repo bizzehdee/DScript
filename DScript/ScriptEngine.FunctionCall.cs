@@ -85,7 +85,7 @@ namespace DScript
                 else
                 {
                     var oldLex = currentLexer;
-                    var newLex = new ScriptLex(function.Var.GetString());
+                    var newLex = new ScriptLex(function.Var.String);
                     currentLexer = newLex;
 
                     try

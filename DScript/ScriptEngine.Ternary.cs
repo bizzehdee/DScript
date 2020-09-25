@@ -44,7 +44,7 @@ namespace DScript
                 }
                 else
                 {
-                    bool first = leftHandSide.Var.GetBool();
+                    var first = leftHandSide.Var.Bool;
 
                     if (first)
                     {

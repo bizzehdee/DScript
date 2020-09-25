@@ -52,7 +52,7 @@ namespace DScript
         }
         #endregion
 
-        private LexTypes[] notAllowedBeforeRegex = new LexTypes[]
+        private readonly LexTypes[] notAllowedBeforeRegex = new LexTypes[]
         {
             LexTypes.Id, LexTypes.Int, LexTypes.Float, LexTypes.Str, 
             LexTypes.RTrue, LexTypes.RFalse, LexTypes.RNull, (LexTypes)']', 

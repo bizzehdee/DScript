@@ -226,7 +226,31 @@ namespace DScript
             get { return GetParameter(index); }
         }
 
-        public int GetInt()
+        public int Int
+        {
+            get
+            {
+                return GetInt();
+            }
+            set
+            {
+                SetInt(value);
+            }
+        }
+
+        public double Float
+        {
+            get
+            {
+                return GetDouble();
+            }
+            set
+            {
+                SetDouble(value);
+            }
+        }
+
+        private int GetInt()
         {
             if (IsInt) return intData;
             if (IsNull) return 0;
@@ -235,29 +259,48 @@ namespace DScript
             return 0;
         }
 
-        public bool GetBool()
+        public bool Bool
         {
-            return GetInt() != 0;
+            get
+            {
+                return Int != 0;
+            }
+            set
+            {
+                Int = value ? 1 : 0;
+            }
         }
 
-        public double GetDouble()
+        private double GetDouble()
         {
             if (IsDouble) return doubleData;
-            if (IsInt) return (double)GetInt();
+            if (IsInt) return (double)Int;
             if (IsNull) return 0;
             if (IsUndefined) return 0;
             return 0;
         }
 
-        public string GetString()
+        public string String
+        {
+            get
+            {
+                return GetString();
+            }
+            set
+            {
+                SetString(value);
+            }
+        }
+
+        private string GetString()
         {
             if (IsInt)
             {
-                return string.Format("{0:D}", GetInt());
+                return string.Format("{0:D}", Int);
             }
             if (IsDouble)
             {
-                return string.Format("{0:E}", GetDouble());
+                return string.Format("{0}", Float);
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
@@ -275,7 +318,22 @@ namespace DScript
             return data;
         }
 
-        public void SetInt(int num)
+        public string GetObjectType()
+        {
+            if (IsInt || IsDouble)
+            {
+                return "number";
+            }
+            if (IsObject) return "object";
+            if (IsArray) return "array";
+            if (IsFunction) return "function";
+            if (IsString) return "string";
+            if (IsNull) return "null";
+            
+            return "undefined";
+        }
+
+        private void SetInt(int num)
         {
             flags = (flags & ~Flags.VarTypeMask) | Flags.Integer;
             intData = num;
@@ -283,7 +341,7 @@ namespace DScript
             data = null;
         }
 
-        public void SetDouble(double num)
+        private void SetDouble(double num)
         {
             flags = (flags & ~Flags.VarTypeMask) | Flags.Double;
             intData = 0;
@@ -291,7 +349,7 @@ namespace DScript
             data = null;
         }
 
-        public void SetString(string str)
+        private void SetString(string str)
         {
             flags = (flags & ~Flags.VarTypeMask) | Flags.String;
             intData = 0;
@@ -373,7 +431,7 @@ namespace DScript
             return FindChildOrCreate(parts[0], Flags.Object).Var.FindChildOrCreateByPath(parts[1]);
         }
 
-        public ScriptVarLink AddChild(String childName, ScriptVar child)
+        public ScriptVarLink AddChild(string childName, ScriptVar child)
         {
             if (IsUndefined)
             {
@@ -402,7 +460,7 @@ namespace DScript
             return link;
         }
 
-        public ScriptVarLink AddChildNoDup(String childName, ScriptVar child)
+        public ScriptVarLink AddChildNoDup(string childName, ScriptVar child)
         {
             var c = child ?? new ScriptVar();
 
@@ -473,22 +531,12 @@ namespace DScript
         {
             get
             {
-                return GetReturnVar();
+                return GetParameter(ReturnVarName);
             }
             set
             {
-                SetReturnVar(value);
+                FindChildOrCreate(ReturnVarName).ReplaceWith(value);
             }
-        }
-
-        public ScriptVar GetReturnVar()
-        {
-            return GetParameter(ReturnVarName);
-        }
-
-        public void SetReturnVar(ScriptVar var)
-        {
-            FindChildOrCreate(ReturnVarName).ReplaceWith(var);
         }
 
         public ScriptVar GetParameter(string name)
@@ -538,8 +586,7 @@ namespace DScript
 
             while (link != null)
             {
-                int outputVal;
-                if (int.TryParse(link.Name, out outputVal))
+                if (int.TryParse(link.Name, out int outputVal))
                 {
                     if (outputVal > highest) highest = outputVal;
                 }
@@ -568,7 +615,7 @@ namespace DScript
 
             using (var resV = MathsOp(v, ScriptLex.LexTypes.Equal))
             {
-                res = resV.GetBool();
+                res = resV.Bool;
             }
 
             return res;
@@ -587,7 +634,7 @@ namespace DScript
                 if (equal)
                 {
                     ScriptVar contents = a.MathsOp(b, ScriptLex.LexTypes.Equal);
-                    if (!contents.GetBool()) equal = false;
+                    if (!contents.Bool) equal = false;
                 }
 
                 if (op == ScriptLex.LexTypes.TypeEqual)
@@ -616,8 +663,8 @@ namespace DScript
                 if (!a.IsDouble && !b.IsDouble)
                 {
                     //ints
-                    var da = a.GetInt();
-                    var db = b.GetInt();
+                    var da = a.Int;
+                    var db = b.Int;
 
                     switch (opc)
                     {
@@ -642,8 +689,8 @@ namespace DScript
                 else
                 {
                     //doubles
-                    var da = a.GetDouble();
-                    var db = b.GetDouble();
+                    var da = a.Float;
+                    var db = b.Float;
 
                     switch (opc)
                     {
@@ -920,7 +967,7 @@ namespace DScript
 
         public override string ToString()
         {
-            return string.Format("{0} , {1}", flags.ToString(), GetString());
+            return string.Format("{0} , {1}", GetObjectType(), String);
         }
 
         internal void SetData(object data)

@@ -11,16 +11,16 @@ namespace DScript.Extras.FunctionProviders
         public static void EvalImpl(ScriptVar var, object userData)
         {
             var engine = (ScriptEngine)userData;
-            var script = var.GetParameter("str").GetString();
+            var script = var.GetParameter("str").String;
             var returnVal = engine.EvalComplex(script);
-            var.SetReturnVar(returnVal.Var);
+            var.ReturnVar = returnVal.Var;
         }
 
         [ScriptMethod("exec", "str", AppearAtRoot = true)]
         public static void ExecImpl(ScriptVar var, object userData)
         {
             var engine = (ScriptEngine)userData;
-            var script = var.GetParameter("str").GetString();
+            var script = var.GetParameter("str").String;
             engine.Execute(script);
         }
 
@@ -34,10 +34,10 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("charToInt", AppearAtRoot = true)]
         public static void CharToIntImpl(ScriptVar var, object userData)
         {
-            var charStr = var.GetParameter("char").GetString();
+            var charStr = var.GetParameter("char").String;
             var charParam = charStr[0];
             var charAsInt = Convert.ToInt32(charParam);
-            var.GetReturnVar().SetInt(charAsInt);
+            var.ReturnVar.Int = charAsInt;
         }
     }
 }

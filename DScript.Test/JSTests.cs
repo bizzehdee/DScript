@@ -33,7 +33,7 @@ namespace DScript.Test
             engine.Root.Trace(0, "root");
 
             var result = engine.Root.GetParameter("result");
-            var resultAsBool = result.GetBool();
+            var resultAsBool = result.Bool;
             Assert.IsTrue(resultAsBool, ex != null ? ex.Message : string.Empty);
         }
 

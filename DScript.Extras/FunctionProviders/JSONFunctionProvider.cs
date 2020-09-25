@@ -12,9 +12,9 @@ namespace DScript.Extras.FunctionProviders
         public static void EvalImpl(ScriptVar var, object userData)
         {
             var engine = (ScriptEngine)userData;
-            var script = var.GetParameter("str").GetString();
+            var script = var.GetParameter("str").String;
             var returnVal = engine.EvalComplex(script);
-            var.SetReturnVar(returnVal.Var);
+            var.ReturnVar = returnVal.Var;
         }
 
 
@@ -29,7 +29,7 @@ namespace DScript.Extras.FunctionProviders
             var streamReader = new StreamReader(stream);
             var json = streamReader.ReadToEnd();
 
-            var.GetReturnVar().SetString(json);
+            var.ReturnVar.String = json;
         }
     }
 }

@@ -101,7 +101,7 @@ namespace DScript
                 var varLink = Base(ref execute);
                 currentLexer.Match((ScriptLex.LexTypes)')');
 
-                bool condition = execute && varLink.Var.GetBool();
+                bool condition = execute && varLink.Var.Bool;
                 bool noExecute = false;
                 if (condition)
                 {
@@ -136,7 +136,7 @@ namespace DScript
                 var whileConditionStart = currentLexer.TokenStart;
                 var noExecute = false;
                 var condition = Base(ref execute);
-                var loopCondition = execute && condition.Var.GetBool();
+                var loopCondition = execute && condition.Var.Bool;
 
                 var whileCond = currentLexer.GetSubLex(whileConditionStart);
                 currentLexer.Match((ScriptLex.LexTypes)')');
@@ -164,7 +164,7 @@ namespace DScript
 
                     condition = Base(ref execute);
 
-                    loopCondition = execute && condition.Var.GetBool();
+                    loopCondition = execute && condition.Var.Bool;
 
                     if (loopCondition)
                     {
@@ -187,7 +187,7 @@ namespace DScript
                 var forConditionStart = currentLexer.TokenStart;
                 var condition = Base(ref execute);
                 var noExecute = false;
-                var loopCondition = execute && condition.Var.GetBool();
+                var loopCondition = execute && condition.Var.Bool;
 
                 var forCondition = currentLexer.GetSubLex(forConditionStart);
 
@@ -230,7 +230,7 @@ namespace DScript
 
                     condition = Base(ref execute);
 
-                    loopCondition = condition.Var.GetBool();
+                    loopCondition = condition.Var.Bool;
 
                     if (execute && loopCondition)
                     {

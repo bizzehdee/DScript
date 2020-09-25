@@ -10,31 +10,31 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("indexOf", "search")]
         public static void StringIndexOfImpl(ScriptVar var, object userData)
         {
-            var search = var.GetParameter("search").GetString();
-            var searchInStr = var.GetParameter("this").GetString();
+            var search = var.GetParameter("search").String;
+            var searchInStr = var.GetParameter("this").String;
 
             var index = searchInStr.IndexOf(search);
 
-            var.GetReturnVar().SetInt(index);
+            var.ReturnVar.Int = index;
         }
 
         [ScriptMethod("substring", "lo", "hi")]
         public static void StringSubStringImpl(ScriptVar var, object userData)
         {
-            var str = var.GetParameter("this").GetString();
-            var lo = var.GetParameter("lo").GetInt();
-            var hi = var.GetParameter("hi").GetInt();
+            var str = var.GetParameter("this").String;
+            var lo = var.GetParameter("lo").Int;
+            var hi = var.GetParameter("hi").Int;
 
             var substr = str.Substring(lo, hi - lo);
 
-            var.GetReturnVar().SetString(substr);
+            var.ReturnVar.String = substr;
         }
 
         [ScriptMethod("charAt", "pos")]
         public static void StringCharAtImpl(ScriptVar var, object userData)
         {
-            var str = var.GetParameter("this").GetString();
-            var pos = var.GetParameter("pos").GetInt();
+            var str = var.GetParameter("this").String;
+            var pos = var.GetParameter("pos").Int;
 
             var charStr = string.Empty;
             if (str.Length > pos)
@@ -42,14 +42,14 @@ namespace DScript.Extras.FunctionProviders
                 charStr = str[pos].ToString();
             }
 
-            var.GetReturnVar().SetString(charStr);
+            var.ReturnVar.String = charStr;
         }
 
         [ScriptMethod("charCodeAt", "pos")]
         public static void StringCharCodeAtImpl(ScriptVar var, object userData)
         {
-            var str = var.GetParameter("this").GetString();
-            var pos = var.GetParameter("pos").GetInt();
+            var str = var.GetParameter("this").String;
+            var pos = var.GetParameter("pos").Int;
 
             var charCode = 0;
             if (str.Length > pos)
@@ -57,32 +57,32 @@ namespace DScript.Extras.FunctionProviders
                 charCode = Convert.ToInt32(str[pos]);
             }
 
-            var.GetReturnVar().SetInt(charCode);
+            var.ReturnVar.Int = charCode;
         }
 
         [ScriptMethod("fromCharCode", "char")]
         public static void StringFromCharCodeImpl(ScriptVar var, object userData)
         {
-            var charVar = var.GetParameter("char").GetInt();
+            var charVar = var.GetParameter("char").Int;
 
             var charAsChar = Convert.ToChar(charVar);
 
-            var.GetReturnVar().SetString(charAsChar.ToString());
+            var.ReturnVar.String = charAsChar.ToString();
         }
 
         [ScriptMethod("split", "sep")]
         public static void StringSplitImpl(ScriptVar var, object userData)
         {
-            var str = var.GetParameter("this").GetString();
-            var sep = var.GetParameter("sep").GetString();
+            var str = var.GetParameter("this").String;
+            var sep = var.GetParameter("sep").String;
 
             var spltStrs = str.Split(new[] { sep }, StringSplitOptions.None);
 
 
-            var.GetReturnVar().SetArray();
+            var.ReturnVar.SetArray();
             for (int x = 0; x < spltStrs.Length; x++)
             {
-                var.GetReturnVar().SetArrayIndex(x, new ScriptVar(spltStrs[x]));
+                var.ReturnVar.SetArrayIndex(x, new ScriptVar(spltStrs[x]));
             }
 
         }

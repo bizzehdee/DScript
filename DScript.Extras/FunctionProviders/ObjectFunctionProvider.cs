@@ -18,7 +18,7 @@ namespace DScript.Extras.FunctionProviders
         public static void ObjectCloneImpl(ScriptVar var, object userData)
         {
             var obj = var.GetParameter("this");
-            var.GetReturnVar().CopyValue(obj);
+            var.ReturnVar.CopyValue(obj);
         }
     }
 }
