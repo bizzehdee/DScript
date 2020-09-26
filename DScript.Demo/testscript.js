@@ -19,3 +19,24 @@ var matches = testString.match(myRegex);
 console.log(matches[1]);
 
 console.log(p);
+
+try {
+
+    var x = 1;
+    throw "this broke";
+}
+catch (ex) {
+    var pns = "Exception message: " + ex;
+    console.log(pns);
+}
+
+try {
+
+    var x = 1;
+}
+catch (ex) {
+
+}
+finally {
+
+}

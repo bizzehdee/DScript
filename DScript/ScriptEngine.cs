@@ -316,8 +316,13 @@ namespace DScript
 
         private ScriptVarLink ParseFunctionDefinition()
         {
-            currentLexer.Match(ScriptLex.LexTypes.RFunction);
-            var funcName = String.Empty;
+            return ParseDefinition(ScriptLex.LexTypes.RFunction);
+        }
+
+        private ScriptVarLink ParseDefinition(ScriptLex.LexTypes lexType)
+        {
+            currentLexer.Match(lexType);
+            var funcName = string.Empty;
 
             //named function
             if (currentLexer.TokenType == ScriptLex.LexTypes.Id)
@@ -327,7 +332,11 @@ namespace DScript
             }
 
             var funcVar = new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Function), funcName);
-            ParseFunctionArguments(funcVar.Var);
+
+            if (lexType == ScriptLex.LexTypes.RFunction || lexType == ScriptLex.LexTypes.RCatch)
+            {
+                ParseFunctionArguments(funcVar.Var);
+            }
 
             var funcBegin = currentLexer.TokenStart;
             var noExecute = false;

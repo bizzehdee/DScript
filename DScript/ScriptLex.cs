@@ -126,6 +126,10 @@ namespace DScript
             RUndefined,
             RNew,
             RTypeOf,
+            RTry,
+            RCatch,
+            RFinally,
+            RThrow,
             RListEnd
         }
 
@@ -249,6 +253,10 @@ namespace DScript
                     case "undefined": TokenType = LexTypes.RUndefined; break;
                     case "new": TokenType = LexTypes.RNew; break;
                     case "typeof": TokenType = LexTypes.RTypeOf; break;
+                    case "try": TokenType = LexTypes.RTry; break;
+                    case "catch": TokenType = LexTypes.RCatch; break;
+                    case "finally": TokenType = LexTypes.RFinally; break;
+                    case "throw": TokenType = LexTypes.RThrow; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers

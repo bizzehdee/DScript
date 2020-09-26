@@ -294,6 +294,104 @@ namespace DScript
                     }
                 }
             }
+            else if(currentLexer.TokenType == ScriptLex.LexTypes.RTry)
+            {
+                var tryBlock = ParseDefinition(ScriptLex.LexTypes.RTry);
+                ScriptVarLink catchBlock = null, finallyBlock = null;
+
+                var originalLexer = currentLexer;
+
+                if (currentLexer.TokenType == ScriptLex.LexTypes.RCatch)
+                {
+                    catchBlock = ParseDefinition(ScriptLex.LexTypes.RCatch);
+                }
+
+                if (currentLexer.TokenType == ScriptLex.LexTypes.RFinally)
+                {
+                    finallyBlock = ParseDefinition(ScriptLex.LexTypes.RFinally);
+                }
+
+                try
+                {
+                    var oldLex = currentLexer;
+                    var newLex = new ScriptLex(tryBlock.Var.String);
+                    currentLexer = newLex;
+
+                    Block(ref execute);
+
+                    execute = true;
+
+                    currentLexer = oldLex;
+                }
+                catch(JITException ex)
+                {
+                    if (catchBlock != null)
+                    {
+                        var catchScope = new ScriptVar(null, ScriptVar.Flags.Object);
+
+                        var v = catchBlock?.Var?.FirstChild;
+                        if(v != null)
+                        {
+                            catchScope.AddChild(v.Name, new ScriptVar(ex.Message));
+                        }
+
+
+                        var oldLex = currentLexer;
+                        var newLex = new ScriptLex(catchBlock.Var.String);
+                        currentLexer = newLex;
+
+                        scopes.PushBack(catchScope);
+
+                        Block(ref execute);
+
+                        scopes.PopBack();
+
+                        execute = true;
+
+                        currentLexer = oldLex;
+                    }
+                    else
+                    {
+                        throw new ScriptException(ex.Message, ex);
+                    }
+                }
+                finally
+                {
+                    if(finallyBlock != null)
+                    {
+                        var oldLex = currentLexer;
+                        var newLex = new ScriptLex(finallyBlock.Var.String);
+                        currentLexer = newLex;
+
+                        Block(ref execute);
+
+                        execute = true;
+
+                        currentLexer = oldLex;
+                    }
+                }
+
+                currentLexer = originalLexer;
+            }
+            else if(currentLexer.TokenType == ScriptLex.LexTypes.RThrow)
+            {
+                currentLexer.Match(ScriptLex.LexTypes.RThrow);
+
+                var message = string.Empty;
+                
+                if (currentLexer.TokenType == (ScriptLex.LexTypes)';')
+                {
+                    currentLexer.Match((ScriptLex.LexTypes)';');
+                } 
+                else
+                {
+
+                    var res = Base(ref execute);
+                    message = res.Var.String;
+                }
+
+                throw new JITException(message);
+            }
             else 
             {
                 //execute a basic statement

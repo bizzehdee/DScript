@@ -1,7 +1,7 @@
 DScript
 =======
 
-Open sourced object oriented Javascript based scripting language implemented in C#.
+Open sourced, object oriented, Javascript based, extendable scripting language implemented in C#.
 
 ***Example***
 
@@ -26,6 +26,7 @@ Open sourced object oriented Javascript based scripting language implemented in 
 - Method scope
 - Arithmetic
 - Eval/Exec
+- Basic exception handling (try/catch/finally/throw)
 - ...more
 
 ***Arithmetic operators***
@@ -65,3 +66,6 @@ Open sourced object oriented Javascript based scripting language implemented in 
   - tan
   - tanh
 - Random number library
+- JSON
+  - parse
+  - stringify
