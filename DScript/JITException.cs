@@ -16,5 +16,12 @@ namespace DScript
         {
 
         }
+
+        public JITException(ScriptVar varObj)
+        {
+            VarObj = varObj;
+        }
+
+        public ScriptVar VarObj { get; }
     }
 }

@@ -1,6 +1,11 @@
 var MyClass = {
     doSomethingComplicated: function (x, y) {
-        return Math.pow(--x, ++y) / 10.0;
+        this.doSomethingElse(x, y);
+    },
+
+    doSomethingElse: function (a,b) {
+
+        return Math.pow(--a, ++b) / 10.0;
     }
 };
 
@@ -23,10 +28,12 @@ console.log(p);
 try {
 
     var x = 1;
-    throw "this broke";
+    var obj = { message: "turd", doStuff: function () { } };
+
+    throw obj;
 }
 catch (ex) {
-    var pns = "Exception message: " + ex;
+    var pns = "Exception message: " + ex.message;
     console.log(pns);
 }
 

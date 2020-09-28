@@ -77,6 +77,8 @@ namespace DScript
 
                 //callStack.PushBack(string.Format("{0} from line {1}", function.Name, currentLexer.LineNumber));
 
+                callStack.Push(function);
+
                 if (function.Var.IsNative)
                 {
                     var func = function.Var.GetCallback();
@@ -104,7 +106,7 @@ namespace DScript
                     }
                 }
 
-                //callStack.PopBack();
+                callStack.Pop();
                 scopes.PopBack();
 
                 var returnVar = new ScriptVarLink(returnVarLink.Var, null);

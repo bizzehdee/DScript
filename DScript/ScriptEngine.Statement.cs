@@ -332,9 +332,8 @@ namespace DScript
                         var v = catchBlock?.Var?.FirstChild;
                         if(v != null)
                         {
-                            catchScope.AddChild(v.Name, new ScriptVar(ex.Message));
+                            catchScope.AddChild(v.Name, ex.VarObj);
                         }
-
 
                         var oldLex = currentLexer;
                         var newLex = new ScriptLex(catchBlock.Var.String);
@@ -377,7 +376,7 @@ namespace DScript
             {
                 currentLexer.Match(ScriptLex.LexTypes.RThrow);
 
-                var message = string.Empty;
+                ScriptVar message = new ScriptVar();
                 
                 if (currentLexer.TokenType == (ScriptLex.LexTypes)';')
                 {
@@ -387,7 +386,7 @@ namespace DScript
                 {
 
                     var res = Base(ref execute);
-                    message = res.Var.String;
+                    message = res.Var;
                 }
 
                 throw new JITException(message);

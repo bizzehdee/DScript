@@ -64,7 +64,7 @@ namespace DScript
         private readonly ScriptVar objectClass;
         private readonly ScriptVar arrayClass;
         private List<ScriptVar> scopes;
-        //private List<string> callStack;
+        private Stack<ScriptVarLink> callStack;
 
         private ScriptLex currentLexer;
 
@@ -77,7 +77,7 @@ namespace DScript
             currentLexer = null;
 
             scopes = new List<ScriptVar>();
-            //callStack = new List<string>();
+            callStack = new Stack<ScriptVarLink>();
 
             Root = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
 
@@ -100,15 +100,16 @@ namespace DScript
             var oldLex = currentLexer;
             var oldScopes = scopes;
             scopes = new List<ScriptVar>();
-            //var oldCallStack = callStack;
 
             scopes.Clear();
             scopes.PushBack(Root);
 
+            var rootLink = new ScriptVarLink(Root, "root");
+
+            callStack.Push(rootLink);
+
             using (currentLexer = new ScriptLex(code))
             {
-                //callStack.Clear();
-
                 var execute = true;
 
                 while (currentLexer.TokenType != 0)
@@ -132,13 +133,12 @@ namespace DScript
                         throw;
                     }
                 }
-
-
             }
+
+            callStack.Pop();
 
             currentLexer = oldLex;
             scopes = oldScopes;
-            //callStack = oldCallStack;
         }
 
         public ScriptVarLink EvalComplex(string code)
