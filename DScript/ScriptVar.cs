@@ -440,12 +440,12 @@ namespace DScript
             return null;
         }
 
-        public ScriptVarLink FindChildOrCreate(string childName, Flags varFlags = Flags.Undefined)
+        public ScriptVarLink FindChildOrCreate(string childName, Flags varFlags = Flags.Undefined, bool readOnly = false)
         {
             var l = FindChild(childName);
             if (l != null) return l;
 
-            return AddChild(childName, new ScriptVar(null, varFlags));
+            return AddChild(childName, new ScriptVar(null, varFlags), readOnly);
         }
 
         public ScriptVarLink FindChildOrCreateByPath(string path)
@@ -458,7 +458,7 @@ namespace DScript
             return FindChildOrCreate(parts[0], Flags.Object).Var.FindChildOrCreateByPath(parts[1]);
         }
 
-        public ScriptVarLink AddChild(string childName, ScriptVar child)
+        public ScriptVarLink AddChild(string childName, ScriptVar child, bool readOnly = false)
         {
             if (IsUndefined)
             {
@@ -467,7 +467,7 @@ namespace DScript
 
             var c = child ?? new ScriptVar();
 
-            var link = new ScriptVarLink(c, childName)
+            var link = new ScriptVarLink(c, childName, readOnly)
             {
                 Owned = true
             };

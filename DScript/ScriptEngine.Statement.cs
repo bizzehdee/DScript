@@ -38,19 +38,21 @@ namespace DScript
                 //allow for multiple semi colon such as ;;;
                 currentLexer.Match((ScriptLex.LexTypes)';');
             }
-            else if (currentLexer.TokenType == ScriptLex.LexTypes.RVar)
+            else if (currentLexer.TokenType == ScriptLex.LexTypes.RVar || currentLexer.TokenType == ScriptLex.LexTypes.RConst)
             {
                 //creating variables
                 //TODO: make this less shit
 
-                currentLexer.Match(ScriptLex.LexTypes.RVar);
+                var readOnly = currentLexer.TokenType == ScriptLex.LexTypes.RConst;
+
+                currentLexer.Match(currentLexer.TokenType);
 
                 while (currentLexer.TokenType != (ScriptLex.LexTypes)';')
                 {
                     ScriptVarLink a = null;
                     if (execute)
                     {
-                        a = scopes.Back().FindChildOrCreate(currentLexer.TokenString);
+                        a = scopes.Back().FindChildOrCreate(currentLexer.TokenString, ScriptVar.Flags.Undefined, readOnly);
                     }
 
                     currentLexer.Match(ScriptLex.LexTypes.Id);

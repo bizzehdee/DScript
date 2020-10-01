@@ -118,19 +118,20 @@ namespace DScript
                     {
                         Statement(ref execute);
                     }
-                    catch (ScriptException ex)
+                    catch (Exception ex)
                     {
-                        var errorMessage = new StringBuilder(string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message));
-
-                        int i = 0;
-                        foreach (ScriptVar scriptVar in scopes)
+                        if (ex is ScriptException || ex is JITException)
                         {
-                            errorMessage.AppendLine();
-                            errorMessage.Append(i++ + ": " + scriptVar);
-                        }
+                            var errorMessage = new StringBuilder(string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message));
 
-                        Console.Error.WriteLine(errorMessage.ToString());
-                        throw;
+                            Console.Error.WriteLine(errorMessage.ToString());
+
+                            return;
+                        }
+                        else
+                        {
+                            throw;
+                        }
                     }
                 }
             }

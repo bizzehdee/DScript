@@ -130,6 +130,7 @@ namespace DScript
             RCatch,
             RFinally,
             RThrow,
+            RConst,
             RListEnd
         }
 
@@ -257,6 +258,7 @@ namespace DScript
                     case "catch": TokenType = LexTypes.RCatch; break;
                     case "finally": TokenType = LexTypes.RFinally; break;
                     case "throw": TokenType = LexTypes.RThrow; break;
+                    case "const": TokenType = LexTypes.RConst; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers

@@ -54,14 +54,16 @@ namespace DScript
         public ScriptVarLink Prev { get; internal set; }
         public ScriptVar Var { get; internal set; }
         public bool Owned { get; internal set; }
+        public bool IsConst { get; private set; }
 
-        public ScriptVarLink(ScriptVar var, string name)
+        public ScriptVarLink(ScriptVar var, string name, bool readOnly = false)
         {
             Name = name;
             Var = var.Ref();
             Next = null;
             Prev = null;
             Owned = false;
+            IsConst = readOnly;
         }
 
         public ScriptVarLink(ScriptVarLink toCopy)
@@ -75,6 +77,11 @@ namespace DScript
 
         public void ReplaceWith(ScriptVar newVar)
         {
+            if(IsConst && Var?.IsUndefined == false)
+            {
+                throw new JITException(string.Format("{0} is const, cannot assign a new value", Name));
+            }
+
             var oldVar = Var;
             Var = newVar.Ref();
             oldVar.UnRef();
@@ -82,6 +89,7 @@ namespace DScript
 
         public void ReplaceWith(ScriptVarLink newVar)
         {
+
             ReplaceWith(newVar != null ? newVar.Var : new ScriptVar());
         }
 

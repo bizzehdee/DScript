@@ -1,12 +1,12 @@
-var MyClass = {
-    doSomethingComplicated: function (x, y) {
-        this.doSomethingElse(x, y);
-    },
+const testStr = "For more information, see Chapter 3.4.5.1";
 
-    doSomethingElse: function (a,b) {
-
-        return Math.pow(--a, ++b) / 10.0;
-    }
+function MyClass() {
+    this.doSomethingComplicated = function (x, y) {
+        return this.doSomethingElse(x, y);
+    };
+    this.doSomethingElse = function (a, b) {
+        return Math.pow(a, b) / 10.0;
+    };
 };
 
 var inst = new MyClass();
@@ -17,7 +17,7 @@ console.log(x);
 var to = typeof x;
 
 var p = to == "number" ? "yes" : "no";
-var testString = "For more information, see Chapter 3.4.5.1";
+var testString = testStr;
 var myRegex = /see (chapter \d+(\.\d)*)/i;
 
 var matches = testString.match(myRegex);
@@ -38,11 +38,10 @@ catch (ex) {
 }
 
 try {
-
-    var x = 1;
+    testStr = "123";
 }
 catch (ex) {
-
+    console.log(ex);
 }
 finally {
 
