@@ -26,17 +26,17 @@ namespace DScript
 {
     internal static class Utils
     {
-        public static bool IsWhitespace(this char ch)
+        internal static bool IsWhitespace(this char ch)
         {
             return (ch == ' ') || (ch == '\t') || (ch == '\n') || (ch == '\r');
         }
 
-        public static bool IsNumeric(this char ch)
+        internal static bool IsNumeric(this char ch)
         {
             return (ch >= '0') && (ch <= '9');
         }
 
-        public static bool IsNumber(this String str)
+        internal static bool IsNumber(this string str)
         {
             var c = str.Length;
             for (var i = 0; i < c; i++)
@@ -46,17 +46,17 @@ namespace DScript
             return true;
         }
 
-        public static bool IsHexadecimal(this char ch)
+        internal static bool IsHexadecimal(this char ch)
         {
             return ((ch >= '0') && (ch <= '9')) || ((ch >= 'a') && (ch <= 'f')) || ((ch >= 'A') && (ch <= 'F'));
         }
 
-        public static bool IsAlpha(this char ch)
+        internal static bool IsAlpha(this char ch)
         {
-            return ((ch >= 'a') && (ch <= 'z')) || ((ch >= 'A') && (ch <= 'Z')) || ch == '_';
+            return ((ch >= 'a') && (ch <= 'z')) || ((ch >= 'A') && (ch <= 'Z')) || ch == '_' || ch == '$';
         }
 
-        public static bool IsIDString(this string str)
+        internal static bool IsIDString(this string str)
         {
             var c = str.Length;
             for (var i = 0; i < c; i++)
@@ -66,14 +66,13 @@ namespace DScript
             return true;
         }
 
-        public static string GetJSString(this string str)
+        internal static string GetJSString(this string str)
         {
             var oStr = str;
 
             for (var x = 0; x < oStr.Length; x++)
             {
-                var replaceWith = "";
-                bool replace = true;
+                var replaceWith = string.Empty;
                 switch (oStr[x])
                 {
                     case '\\':
@@ -88,6 +87,18 @@ namespace DScript
                     case '\a':
                         replaceWith = "\\a";
                         break;
+                    case '\b':
+                        replaceWith = "\\b";
+                        break;
+                    case '\f':
+                        replaceWith = "\\f";
+                        break;
+                    case '\t':
+                        replaceWith = "\\t";
+                        break;
+                    case '\v':
+                        replaceWith = "\\v";
+                        break;
                     case '"':
                         replaceWith = "\\\"";
                         break;
@@ -98,15 +109,11 @@ namespace DScript
                             {
                                 replaceWith = string.Format("\\x{0:x2}", nCh);
                             }
-                            else
-                            {
-                                replace = false;
-                            }
                         }
                         break;
                 }
 
-                if (replace)
+                if (replaceWith != string.Empty)
                 {
                     oStr = oStr.Substring(0, x) + replaceWith + oStr.Substring(x + 1);
                     x += replaceWith.Length - 1;

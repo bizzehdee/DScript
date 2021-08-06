@@ -856,7 +856,7 @@ namespace DScript
                 while(link != null)
                 {
                     streamWriter.Write(linePrefix);
-                    streamWriter.Write(GetJSString(link.Name));
+                    streamWriter.Write(Utils.GetJSString(link.Name));
                     streamWriter.Write(": ");
                     streamWriter.Flush();
 
@@ -896,60 +896,6 @@ namespace DScript
             streamWriter.Flush();
         }
 
-        private string GetJSString(string str)
-        {
-            var builder = new StringBuilder();
-            for (int x = 0; x < str.Length; x++)
-            {
-                var chr = str[x];
-                switch(chr)
-                {
-                    case '\\':
-                        builder.Append("\\\\");
-                        break;
-                    case '\n':
-                        builder.Append("\\n");
-                        break;
-                    case '\r':
-                        builder.Append("\\r");
-                        break;
-                    case '\a':
-                        builder.Append("\\a");
-                        break;
-                    case '\b':
-                        builder.Append("\\b");
-                        break;
-                    case '\f':
-                        builder.Append("\\f");
-                        break;
-                    case '\t':
-                        builder.Append("\\t");
-                        break;
-                    case '\v':
-                        builder.Append("\\v");
-                        break;
-                    case '"':
-                        builder.Append("\\\"");
-                        break;
-                    default:
-                        {
-                            var nChr = (int)chr & 0xff;
-                            if(nChr < 32 || nChr > 127)
-                            {
-                                builder.AppendFormat("\\x{0:X2}", nChr);
-                            }
-                            else
-                            {
-                                builder.Append(chr);
-                            }
-                        }
-                        break;
-                }
-            }
-
-            return "\"" + builder.ToString() + "\"";
-        }
-
         public string GetParsableString()
         {
             if(IsNumeric)
@@ -977,7 +923,7 @@ namespace DScript
             }
             if(IsString)
             {
-                return GetJSString(GetString());
+                return Utils.GetJSString(GetString());
             }
             if(IsNull)
             {
