@@ -1,5 +1,9 @@
 const testStr = "For more information, see Chapter 3.4.5.1";
 
+var someSubStr = testStr.substr(5, 10);
+
+console.log(someSubStr);
+
 function MyClass() {
     this.doSomethingComplicated = function (x, y) {
         return this.doSomethingElse(x, y);

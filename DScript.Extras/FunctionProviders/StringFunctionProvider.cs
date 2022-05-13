@@ -110,16 +110,83 @@ namespace DScript.Extras.FunctionProviders
             {
                 var.ReturnVar.SetArrayIndex(0, new ScriptVar(""));
             }
-
         }
 
-        //trim
-        //concat
-        //toUpperCase
-        //toLowerCase
-        //replace
-        //substr
-        //search
-        //lastIndexOf
+        [ScriptMethod("trim")]
+        public static void StringTrimImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+
+            var trimStr = str.Trim();
+
+            var.ReturnVar.String = trimStr;
+        }
+
+        [ScriptMethod("concat", "str1")]
+        public static void StringConcatImpl(ScriptVar var, object userData)
+        {
+            var strThis = var.GetParameter("this").String;
+            var str1 = var.GetParameter("str1").String;
+
+            var trimStr = string.Join("", strThis, str1);
+
+            var.ReturnVar.String = trimStr;
+        }
+
+        [ScriptMethod("toUpperCase")]
+        public static void StringToUpperImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+
+            var upperStr = str.ToUpper();
+
+            var.ReturnVar.String = upperStr;
+        }
+
+        [ScriptMethod("toLowerCase")]
+        public static void StringToLowerImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+
+            var lowerStr = str.ToLower();
+
+            var.ReturnVar.String = lowerStr;
+        }
+
+        [ScriptMethod("replace", "what", "with")]
+        public static void StringReplaceImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var what = var.GetParameter("what").String;
+            var with = var.GetParameter("with").String;
+
+            var replacedStr = str.Replace(what, with);
+
+            var.ReturnVar.String = replacedStr;
+        }
+
+        [ScriptMethod("substr", "start", "length")]
+        public static void StringSubStr2Impl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var start = var.GetParameter("start").Int;
+            var length = var.GetParameter("length").Int;
+
+            var subStr = str.Substring(start, length);
+
+            var.ReturnVar.String = subStr;
+        }
+
+        [ScriptMethod("lastIndexOf", "searchString", "position")]
+        public static void StringLastIndexOfImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var searchString = var.GetParameter("searchString").String;
+            var position = var.GetParameter("position").Int;
+
+            var lastIndex = str.LastIndexOf(searchString, position);
+
+            var.ReturnVar.Int = lastIndex;
+        }
     }
 }
