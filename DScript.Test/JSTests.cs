@@ -30,8 +30,6 @@ namespace DScript.Test
                 ex = e;
             }
 
-            engine.Root.Trace(0, "root");
-
             var result = engine.Root.GetParameter("result");
             var resultAsBool = result.Bool;
             Assert.IsTrue(resultAsBool, ex != null ? ex.Message : string.Empty);

@@ -131,7 +131,10 @@ namespace DScript
             RFinally,
             RThrow,
             RConst,
-            RListEnd
+            RListEnd,
+            RSwitch,
+            RCase,
+            RDefault
         }
 
         public ScriptLex(string input)
@@ -259,6 +262,9 @@ namespace DScript
                     case "finally": TokenType = LexTypes.RFinally; break;
                     case "throw": TokenType = LexTypes.RThrow; break;
                     case "const": TokenType = LexTypes.RConst; break;
+                    case "switch": TokenType = LexTypes.RSwitch; break;
+                    case "case": TokenType = LexTypes.RCase; break;
+                    case "default": TokenType = LexTypes.RDefault; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers

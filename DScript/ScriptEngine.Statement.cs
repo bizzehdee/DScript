@@ -393,6 +393,81 @@ namespace DScript
 
                 throw new JITException(message);
             }
+            else if(currentLexer.TokenType == ScriptLex.LexTypes.RSwitch)
+            {
+                var noExecute = false;
+                var hasMatched = false;
+
+                currentLexer.Match(ScriptLex.LexTypes.RSwitch);
+                currentLexer.Match((ScriptLex.LexTypes)'(');
+
+                var varLink = Base(ref execute);
+
+                currentLexer.Match((ScriptLex.LexTypes)')');
+
+                currentLexer.Match((ScriptLex.LexTypes)'{');
+                for (var hasDefault = false; ;)
+                {
+                    if (currentLexer.TokenType == ScriptLex.LexTypes.RDefault || currentLexer.TokenType == ScriptLex.LexTypes.RCase)
+                    {
+                        if (currentLexer.TokenType == ScriptLex.LexTypes.RCase)
+                        {
+                            currentLexer.Match(ScriptLex.LexTypes.RCase);
+
+                            var caseVarLink = Base(ref execute);
+
+                            currentLexer.Match((ScriptLex.LexTypes)':');
+
+                            //var caseBodyStart = currentLexer.TokenStart;
+
+                            if (execute && caseVarLink.Var.MathsOp(varLink.Var, ScriptLex.LexTypes.Equal).Bool)
+                            {
+                                hasMatched = true;
+                                Statement(ref execute);
+                            }
+                            else
+                            {
+                                Statement(ref noExecute);
+                            }
+
+
+                            currentLexer.Match(ScriptLex.LexTypes.RBreak);
+                            currentLexer.Match((ScriptLex.LexTypes)';');
+                        }
+                        else
+                        {
+                            hasDefault = true;
+                            currentLexer.Match(ScriptLex.LexTypes.RDefault);
+                            currentLexer.Match((ScriptLex.LexTypes)':');
+
+                            //var caseBodyStart = currentLexer.TokenStart;
+
+                            if (execute && hasMatched == false)
+                            {
+                                Statement(ref execute);
+                            }
+                            else
+                            {
+                                Statement(ref noExecute);
+                            }
+
+
+                            currentLexer.Match(ScriptLex.LexTypes.RBreak);
+                            currentLexer.Match((ScriptLex.LexTypes)';');
+                        }
+                    }
+                    else if (currentLexer.TokenType == (ScriptLex.LexTypes)'}')
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        throw new ScriptException("");
+                    }
+                }
+
+                currentLexer.Match((ScriptLex.LexTypes)'}');
+            }
             else 
             {
                 //execute a basic statement
