@@ -595,11 +595,6 @@ namespace DScript
             return new ScriptLex(this, lastPosition, dataEnd);
         }
 
-        public string GetPosition(int pos)
-        {
-            return string.Format("{0}", pos);
-        }
-
         public string GetSubString(int pos)
         {
             int lastCharIndex = TokenLastEnd + 1;
@@ -619,16 +614,16 @@ namespace DScript
                 var expectedName = Enum.GetName(typeof(LexTypes), type);
                 if (string.IsNullOrEmpty(expectedName))
                 {
-                    expectedName = string.Format("{0}", ((char)type));
+                    expectedName = $"{(char)type}";
                 }
 
                 var foundName = Enum.GetName(typeof(LexTypes), TokenType);
                 if (string.IsNullOrEmpty(foundName))
                 {
-                    foundName = string.Format("{0}", (char)TokenType);
+                    foundName = $"{(char)TokenType}";
                 }
 
-                throw new ScriptException(string.Format("Unexpected token type. Expected {0}, found {1}. Line: {2}, Col: {3}", expectedName, foundName, LineNumber, ColumnNumber));
+                throw new ScriptException($"Unexpected token type. Expected {expectedName}, found {foundName}. Line: {LineNumber}, Col: {ColumnNumber}");
             }
 
             GetNextToken();
@@ -638,7 +633,7 @@ namespace DScript
         {
             if(lexTypes < (LexTypes)256 && lexTypes > 0)
             {
-                return string.Format("{0}", (char)lexTypes);
+                return $"{(char)lexTypes}";
             }
 
             return lexTypes.ToString();

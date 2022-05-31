@@ -10,6 +10,9 @@
 	<Description>Open sourced, object oriented, Javascript based, extendable scripting language implemented in C#.</Description>
 	<Company>Darren Horrocks</Company>
 	<Copyright>Darren Horrocks</Copyright>
+	<EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
+	<EnableNETAnalyzers>True</EnableNETAnalyzers>
+	<AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
 
   <ItemGroup>

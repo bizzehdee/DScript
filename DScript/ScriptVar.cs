@@ -323,11 +323,11 @@ namespace DScript
         {
             if (IsInt)
             {
-                return string.Format("{0:D}", Int);
+                return $"{Int:D}";
             }
             if (IsDouble)
             {
-                return string.Format("{0}", Float);
+                return $"{Float}";
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
@@ -573,7 +573,7 @@ namespace DScript
 
         public ScriptVar GetArrayIndex(int idx)
         {
-            var link = FindChild(string.Format("{0}", idx));
+            var link = FindChild($"{idx}");
             if (link != null) return link.Var;
 
             return new ScriptVar(null, Flags.Null);
@@ -581,7 +581,7 @@ namespace DScript
 
         public void SetArrayIndex(int idx, ScriptVar value)
         {
-            var link = FindChild(string.Format("{0}", idx));
+            var link = FindChild($"{idx}");
 
             if (link != null)
             {
@@ -598,7 +598,7 @@ namespace DScript
             {
                 if (!value.IsUndefined)
                 {
-                    AddChild(string.Format("{0}", idx), value);
+                    AddChild($"{idx}", value);
                 }
             }
         }
@@ -912,11 +912,11 @@ namespace DScript
                     builder.Append(link.Name);
                     if (link.Next != null)
                     {
-                        builder.Append(", ");
+                        builder.Append(',');
                     }
                     link = link.Next;
                 }
-                builder.Append(")");
+                builder.Append(')');
                 builder.Append(GetString());
 
                 return builder.ToString();
@@ -940,7 +940,7 @@ namespace DScript
 
         public override string ToString()
         {
-            return string.Format("{0} , {1}", GetObjectType(), String);
+            return $"{GetObjectType()} , {String}";
         }
 
         internal void SetData(object data)

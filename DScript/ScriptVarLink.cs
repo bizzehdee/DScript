@@ -79,7 +79,7 @@ namespace DScript
         {
             if(IsConst && Var?.IsUndefined == false)
             {
-                throw new JITException(string.Format("{0} is const, cannot assign a new value", Name));
+                throw new JITException($"{Name} is const, cannot assign a new value");
             }
 
             var oldVar = Var;
@@ -102,13 +102,13 @@ namespace DScript
 
         public void SetIntName(int n)
         {
-            Name = string.Format("{0}", n);
+            Name = $"{n}";
         }
 
 
         public override string ToString()
         {
-            return string.Format("{0} = {1}", Name ?? "Unnamed", Var?.String ?? "null");
+            return $"{Name ?? "Unnamed"} = {Var?.String ?? "null"}";
         }
     }
 }

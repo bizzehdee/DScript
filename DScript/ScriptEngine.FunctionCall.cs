@@ -32,7 +32,7 @@ namespace DScript
             {
                 if (!function.Var.IsFunction)
                 {
-                    throw new ScriptException(String.Format("{0} is not a function", function.Name));
+                    throw new ScriptException($"{function.Name} is not a function");
                 }
 
                 currentLexer.Match((ScriptLex.LexTypes)'(');
@@ -74,8 +74,6 @@ namespace DScript
                 var returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
 
                 scopes.PushBack(functionRoot);
-
-                //callStack.PushBack(string.Format("{0} from line {1}", function.Name, currentLexer.LineNumber));
 
                 callStack.Push(function);
 

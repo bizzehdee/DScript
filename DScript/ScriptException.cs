@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Runtime.Serialization;
 
 namespace DScript
 {
@@ -37,6 +38,12 @@ namespace DScript
             : base(msg, innerException)
         {
 
+        }
+
+        protected ScriptException(SerializationInfo serializationInfo, StreamingContext streamingContext)
+            : base(serializationInfo, streamingContext)
+        {
+            
         }
     }
 }

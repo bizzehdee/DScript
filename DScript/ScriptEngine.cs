@@ -122,7 +122,7 @@ namespace DScript
                     {
                         if (ex is ScriptException || ex is JITException)
                         {
-                            var errorMessage = new StringBuilder(string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message));
+                            var errorMessage = new StringBuilder($"ERROR on line {currentLexer.LineNumber} column {currentLexer.ColumnNumber} [{ex.Message}]");
 
                             Console.Error.WriteLine(errorMessage.ToString());
 
@@ -169,7 +169,7 @@ namespace DScript
             }
             catch (ScriptException ex)
             {
-                var errorMessage = new StringBuilder(string.Format("ERROR on line {0} column {1} [{2}]", currentLexer.LineNumber, currentLexer.ColumnNumber, ex.Message));
+                var errorMessage = new StringBuilder($"ERROR on line {currentLexer.LineNumber} column {currentLexer.ColumnNumber} [{ex.Message}]");
 
                 int i = 0;
                 foreach (ScriptVar scriptVar in scopes)
@@ -364,7 +364,7 @@ namespace DScript
             currentLexer.Match((ScriptLex.LexTypes)')');
         }
 
-        private void CreateLink(ref ScriptVarLink link, ScriptVar res)
+        private static void CreateLink(ref ScriptVarLink link, ScriptVar res)
         {
             if(link == null || link.Owned)
             {

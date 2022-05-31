@@ -193,7 +193,7 @@ namespace DScript
                 {
                     if (execute)
                     {
-                        var id = string.Format("{0}", idx);
+                        var id = $"{idx}";
 
                         var a = Base(ref execute);
                         contents.AddChild(id, a.Var);

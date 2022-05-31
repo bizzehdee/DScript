@@ -107,7 +107,7 @@ namespace DScript
                             var nCh = ((int)oStr[x]) & 0xFF;
                             if (nCh < 32 || nCh > 127)
                             {
-                                replaceWith = string.Format("\\x{0:x2}", nCh);
+                                replaceWith = $"\\x{nCh:x2}";
                             }
                         }
                         break;
@@ -120,7 +120,7 @@ namespace DScript
                 }
             }
 
-            return string.Format("\"{0}\"", oStr);
+            return $"\"{oStr}\"";
         }
     }
 }
