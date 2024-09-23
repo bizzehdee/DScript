@@ -41,6 +41,20 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar.Int = intResult;
         }
 
+        [ScriptMethod("parseFloat", "str")]
+        [ScriptMethod("parseFloat", "str", AppearAtRoot = true)]
+        public static void IntParseFloatImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("str").String;
+
+            if (double.TryParse(str, out double intResult) == false)
+            {
+                intResult = 0;
+            }
+
+            var.ReturnVar.Float = intResult;
+        }
+
         [ScriptMethod("valueOf", "str")]
         public static void IntValueOfImpl(ScriptVar var, object userData)
         {
