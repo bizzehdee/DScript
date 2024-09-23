@@ -24,7 +24,7 @@ using System;
 
 namespace DScript
 {
-    class JITException : Exception
+    public class JITException : Exception
     {
         public JITException()
         {

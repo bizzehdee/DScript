@@ -130,11 +130,11 @@ namespace DScript
             if (flags.HasFlag(Flags.Integer))
             {
                 var strData = val;
-                if (strData.StartsWith("0x"))
+                if (strData.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
                 {
                     intData = Convert.ToInt32(strData, 16);
                 }
-                else if(strData.StartsWith("0"))
+                else if(strData.StartsWith("0", StringComparison.OrdinalIgnoreCase))
                 {
                     intData = Convert.ToInt32(strData, 8);
                 }
