@@ -24,28 +24,27 @@ using System;
 
 namespace DScript
 {
-    public class ScriptVarLink : IDisposable
+    public sealed class ScriptVarLink : IDisposable
     {
         #region IDisposable
-        private bool _disposed;
+        private bool disposed;
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Dispose(bool disposing)
         {
-            if (!_disposed)
+            if (disposed) return;
+            
+            if (disposing)
             {
-                if (disposing)
-                {
-                    Var.UnRef();
-                }
-
-                // Indicate that the instance has been disposed.
-                _disposed = true;
+                Var.UnRef();
             }
+
+            // Indicate that the instance has been disposed.
+            disposed = true;
         }
         #endregion
 

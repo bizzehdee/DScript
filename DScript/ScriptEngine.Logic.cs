@@ -22,19 +22,17 @@ SOFTWARE.
 
 namespace DScript
 {
-    public partial class ScriptEngine
+    public sealed partial class ScriptEngine
     {
         private ScriptVarLink Logic(ref bool execute)
         {
             var a = Condition(ref execute);
 
-            ScriptVarLink b;
-
             while (currentLexer.TokenType == (ScriptLex.LexTypes)'&' ||
-                currentLexer.TokenType == (ScriptLex.LexTypes)'|' ||
-                currentLexer.TokenType == (ScriptLex.LexTypes)'^' ||
-                currentLexer.TokenType == ScriptLex.LexTypes.AndAnd ||
-                currentLexer.TokenType == ScriptLex.LexTypes.OrOr)
+                   currentLexer.TokenType == (ScriptLex.LexTypes)'|' ||
+                   currentLexer.TokenType == (ScriptLex.LexTypes)'^' ||
+                   currentLexer.TokenType == ScriptLex.LexTypes.AndAnd ||
+                   currentLexer.TokenType == ScriptLex.LexTypes.OrOr)
             {
                 var noExecute = false;
                 var op = currentLexer.TokenType;
@@ -56,6 +54,7 @@ namespace DScript
                     isBool = true;
                 }
 
+                ScriptVarLink b;
                 if (shortcut)
                 {
                     b = Condition(ref noExecute);

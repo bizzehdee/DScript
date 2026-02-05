@@ -27,38 +27,38 @@ using System.Text.RegularExpressions;
 
 namespace DScript
 {
-    public class ScriptVar : IDisposable
+    public sealed class ScriptVar : IDisposable
     {
         #region IDisposable
-        private bool _disposed;
+        private bool disposed;
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Dispose(bool disposing)
         {
-            if (!_disposed)
+            if (disposed) return;
+            
+            if (disposing)
             {
-                if (disposing)
-                {
-                    RemoveAllChildren();
-                }
-
-                // Indicate that the instance has been disposed.
-                _disposed = true;
+                RemoveAllChildren();
             }
+
+            // Indicate that the instance has been disposed.
+            disposed = true;
         }
         #endregion
 
         private int refs;
         private Flags flags;
-        private object data;
+        private object scriptData;
         private int intData;
         private double doubleData;
-        private ScriptEngine.ScriptCallbackCB callback;
+        private ScriptEngine.ScriptCallbackCB scriptCallback;
         private object callbackUserData;
+        private int cachedArrayLength = -1;  // -1 means not cached
 
         public const string ReturnVarName = "return";
         public const string PrototypeClassName = "prototype";
@@ -111,7 +111,7 @@ namespace DScript
             refs = 0;
             flags = Flags.String;
             Init();
-            data = val;
+            scriptData = val;
         }
 
         public ScriptVar(bool val)
@@ -129,56 +129,54 @@ namespace DScript
             Init();
             if (flags.HasFlag(Flags.Integer))
             {
-                var strData = val;
-                if (strData.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                if (val.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
                 {
-                    intData = Convert.ToInt32(strData, 16);
+                    intData = Convert.ToInt32(val, 16);
                 }
-                else if(strData.StartsWith("0", StringComparison.OrdinalIgnoreCase))
+                else if(val.StartsWith("0", StringComparison.OrdinalIgnoreCase))
                 {
-                    intData = Convert.ToInt32(strData, 8);
+                    intData = Convert.ToInt32(val, 8);
                 }
                 else
                 {
-                    intData = int.Parse(strData);
+                    intData = int.Parse(val);
                 }
             }
             else if (flags.HasFlag(Flags.Double))
             {
-                var strData = val;
-                if (double.TryParse(strData, out doubleData) == false)
+                if (!double.TryParse(val, out doubleData))
                 {
-                    doubleData = Convert.ToDouble(strData);
+                    doubleData = Convert.ToDouble(val);
                 }
             }
             else if(flags.HasFlag(Flags.Regexp))
             {
                 var lastIndexOf = val.LastIndexOf('/');
-                if (lastIndexOf > 0)
+                
+                if (lastIndexOf <= 0) return;
+                
+                var regexStr = val.Substring(1, lastIndexOf - 1);
+                var opts = val.Substring(lastIndexOf + 1);
+
+                var regexOpts = RegexOptions.Compiled | RegexOptions.ECMAScript;
+
+                foreach (var c in opts)
                 {
-                    var regexStr = val.Substring(1, lastIndexOf - 1);
-                    var opts = val.Substring(lastIndexOf + 1);
-
-                    var regexOpts = RegexOptions.Compiled | RegexOptions.ECMAScript;
-
-                    foreach (var c in opts)
+                    if (c == 'i')
                     {
-                        if (c == 'i')
-                        {
-                            regexOpts |= RegexOptions.IgnoreCase;
-                        }
-                        else if(c=='m')
-                        {
-                            regexOpts |= RegexOptions.Multiline;
-                        }
+                        regexOpts |= RegexOptions.IgnoreCase;
                     }
-
-                    data = new Regex(regexStr, regexOpts);
+                    else if(c=='m')
+                    {
+                        regexOpts |= RegexOptions.Multiline;
+                    }
                 }
+
+                scriptData = new Regex(regexStr, regexOpts);
             }
             else
             {
-                data = val;
+                scriptData = val;
             }
         }
 
@@ -186,95 +184,47 @@ namespace DScript
         {
             FirstChild = null;
             LastChild = null;
-            callback = null;
+            scriptCallback = null;
             callbackUserData = null;
-            data = null;
+            scriptData = null;
             intData = 0;
             doubleData = 0;
         }
 
-        public bool IsInt
-        {
-            get { return (flags & Flags.Integer) != 0; }
-        }
+        public bool IsInt => (flags & Flags.Integer) != 0;
 
-        public bool IsDouble
-        {
-            get { return (flags & Flags.Double) != 0; }
-        }
+        public bool IsDouble => (flags & Flags.Double) != 0;
 
-        public bool IsString
-        {
-            get { return (flags & Flags.String) != 0; }
-        }
+        public bool IsString => (flags & Flags.String) != 0;
 
-        public bool IsNumeric
-        {
-            get { return (flags & Flags.NumericMask) != 0; }
-        }
+        public bool IsNumeric => (flags & Flags.NumericMask) != 0;
 
-        public bool IsFunction
-        {
-            get { return (flags & Flags.Function) != 0; }
-        }
+        public bool IsFunction => (flags & Flags.Function) != 0;
 
-        public bool IsObject
-        {
-            get { return (flags & Flags.Object) != 0; }
-        }
+        public bool IsObject => (flags & Flags.Object) != 0;
 
-        public bool IsArray
-        {
-            get { return (flags & Flags.Array) != 0; }
-        }
+        public bool IsArray => (flags & Flags.Array) != 0;
 
-        public bool IsNative
-        {
-            get { return (flags & Flags.Native) != 0; }
-        }
+        public bool IsNative => (flags & Flags.Native) != 0;
 
-        public bool IsUndefined
-        {
-            get { return (flags & Flags.VarTypeMask) == Flags.Undefined; }
-        }
+        public bool IsUndefined => (flags & Flags.VarTypeMask) == Flags.Undefined;
 
-        public bool IsNull
-        {
-            get { return (flags & Flags.Null) != 0; }
-        }
+        public bool IsNull => (flags & Flags.Null) != 0;
 
-        public bool IsBasic
-        {
-            get { return FirstChild == null; }
-        }
+        public bool IsBasic => FirstChild == null;
 
-        public ScriptVar this[string index]
-        {
-            get { return GetParameter(index); }
-        }
+        public ScriptVar this[string index] => GetParameter(index);
 
         public int Int
         {
-            get
-            {
-                return GetInt();
-            }
-            set
-            {
-                SetInt(value);
-            }
+            get => GetInt();
+            set => SetInt(value);
         }
 
         public double Float
         {
-            get
-            {
-                return GetDouble();
-            }
-            set
-            {
-                SetDouble(value);
-            }
+            get => GetDouble();
+            set => SetDouble(value);
         }
 
         private int GetInt()
@@ -288,35 +238,22 @@ namespace DScript
 
         public bool Bool
         {
-            get
-            {
-                return Int != 0;
-            }
-            set
-            {
-                Int = value ? 1 : 0;
-            }
+            get => Int != 0;
+            set => Int = value ? 1 : 0;
         }
 
         private double GetDouble()
         {
             if (IsDouble) return doubleData;
-            if (IsInt) return (double)Int;
-            if (IsNull) return 0;
-            if (IsUndefined) return 0;
+            if (IsInt) return Int;
+            
             return 0;
         }
 
         public string String
         {
-            get
-            {
-                return GetString();
-            }
-            set
-            {
-                SetString(value);
-            }
+            get => GetString();
+            set => SetString(value);
         }
 
         private string GetString()
@@ -332,7 +269,7 @@ namespace DScript
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
 
-            return (string)data;
+            return (string)scriptData;
         }
 
         public object GetData()
@@ -342,7 +279,7 @@ namespace DScript
             if (IsInt) return intData;
             if (IsDouble) return doubleData;
 
-            return data;
+            return scriptData;
         }
 
         public string GetObjectType()
@@ -365,7 +302,7 @@ namespace DScript
             flags = (flags & ~Flags.VarTypeMask) | Flags.Integer;
             intData = num;
             doubleData = 0;
-            data = null;
+            scriptData = null;
         }
 
         private void SetDouble(double num)
@@ -373,7 +310,7 @@ namespace DScript
             flags = (flags & ~Flags.VarTypeMask) | Flags.Double;
             intData = 0;
             doubleData = num;
-            data = null;
+            scriptData = null;
         }
 
         private void SetString(string str)
@@ -381,7 +318,7 @@ namespace DScript
             flags = (flags & ~Flags.VarTypeMask) | Flags.String;
             intData = 0;
             doubleData = 0;
-            data = str;
+            scriptData = str;
         }
 
         public void SetUndefined()
@@ -389,7 +326,7 @@ namespace DScript
             flags = (flags & ~Flags.VarTypeMask) | Flags.Undefined;
             intData = 0;
             doubleData = 0;
-            data = null;
+            scriptData = null;
             RemoveAllChildren();
         }
 
@@ -398,8 +335,9 @@ namespace DScript
             flags = (flags & ~Flags.VarTypeMask) | Flags.Array;
             intData = 0;
             doubleData = 0;
-            data = null;
+            scriptData = null;
             RemoveAllChildren();
+            cachedArrayLength = 0;  // Empty array has length 0
         }
 
         public ScriptVar Ref()
@@ -538,6 +476,12 @@ namespace DScript
             {
                 FirstChild = link.Next;
             }
+            
+            // Invalidate array length cache if this is an array
+            if (IsArray)
+            {
+                cachedArrayLength = -1;
+            }
         }
 
         public void RemoveAllChildren()
@@ -552,18 +496,18 @@ namespace DScript
 
             FirstChild = null;
             LastChild = null;
+            
+            // Invalidate array length cache
+            if (IsArray)
+            {
+                cachedArrayLength = 0;  // Empty array has length 0
+            }
         }
 
         public ScriptVar ReturnVar
         {
-            get
-            {
-                return GetParameter(ReturnVarName);
-            }
-            set
-            {
-                FindChildOrCreate(ReturnVarName).ReplaceWith(value);
-            }
+            get => GetParameter(ReturnVarName);
+            set => FindChildOrCreate(ReturnVarName).ReplaceWith(value);
         }
 
         public ScriptVar GetParameter(string name)
@@ -588,10 +532,12 @@ namespace DScript
                 if (value.IsUndefined)
                 {
                     RemoveLink(link);
+                    cachedArrayLength = -1;  // Invalidate cache on removal
                 }
                 else
                 {
                     link.ReplaceWith(value);
+                    // No need to invalidate - index already exists
                 }
             }
             else
@@ -599,21 +545,28 @@ namespace DScript
                 if (!value.IsUndefined)
                 {
                     AddChild($"{idx}", value);
+                    cachedArrayLength = -1;  // Invalidate cache on addition
                 }
             }
         }
 
         public int GetArrayLength()
         {
-            var highest = -1;
-
             if (!IsArray) return 0;
-
+            
+            // Return cached value if available
+            if (cachedArrayLength >= 0)
+            {
+                return cachedArrayLength;
+            }
+            
+            // Calculate and cache
+            var highest = -1;
             var link = FirstChild;
 
             while (link != null)
             {
-                if (int.TryParse(link.Name, out int outputVal))
+                if (int.TryParse(link.Name, out var outputVal))
                 {
                     if (outputVal > highest) highest = outputVal;
                 }
@@ -621,10 +574,11 @@ namespace DScript
                 link = link.Next;
             }
 
-            return highest + 1;
+            cachedArrayLength = highest + 1;
+            return cachedArrayLength;
         }
 
-        public int GettChildren()
+        public int GetChildren()
         {
             var n = 0;
             var link = FirstChild;
@@ -652,15 +606,15 @@ namespace DScript
         {
             var a = this;
 
-            char opc = (char)op;
+            var opc = (char)op;
 
             if (op == ScriptLex.LexTypes.TypeEqual || op == ScriptLex.LexTypes.NTypeEqual)
             {
-                bool equal = ((a.flags & Flags.VarTypeMask) == (b.flags & Flags.VarTypeMask));
+                var equal = ((a.flags & Flags.VarTypeMask) == (b.flags & Flags.VarTypeMask));
 
                 if (equal)
                 {
-                    ScriptVar contents = a.MathsOp(b, ScriptLex.LexTypes.Equal);
+                    var contents = a.MathsOp(b, ScriptLex.LexTypes.Equal);
                     if (!contents.Bool) equal = false;
                 }
 
@@ -725,8 +679,8 @@ namespace DScript
                         case '-': return new ScriptVar(da - db);
                         case '*': return new ScriptVar(da * db);
                         case '/': return new ScriptVar(da / db);
-                        case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(da == db);
-                        case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(da != db);
+                        case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(Math.Abs(da - db) < 0.00001);
+                        case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(Math.Abs(da - db) > 0.00001);
                         case '<': return new ScriptVar(da < db);
                         case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar(da <= db);
                         case '>': return new ScriptVar(da > db);
@@ -775,9 +729,9 @@ namespace DScript
             }
         }
 
-        protected void CopySimpleData(ScriptVar val)
+        private void CopySimpleData(ScriptVar val)
         {
-            data = val.data;
+            scriptData = val.scriptData;
             intData = val.intData;
             doubleData = val.doubleData;
             flags = (flags & ~Flags.VarTypeMask) | (val.flags & Flags.VarTypeMask);
@@ -827,7 +781,7 @@ namespace DScript
 
         public void SetCallback(ScriptEngine.ScriptCallbackCB callback, object userdata)
         {
-            this.callback = callback;
+            scriptCallback = callback;
             callbackUserData = userdata;
         }
 
@@ -856,7 +810,7 @@ namespace DScript
                 while(link != null)
                 {
                     streamWriter.Write(linePrefix);
-                    streamWriter.Write(Utils.GetJSString(link.Name));
+                    streamWriter.Write(link.Name.GetJSString());
                     streamWriter.Write(": ");
                     streamWriter.Flush();
 
@@ -876,7 +830,7 @@ namespace DScript
                 streamWriter.WriteLine("[");
 
                 var arrayLength = GetArrayLength();
-                for(int x=0; x<arrayLength; x++)
+                for(var x=0; x<arrayLength; x++)
                 {
                     streamWriter.Flush();
                     GetArrayIndex(x).GetJSON(stream, linePrefix + "    ");
@@ -923,7 +877,7 @@ namespace DScript
             }
             if(IsString)
             {
-                return Utils.GetJSString(GetString());
+                return GetString().GetJSString();
             }
             if(IsNull)
             {
@@ -945,12 +899,12 @@ namespace DScript
 
         internal void SetData(object data)
         {
-            this.data = data;
+            scriptData = data;
         }
 
         internal ScriptEngine.ScriptCallbackCB GetCallback()
         {
-            return callback;
+            return scriptCallback;
         }
 
         internal object GetCallbackUserData()

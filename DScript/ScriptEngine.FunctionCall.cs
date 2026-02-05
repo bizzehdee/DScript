@@ -24,7 +24,7 @@ using System;
 
 namespace DScript
 {
-    public partial class ScriptEngine
+    public sealed partial class ScriptEngine
     {
         private ScriptVarLink FunctionCall(ref bool execute, ScriptVarLink function, ScriptVar parent)
         {

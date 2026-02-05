@@ -24,7 +24,7 @@ using System;
 
 namespace DScript
 {
-    public partial class ScriptEngine
+    public sealed partial class ScriptEngine
     {
         private void Statement(ref bool execute)
         {
@@ -80,10 +80,7 @@ namespace DScript
                         var varLink = Base(ref execute);
                         if (execute)
                         {
-                            if (a != null)
-                            {
-                                a.ReplaceWith(varLink);
-                            }
+                            a?.ReplaceWith(varLink);
                         }
                     }
 
@@ -103,8 +100,8 @@ namespace DScript
                 var varLink = Base(ref execute);
                 currentLexer.Match((ScriptLex.LexTypes)')');
 
-                bool condition = execute && varLink.Var.Bool;
-                bool noExecute = false;
+                var condition = execute && varLink.Var.Bool;
+                var noExecute = false;
                 if (condition)
                 {
                     Statement(ref execute);
@@ -378,7 +375,7 @@ namespace DScript
             {
                 currentLexer.Match(ScriptLex.LexTypes.RThrow);
 
-                ScriptVar message = new ScriptVar();
+                var message = new ScriptVar();
                 
                 if (currentLexer.TokenType == (ScriptLex.LexTypes)';')
                 {
@@ -406,7 +403,7 @@ namespace DScript
                 currentLexer.Match((ScriptLex.LexTypes)')');
 
                 currentLexer.Match((ScriptLex.LexTypes)'{');
-                for (var hasDefault = false; ;)
+                for (; ;)
                 {
                     if (currentLexer.TokenType == ScriptLex.LexTypes.RDefault || currentLexer.TokenType == ScriptLex.LexTypes.RCase)
                     {
@@ -429,20 +426,15 @@ namespace DScript
                             {
                                 Statement(ref noExecute);
                             }
-
-
-                            currentLexer.Match(ScriptLex.LexTypes.RBreak);
-                            currentLexer.Match((ScriptLex.LexTypes)';');
                         }
                         else
                         {
-                            hasDefault = true;
                             currentLexer.Match(ScriptLex.LexTypes.RDefault);
                             currentLexer.Match((ScriptLex.LexTypes)':');
 
                             //var caseBodyStart = currentLexer.TokenStart;
 
-                            if (execute && hasMatched == false)
+                            if (execute && !hasMatched)
                             {
                                 Statement(ref execute);
                             }
@@ -450,11 +442,10 @@ namespace DScript
                             {
                                 Statement(ref noExecute);
                             }
-
-
-                            currentLexer.Match(ScriptLex.LexTypes.RBreak);
-                            currentLexer.Match((ScriptLex.LexTypes)';');
                         }
+
+                        currentLexer.Match(ScriptLex.LexTypes.RBreak);
+                        currentLexer.Match((ScriptLex.LexTypes)';');
                     }
                     else if (currentLexer.TokenType == (ScriptLex.LexTypes)'}')
                     {

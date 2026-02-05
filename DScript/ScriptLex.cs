@@ -21,35 +21,35 @@ SOFTWARE.
 */
 
 using System;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace DScript
 {
-    public class ScriptLex : IDisposable
+    public sealed class ScriptLex : IDisposable
     {
         #region IDisposable
-        private bool _disposed;
+        private bool disposed;
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Dispose(bool disposing)
         {
-            if (!_disposed)
+            if (disposed) return;
+            
+            if (disposing)
             {
-                if (disposing)
+                if (dataOwned)
                 {
-                    if (dataOwned)
-                    {
-                        data = string.Empty;
-                    }
+                    data = string.Empty;
                 }
-
-                // Indicate that the instance has been disposed.
-                _disposed = true;
             }
+
+            // Indicate that the instance has been disposed.
+            disposed = true;
         }
         #endregion
 
@@ -66,6 +66,7 @@ namespace DScript
         private readonly int dataStart;
         private readonly int dataEnd;
         private int dataPos;
+        private readonly StringBuilder tokenBuilder = new StringBuilder(64);
 
         public char CurrentChar { get; private set; }
         public char NextChar { get; private set; }
@@ -232,12 +233,14 @@ namespace DScript
 
             if (CurrentChar.IsAlpha()) //IDs
             {
+                tokenBuilder.Clear();
                 while (CurrentChar.IsAlpha() || CurrentChar.IsNumeric())
                 {
-                    TokenString += CurrentChar;
+                    tokenBuilder.Append(CurrentChar);
                     GetNextChar();
                 }
 
+                TokenString = tokenBuilder.ToString();
                 TokenType = LexTypes.Id;
                 switch (TokenString)
                 {
@@ -269,17 +272,18 @@ namespace DScript
             }
             else if (CurrentChar.IsNumeric()) //Numbers
             {
+                tokenBuilder.Clear();
                 var isHex = false;
                 if (CurrentChar == '0')
                 {
-                    TokenString += CurrentChar;
+                    tokenBuilder.Append(CurrentChar);
                     GetNextChar();
                 }
 
                 if (CurrentChar == 'x')
                 {
                     isHex = true;
-                    TokenString += CurrentChar;
+                    tokenBuilder.Append(CurrentChar);
                     GetNextChar();
                 }
 
@@ -287,18 +291,18 @@ namespace DScript
 
                 while (CurrentChar.IsNumeric() || (isHex && CurrentChar.IsHexadecimal()))
                 {
-                    TokenString += CurrentChar;
+                    tokenBuilder.Append(CurrentChar);
                     GetNextChar();
                 }
 
                 if (!isHex && CurrentChar == '.')
                 {
                     TokenType = LexTypes.Float;
-                    TokenString += '.';
+                    tokenBuilder.Append('.');
                     GetNextChar();
                     while (CurrentChar.IsNumeric())
                     {
-                        TokenString += CurrentChar;
+                        tokenBuilder.Append(CurrentChar);
                         GetNextChar();
                     }
                 }
@@ -306,22 +310,25 @@ namespace DScript
                 if (!isHex && (CurrentChar == 'e' || CurrentChar == 'E'))
                 {
                     TokenType = LexTypes.Float;
-                    TokenString += CurrentChar;
+                    tokenBuilder.Append(CurrentChar);
                     GetNextChar();
                     if (CurrentChar == '-')
                     {
-                        TokenString += CurrentChar;
+                        tokenBuilder.Append(CurrentChar);
                         GetNextChar();
                     }
                     while (CurrentChar.IsNumeric())
                     {
-                        TokenString += CurrentChar;
+                        tokenBuilder.Append(CurrentChar);
                         GetNextChar();
                     }
                 }
+                
+                TokenString = tokenBuilder.ToString();
             }
             else if (CurrentChar == '\'' || CurrentChar == '\"') //Strings again
             {
+                tokenBuilder.Clear();
                 var endChar = CurrentChar;
                 GetNextChar();
 
@@ -335,25 +342,25 @@ namespace DScript
                         {
                             case '\n': break;
                             case 'n':
-                                TokenString += '\n';
+                                tokenBuilder.Append('\n');
                                 break;
                             case 'r':
-                                TokenString += '\r';
+                                tokenBuilder.Append('\r');
                                 break;
                             case 'a':
-                                TokenString += '\a';
+                                tokenBuilder.Append('\a');
                                 break;
                             case 'b':
-                                TokenString += '\b';
+                                tokenBuilder.Append('\b');
                                 break;
                             case 'f':
-                                TokenString += '\f';
+                                tokenBuilder.Append('\f');
                                 break;
                             case 't':
-                                TokenString += '\t';
+                                tokenBuilder.Append('\t');
                                 break;
                             case 'v':
-                                TokenString += '\v';
+                                tokenBuilder.Append('\v');
                                 break;
                             case 'x':
                                 {
@@ -362,7 +369,7 @@ namespace DScript
                                     str += CurrentChar;
                                     GetNextChar();
                                     str += CurrentChar;
-                                    TokenString += (char)Convert.ToInt64(str);
+                                    tokenBuilder.Append((char)Convert.ToInt64(str, 16));
                                 }
                                 break;
                             default:
@@ -374,18 +381,18 @@ namespace DScript
                                     str += CurrentChar;
                                     GetNextChar();
                                     str += CurrentChar;
-                                    TokenString += (char)Convert.ToInt64(str);
+                                    tokenBuilder.Append((char)Convert.ToInt64(str, 8));
                                 }
                                 else
                                 {
-                                    TokenString += CurrentChar;
+                                    tokenBuilder.Append(CurrentChar);
                                 }
                                 break;
                         }
                     }
                     else
                     {
-                        TokenString += CurrentChar;
+                        tokenBuilder.Append(CurrentChar);
                     }
 
                     GetNextChar();
@@ -393,6 +400,7 @@ namespace DScript
 
                 GetNextChar();
 
+                TokenString = tokenBuilder.ToString();
                 TokenType = LexTypes.Str;
             }
             else //Single character
@@ -528,26 +536,27 @@ namespace DScript
 
                     if (TokenType == LexTypes.RegExp)
                     {
-                        TokenString = "/";
+                        tokenBuilder.Clear();
+                        tokenBuilder.Append('/');
 
                         while(CurrentChar != 0 && CurrentChar != '/' && CurrentChar != '\n')
                         {
                             if(CurrentChar == '\\' && NextChar == '/')
                             {
-                                TokenString += CurrentChar;
+                                tokenBuilder.Append(CurrentChar);
                                 GetNextChar();
                             }
 
-                            TokenString += CurrentChar;
+                            tokenBuilder.Append(CurrentChar);
                             GetNextChar();
                         }
 
                         if(CurrentChar == '/')
                         {
-                            var regexStr = TokenString.Substring(1);
+                            var regexStr = tokenBuilder.ToString().Substring(1);
                             try
                             {
-                                var regexObj = new Regex(regexStr, RegexOptions.ECMAScript);
+                                _ = new Regex(regexStr, RegexOptions.ECMAScript);
                             }
                             catch(Exception ex)
                             {
@@ -556,13 +565,11 @@ namespace DScript
                             
                             do
                             {
-                                TokenString += CurrentChar;
+                                tokenBuilder.Append(CurrentChar);
                                 GetNextChar();
                             } while (CurrentChar == 'g' || CurrentChar == 'i' || CurrentChar == 'm' || CurrentChar == 'y');
-                        }
-                        else
-                        {
-
+                            
+                            TokenString = tokenBuilder.ToString();
                         }
                     }
                     else if (CurrentChar == '=') // /=
@@ -585,7 +592,7 @@ namespace DScript
 
         public ScriptLex GetSubLex(int lastPosition)
         {
-            int lastCharIdx = TokenLastEnd + 1;
+            var lastCharIdx = TokenLastEnd + 1;
 
             if (lastCharIdx < dataEnd)
             {
@@ -597,7 +604,7 @@ namespace DScript
 
         public string GetSubString(int pos)
         {
-            int lastCharIndex = TokenLastEnd + 1;
+            var lastCharIndex = TokenLastEnd + 1;
 
             if (lastCharIndex < dataEnd)
             {

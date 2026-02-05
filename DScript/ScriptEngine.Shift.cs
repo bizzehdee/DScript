@@ -24,7 +24,7 @@ using System;
 
 namespace DScript
 {
-    public partial class ScriptEngine
+    public sealed partial class ScriptEngine
     {
         private ScriptVarLink Shift(ref bool execute)
         {

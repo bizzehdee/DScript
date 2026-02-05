@@ -20,7 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-using System;
+using System.Text;
 
 namespace DScript
 {
@@ -41,7 +41,7 @@ namespace DScript
             var c = str.Length;
             for (var i = 0; i < c; i++)
             {
-                if (!IsNumeric(str[i])) return false;
+                if (!str[i].IsNumeric()) return false;
             }
             return true;
         }
@@ -61,66 +61,65 @@ namespace DScript
             var c = str.Length;
             for (var i = 0; i < c; i++)
             {
-                if (IsNumeric(str[i]) || !IsAlpha(str[i])) return false;
+                if (str[i].IsNumeric() || !str[i].IsAlpha()) return false;
             }
             return true;
         }
 
         internal static string GetJSString(this string str)
         {
-            var oStr = str;
+            var builder = new StringBuilder(str.Length + 10);
+            builder.Append('"');
 
-            for (var x = 0; x < oStr.Length; x++)
+            foreach (var ch in str)
             {
-                var replaceWith = string.Empty;
-                switch (oStr[x])
+                switch (ch)
                 {
                     case '\\':
-                        replaceWith = "\\\\";
+                        builder.Append(@"\\");
                         break;
                     case '\n':
-                        replaceWith = "\\n";
+                        builder.Append("\\n");
                         break;
                     case '\r':
-                        replaceWith = "\\r";
+                        builder.Append("\\r");
                         break;
                     case '\a':
-                        replaceWith = "\\a";
+                        builder.Append("\\a");
                         break;
                     case '\b':
-                        replaceWith = "\\b";
+                        builder.Append("\\b");
                         break;
                     case '\f':
-                        replaceWith = "\\f";
+                        builder.Append("\\f");
                         break;
                     case '\t':
-                        replaceWith = "\\t";
+                        builder.Append("\\t");
                         break;
                     case '\v':
-                        replaceWith = "\\v";
+                        builder.Append("\\v");
                         break;
                     case '"':
-                        replaceWith = "\\\"";
+                        builder.Append("\\\"");
                         break;
                     default:
+                    {
+                        var nCh = ((int)ch) & 0xFF;
+                        if (nCh < 32 || nCh > 127)
                         {
-                            var nCh = ((int)oStr[x]) & 0xFF;
-                            if (nCh < 32 || nCh > 127)
-                            {
-                                replaceWith = $"\\x{nCh:x2}";
-                            }
+                            builder.AppendFormat("\\x{0:x2}", nCh);
                         }
+                        else
+                        {
+                            builder.Append(ch);
+                        }
+                    }
                         break;
-                }
-
-                if (replaceWith != string.Empty)
-                {
-                    oStr = oStr.Substring(0, x) + replaceWith + oStr.Substring(x + 1);
-                    x += replaceWith.Length - 1;
                 }
             }
 
-            return $"\"{oStr}\"";
+            builder.Append('"');
+            return builder.ToString();
         }
     }
 }

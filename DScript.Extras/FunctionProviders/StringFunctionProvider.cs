@@ -101,7 +101,7 @@ namespace DScript.Extras.FunctionProviders
 
 
             var.ReturnVar.SetArray();
-            for (int x = 0; x < spltStrs.Length; x++)
+            for (var x = 0; x < spltStrs.Length; x++)
             {
                 var.ReturnVar.SetArrayIndex(x, new ScriptVar(spltStrs[x]));
             }

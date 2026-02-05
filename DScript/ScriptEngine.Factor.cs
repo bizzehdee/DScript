@@ -24,7 +24,7 @@ using System;
 
 namespace DScript
 {
-    public partial class ScriptEngine
+    public sealed partial class ScriptEngine
     {
         private ScriptVarLink Factor(ref bool execute)
         {
@@ -185,7 +185,7 @@ namespace DScript
 
             if (currentLexer.TokenType == (ScriptLex.LexTypes)'[')
             {
-                int idx = 0;
+                var idx = 0;
                 var contents = new ScriptVar(null, ScriptVar.Flags.Array);
                 //looking for JSON like arrays
                 currentLexer.Match((ScriptLex.LexTypes)'[');

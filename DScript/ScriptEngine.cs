@@ -1,4 +1,4 @@
-﻿/*
+﻿﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -27,36 +27,32 @@ using System.Text;
 
 namespace DScript
 {
-    public partial class ScriptEngine : IDisposable
+    public sealed partial class ScriptEngine : IDisposable
     {
         #region IDisposable
-        private bool _disposed;
+        private bool disposed;
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Dispose(bool disposing)
         {
-            if (!_disposed)
+            if (disposed) return;
+            
+            if (disposing)
             {
-                if (disposing)
-                {
-                    stringClass.UnRef();
-                    arrayClass.UnRef();
-                    objectClass.UnRef();
-                    Root.UnRef();
+                stringClass.UnRef();
+                arrayClass.UnRef();
+                objectClass.UnRef();
+                Root.UnRef();
 
-                    if (currentLexer != null)
-                    {
-                        currentLexer.Dispose();
-                    }
-                }
-
-                // Indicate that the instance has been disposed.
-                _disposed = true;
+                currentLexer?.Dispose();
             }
+
+            // Indicate that the instance has been disposed.
+            disposed = true;
         }
         #endregion
 
@@ -64,7 +60,7 @@ namespace DScript
         private readonly ScriptVar objectClass;
         private readonly ScriptVar arrayClass;
         private List<ScriptVar> scopes;
-        private Stack<ScriptVarLink> callStack;
+        private readonly Stack<ScriptVarLink> callStack;
 
         private ScriptLex currentLexer;
 
@@ -100,8 +96,6 @@ namespace DScript
             var oldLex = currentLexer;
             var oldScopes = scopes;
             scopes = new List<ScriptVar>();
-
-            scopes.Clear();
             scopes.PushBack(Root);
 
             var rootLink = new ScriptVarLink(Root, "root");
@@ -149,8 +143,6 @@ namespace DScript
 
             currentLexer = new ScriptLex(code);
             scopes = new List<ScriptVar>();
-            //callStack.Clear();
-            scopes.Clear();
             scopes.PushBack(Root);
 
             ScriptVarLink v = null;
@@ -171,8 +163,8 @@ namespace DScript
             {
                 var errorMessage = new StringBuilder($"ERROR on line {currentLexer.LineNumber} column {currentLexer.ColumnNumber} [{ex.Message}]");
 
-                int i = 0;
-                foreach (ScriptVar scriptVar in scopes)
+                var i = 0;
+                foreach (var scriptVar in scopes)
                 {
                     errorMessage.AppendLine();
                     errorMessage.Append(i++ + ": " + scriptVar);

@@ -35,7 +35,7 @@ namespace DScript.Extras.FunctionProviders
             var obj = var.GetParameter("obj");
             var v = var.GetParameter("this").FirstChild;
 
-            bool contains = false;
+            var contains = false;
             while (v != null)
             {
                 if (v.Var.Equal(obj))
@@ -97,7 +97,7 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
 
             var arrayLength = arr.GetArrayLength();
-            for (int x = 0; x < arrayLength; x++)
+            for (var x = 0; x < arrayLength; x++)
             {
                 if (x > 0)
                 {

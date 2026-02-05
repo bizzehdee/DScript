@@ -33,7 +33,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var str = var.GetParameter("str").String;
 
-            if (int.TryParse(str, out int intResult) == false)
+            if (int.TryParse(str, out var intResult) == false)
             {
                 intResult = 0;
             }
@@ -47,7 +47,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var str = var.GetParameter("str").String;
 
-            if (double.TryParse(str, out double intResult) == false)
+            if (double.TryParse(str, out var intResult) == false)
             {
                 intResult = 0;
             }

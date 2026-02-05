@@ -22,7 +22,7 @@ SOFTWARE.
 
 namespace DScript
 {
-    public partial class ScriptEngine
+    public sealed partial class ScriptEngine
     {
         private ScriptVarLink Base(ref bool execute)
         {

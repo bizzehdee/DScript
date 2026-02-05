@@ -24,7 +24,7 @@ using System;
 
 namespace DScript
 {
-    public partial class ScriptEngine
+    public sealed partial class ScriptEngine
     {
         private void Block(ref bool execute)
         {
@@ -40,7 +40,7 @@ namespace DScript
             }
             else
             {
-                int brackets = 1;
+                var brackets = 1;
                 while (currentLexer.TokenType != 0 && brackets > 0)
                 {
                     if (currentLexer.TokenType == (ScriptLex.LexTypes)'{')
