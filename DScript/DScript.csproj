@@ -5,7 +5,7 @@
 	<PackageLicenseFile>LICENSE</PackageLicenseFile>
 	<PackageProjectUrl>https://github.com/bizzehdee/DScript</PackageProjectUrl>
 	<RepositoryUrl>https://github.com/bizzehdee/DScript</RepositoryUrl>
-	<Version>2.1.0</Version>
+	<Version>2.2.0</Version>
 	<Authors>Darren Horrocks</Authors>
 	<Description>Open sourced, object oriented, Javascript based, extendable scripting language implemented in C#.</Description>
 	<Company>Darren Horrocks</Company>
@@ -13,6 +13,9 @@
 	<EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
 	<EnableNETAnalyzers>True</EnableNETAnalyzers>
 	<AnalysisLevel>latest-recommended</AnalysisLevel>
+	<LangVersion>default</LangVersion>
+	<PackageTags>js javascript scripting language</PackageTags>
+	<Title>DScript</Title>
   </PropertyGroup>
 
   <ItemGroup>
