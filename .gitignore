@@ -7,3 +7,6 @@ obj
 bin
 *.zip
 *.nupkg
+.idea
+*.user
+*.swp
