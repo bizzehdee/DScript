@@ -5,7 +5,7 @@
 	<PackageLicenseFile>LICENSE</PackageLicenseFile>
 	<PackageProjectUrl>https://github.com/bizzehdee/DScript</PackageProjectUrl>
 	<RepositoryUrl>https://github.com/bizzehdee/DScript</RepositoryUrl>
-	<Version>2.1.0</Version>
+	<Version>2.2.0</Version>
 	<Authors>Darren Horrocks</Authors>
 	<Description>Extras for the DScript engine, providing many of the required JS style classes and methods.</Description>
 	<Company>Darren Horrocks</Company>

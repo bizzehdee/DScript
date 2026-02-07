@@ -1,0 +1,107 @@
+name: Build and Publish NuGet Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      nuget_publish:
+        description: 'Publish to NuGet.org'
+        required: false
+        default: 'true'
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  PROJECT_NAME: DScript
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build projects
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: Pack DScript NuGet package
+      run: dotnet pack DScript/DScript.csproj --configuration Release --no-build --output nupkg
+
+    - name: Pack DScript.Extras NuGet package
+      run: dotnet pack DScript.Extras/DScript.Extras.csproj --configuration Release --no-build --output nupkg
+
+    - name: Upload NuGet packages as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-packages
+        path: nupkg/
+
+    - name: Publish to NuGet.org
+      if: github.event_name == 'release' || github.event.inputs.nuget_publish == 'true'
+      run: |
+        dotnet nuget push nupkg/*.nupkg \
+          --api-key ${{ secrets.NUGET_API_KEY }} \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate
+      continue-on-error: true
+
+    - name: Create release assets with source code
+      if: github.event_name == 'release'
+      run: |
+        # Create source archives
+        zip -r dscript-source-${{ github.ref_name }}.zip . -x ".git/*" ".*" "bin/*" "obj/*" ".github/*" ".vs/*" ".idea/*"
+        tar -czf dscript-source-${{ github.ref_name }}.tar.gz \
+          --exclude=.git \
+          --exclude=.github \
+          --exclude=.vs \
+          --exclude=.idea \
+          --exclude=bin \
+          --exclude=obj \
+          --exclude=.gitignore \
+          --exclude=.editorconfig \
+          .
+
+    - name: Upload release assets
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          nupkg/DScript.*.nupkg
+          nupkg/DScript.Extras.*.nupkg
+          dscript-source-${{ github.ref_name }}.zip
+          dscript-source-${{ github.ref_name }}.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create GitHub release summary
+      if: github.event_name == 'release'
+      run: |
+        echo "## 📦 Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Release:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ DScript NuGet Package" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ DScript.Extras NuGet Package" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Source Code (ZIP)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Source Code (TAR.GZ)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Published to" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔗 [NuGet.org](https://www.nuget.org/packages/DScript/)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📂 [GitHub Releases](https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }})" >> $GITHUB_STEP_SUMMARY
+
