@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-	<TargetFramework>netstandard2.0</TargetFramework>
+	<TargetFrameworks>netstandard2.1</TargetFrameworks>
 	<PackageLicenseFile>LICENSE</PackageLicenseFile>
 	<PackageProjectUrl>https://github.com/bizzehdee/DScript</PackageProjectUrl>
 	<RepositoryUrl>https://github.com/bizzehdee/DScript</RepositoryUrl>
@@ -13,7 +13,7 @@
 	<EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
 	<EnableNETAnalyzers>True</EnableNETAnalyzers>
 	<AnalysisLevel>latest-recommended</AnalysisLevel>
-	<LangVersion>default</LangVersion>
+	<LangVersion>latest</LangVersion>
 	<PackageTags>js javascript scripting language</PackageTags>
 	<Title>DScript</Title>
   </PropertyGroup>

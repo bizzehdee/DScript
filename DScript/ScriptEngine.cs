@@ -1,4 +1,4 @@
-﻿﻿/*
+﻿﻿﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -365,6 +365,127 @@ namespace DScript
             else
             {
                 link.ReplaceWith(res);
+            }
+        }
+        
+        /// <summary>
+        /// Serialize the current VM state (all variables and their values).
+        /// This can be called at any time, even after script execution completes.
+        /// Note: Native functions cannot be serialized - they must be re-registered after deserialization.
+        /// </summary>
+        /// <returns>A VMState object containing the serialized state</returns>
+        public VMState SerializeState()
+        {
+            using (var ms = new System.IO.MemoryStream())
+            using (var writer = new System.IO.BinaryWriter(ms))
+            {
+                Root.Serialize(writer);
+                writer.Flush();
+
+                // Collect all native function names for reference
+                var nativeFunctions = new List<string>();
+                CollectNativeFunctionNames(Root, "", nativeFunctions);
+
+                return new VMState
+                {
+                    RootState = ms.ToArray(),
+                    NativeFunctionNames = nativeFunctions,  // Already a List, which implements IReadOnlyList
+                    Timestamp = DateTime.UtcNow,
+                    Version = "1.0"
+                };
+            }
+        }
+
+        /// <summary>
+        /// Deserialize and restore a previously saved VM state.
+        /// This replaces all current variables with the saved state.
+        /// Note: All native functions must be re-registered before calling this method.
+        /// After deserialization, you can execute new scripts that will have access to the restored variables.
+        /// </summary>
+        /// <param name="state">The VMState to restore</param>
+        public void DeserializeState(VMState state)
+        {
+            if (state == null)
+            {
+                throw new ArgumentNullException(nameof(state));
+            }
+
+            if (currentLexer != null)
+            {
+                throw new InvalidOperationException("Cannot deserialize state while execution is active.");
+            }
+
+            // Deserialize the Root state
+            using var ms = new System.IO.MemoryStream(state.RootState);
+            using var reader = new System.IO.BinaryReader(ms);
+            var deserializedRoot = ScriptVar.Deserialize(reader);
+
+            // Merge native functions from current Root to deserialized Root
+            MergeNativeFunctions(Root, deserializedRoot);
+
+            // Replace Root contents while keeping the same instance (to maintain refs)
+            Root.RemoveAllChildren();
+            var link = deserializedRoot.FirstChild;
+            while (link != null)
+            {
+                Root.AddChild(link.Name, link.Var, link.IsConst);
+                link = link.Next;
+            }
+        }
+
+        /// <summary>
+        /// Recursively collect names of all native functions
+        /// </summary>
+        private static void CollectNativeFunctionNames(ScriptVar var, string path, List<string> names)
+        {
+            var link = var.FirstChild;
+            while (link != null)
+            {
+                var fullPath = string.IsNullOrEmpty(path) ? link.Name : $"{path}.{link.Name}";
+                
+                if (link.Var.IsNative && link.Var.IsFunction)
+                {
+                    names.Add(fullPath);
+                }
+                
+                if (link.Var.IsObject || link.Var.IsFunction)
+                {
+                    CollectNativeFunctionNames(link.Var, fullPath, names);
+                }
+                
+                link = link.Next;
+            }
+        }
+
+        /// <summary>
+        /// Merge native functions from current root to deserialized root
+        /// </summary>
+        private static void MergeNativeFunctions(ScriptVar current, ScriptVar deserialized)
+        {
+            var link = current.FirstChild;
+            while (link != null)
+            {
+                if (link.Var.IsNative && link.Var.IsFunction)
+                {
+                    // Find corresponding link in deserialized
+                    var deserializedLink = deserialized.FindChild(link.Name);
+                    if (deserializedLink != null && deserializedLink.Var.IsNative)
+                    {
+                        // Copy the callback from current to deserialized
+                        deserializedLink.Var.SetCallback(link.Var.GetCallback(), link.Var.GetCallbackUserData());
+                    }
+                }
+                else if (link.Var.IsObject)
+                {
+                    // Recursively merge nested objects
+                    var deserializedLink = deserialized.FindChild(link.Name);
+                    if (deserializedLink != null && deserializedLink.Var.IsObject)
+                    {
+                        MergeNativeFunctions(link.Var, deserializedLink.Var);
+                    }
+                }
+                
+                link = link.Next;
             }
         }
     }

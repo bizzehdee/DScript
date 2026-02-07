@@ -12,7 +12,7 @@ namespace DScript.Test
         {
             var v = new ScriptVar();
 
-            Assert.IsTrue(v.IsUndefined);
+            Assert.That(v.IsUndefined, Is.True);
         }
 
         [Test]
@@ -20,8 +20,8 @@ namespace DScript.Test
         {
             var v = new ScriptVar(true);
 
-            Assert.IsTrue(v.IsInt);
-            Assert.IsTrue(v.Bool);
+            Assert.That(v.IsInt, Is.True);
+            Assert.That(v.Bool, Is.True);
         }
     }
 }

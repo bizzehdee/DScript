@@ -1,4 +1,4 @@
-﻿/*
+﻿﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -57,12 +57,7 @@ namespace DScript.Extras.FunctionProviders
             var str = var.GetParameter("this").String;
             var pos = var.GetParameter("pos").Int;
 
-            var charStr = string.Empty;
-            if (str.Length > pos)
-            {
-                charStr = str[pos].ToString();
-            }
-
+            var charStr = (str.Length > pos) ? str[pos].ToString() : string.Empty;
             var.ReturnVar.String = charStr;
         }
 
@@ -97,8 +92,7 @@ namespace DScript.Extras.FunctionProviders
             var str = var.GetParameter("this").String;
             var sep = var.GetParameter("sep").String;
 
-            var spltStrs = str.Split(new[] { sep }, StringSplitOptions.None);
-
+            var spltStrs = str.Split(sep);
 
             var.ReturnVar.SetArray();
             for (var x = 0; x < spltStrs.Length; x++)

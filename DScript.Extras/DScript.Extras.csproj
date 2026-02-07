@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>netstandard2.1</TargetFramework>
 	<PackageLicenseFile>LICENSE</PackageLicenseFile>
 	<PackageProjectUrl>https://github.com/bizzehdee/DScript</PackageProjectUrl>
 	<RepositoryUrl>https://github.com/bizzehdee/DScript</RepositoryUrl>
@@ -10,6 +10,7 @@
 	<Description>Extras for the DScript engine, providing many of the required JS style classes and methods.</Description>
 	<Company>Darren Horrocks</Company>
 	<Copyright>Darren Horrocks</Copyright>
+	<LangVersion>default</LangVersion>
   </PropertyGroup>
 
 	<ItemGroup>

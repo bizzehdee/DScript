@@ -157,6 +157,27 @@ namespace DScript
 
             Reset();
         }
+        
+        public ScriptLex(string input, int startPos, int lineNumber, int columnNumber)
+        {
+            data = input;
+            dataOwned = true;
+            dataStart = 0;
+            dataEnd = data.Length;
+            
+            dataPos = startPos;
+            TokenStart = startPos;
+            TokenEnd = startPos;
+            TokenLastEnd = startPos;
+            TokenType = 0;
+            TokenString = "";
+            LineNumber = lineNumber;
+            ColumnNumber = columnNumber;
+
+            GetNextChar();
+            GetNextChar();
+            GetNextToken();
+        }
 
         public void Reset()
         {
@@ -612,6 +633,16 @@ namespace DScript
             }
 
             return data.Substring(pos);
+        }
+        
+        public string GetCode()
+        {
+            if (dataStart == 0 && dataEnd == data.Length)
+            {
+                return data;
+            }
+            
+            return data.Substring(dataStart, dataEnd - dataStart);
         }
 
         public void Match(LexTypes type)

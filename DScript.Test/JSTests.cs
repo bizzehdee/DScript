@@ -32,7 +32,7 @@ namespace DScript.Test
 
             var result = engine.Root.GetParameter("result");
             var resultAsBool = result.Bool;
-            Assert.IsTrue(resultAsBool, ex != null ? ex.Message : string.Empty);
+            Assert.That(resultAsBool, Is.EqualTo(true), ex != null ? ex.Message : string.Empty);
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Used in reflection")]

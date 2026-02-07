@@ -1,4 +1,4 @@
-﻿/*
+﻿﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -29,6 +30,9 @@ namespace DScript
 {
     public sealed class ScriptVar : IDisposable
     {
+        // Cache compiled regex patterns to avoid recompilation (performance optimization)
+        private static readonly Dictionary<string, Regex> RegexCache = new Dictionary<string, Regex>();
+
         #region IDisposable
         private bool disposed;
         public void Dispose()
@@ -172,7 +176,15 @@ namespace DScript
                     }
                 }
 
-                scriptData = new Regex(regexStr, regexOpts);
+                // Use cache key combining pattern and options
+                var cacheKey = $"{regexStr}|{regexOpts}";
+                if (!RegexCache.TryGetValue(cacheKey, out var regex))
+                {
+                    regex = new Regex(regexStr, regexOpts);
+                    RegexCache[cacheKey] = regex;
+                }
+                
+                scriptData = regex;
             }
             else
             {
@@ -210,6 +222,8 @@ namespace DScript
         public bool IsUndefined => (flags & Flags.VarTypeMask) == Flags.Undefined;
 
         public bool IsNull => (flags & Flags.Null) != 0;
+        
+        public bool IsRegexp => (flags & Flags.Regexp) != 0;
 
         public bool IsBasic => FirstChild == null;
 
@@ -902,14 +916,148 @@ namespace DScript
             scriptData = data;
         }
 
-        internal ScriptEngine.ScriptCallbackCB GetCallback()
+        public ScriptEngine.ScriptCallbackCB GetCallback()
         {
             return scriptCallback;
         }
 
-        internal object GetCallbackUserData()
+        public object GetCallbackUserData()
         {
             return callbackUserData;
+        }
+
+        /// <summary>
+        /// Serialize this ScriptVar and all its children to a BinaryWriter
+        /// </summary>
+        public void Serialize(BinaryWriter writer)
+        {
+            // Write flags
+            writer.Write((int)flags);
+            
+            // Write data based on type
+            writer.Write(intData);
+            writer.Write(doubleData);
+            
+            // Write string/object data
+            if (scriptData == null)
+            {
+                writer.Write(false); // null marker
+            }
+            else
+            {
+                writer.Write(true); // has data marker
+                
+                if (IsString || IsFunction)
+                {
+                    writer.Write(scriptData.ToString());
+                }
+                else if (IsRegexp)
+                {
+                    // Store regex pattern and options
+                    var regex = scriptData as Regex;
+                    if (regex != null)
+                    {
+                        writer.Write(regex.ToString());
+                        writer.Write((int)regex.Options);
+                    }
+                    else
+                    {
+                        writer.Write(string.Empty);
+                        writer.Write(0);
+                    }
+                }
+                else
+                {
+                    // For other types, try to convert to string
+                    writer.Write(scriptData.ToString() ?? string.Empty);
+                }
+            }
+            
+            // Write native function marker (can't be serialized)
+            writer.Write(IsNative);
+            
+            // Write children count
+            var childCount = GetChildren();
+            writer.Write(childCount);
+            
+            // Write each child
+            var link = FirstChild;
+            while (link != null)
+            {
+                writer.Write(link.Name ?? string.Empty);
+                writer.Write(link.IsConst);
+                link.Var.Serialize(writer);
+                link = link.Next;
+            }
+        }
+        
+        /// <summary>
+        /// Deserialize a ScriptVar from a BinaryReader
+        /// </summary>
+        public static ScriptVar Deserialize(BinaryReader reader)
+        {
+            // Read flags
+            var flags = (Flags)reader.ReadInt32();
+            
+            // Create a new ScriptVar using the default constructor to avoid null reference issues
+            var var = new ScriptVar();
+            var.flags = flags;
+            
+            // Read data
+            var.intData = reader.ReadInt32();
+            var.doubleData = reader.ReadDouble();
+            
+            // Read string/object data
+            var hasData = reader.ReadBoolean();
+            if (hasData)
+            {
+                if (var.IsString || var.IsFunction)
+                {
+                    var.scriptData = reader.ReadString();
+                }
+                else if (var.IsRegexp)
+                {
+                    var pattern = reader.ReadString();
+                    var options = (RegexOptions)reader.ReadInt32();
+                    
+                    if (!string.IsNullOrEmpty(pattern))
+                    {
+                        try
+                        {
+                            var.scriptData = new Regex(pattern, options);
+                        }
+                        catch
+                        {
+                            var.scriptData = null;
+                        }
+                    }
+                }
+                else
+                {
+                    var.scriptData = reader.ReadString();
+                }
+            }
+            
+            // Read native function marker
+            var isNative = reader.ReadBoolean();
+            if (isNative)
+            {
+                // Native functions cannot be serialized - they will need to be re-registered
+                // Mark this so we know it needs to be handled on resume
+                var.flags |= Flags.Native;
+            }
+            
+            // Read children
+            var childCount = reader.ReadInt32();
+            for (int i = 0; i < childCount; i++)
+            {
+                var childName = reader.ReadString();
+                var isConst = reader.ReadBoolean();
+                var childVar = Deserialize(reader);
+                var.AddChild(childName, childVar, isConst);
+            }
+            
+            return var;
         }
 
     }

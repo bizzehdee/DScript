@@ -1,4 +1,4 @@
-﻿/*
+﻿﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -38,10 +38,9 @@ namespace DScript
 
         internal static bool IsNumber(this string str)
         {
-            var c = str.Length;
-            for (var i = 0; i < c; i++)
+            foreach (var ch in str)
             {
-                if (!str[i].IsNumeric()) return false;
+                if (!ch.IsNumeric()) return false;
             }
             return true;
         }
@@ -58,10 +57,9 @@ namespace DScript
 
         internal static bool IsIDString(this string str)
         {
-            var c = str.Length;
-            for (var i = 0; i < c; i++)
+            foreach (var ch in str)
             {
-                if (str[i].IsNumeric() || !str[i].IsAlpha()) return false;
+                if (ch.IsNumeric() || !ch.IsAlpha()) return false;
             }
             return true;
         }
@@ -107,7 +105,8 @@ namespace DScript
                         var nCh = ((int)ch) & 0xFF;
                         if (nCh < 32 || nCh > 127)
                         {
-                            builder.AppendFormat("\\x{0:x2}", nCh);
+                            builder.Append("\\x");
+                            builder.Append(nCh.ToString("x2"));
                         }
                         else
                         {

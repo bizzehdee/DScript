@@ -1,4 +1,4 @@
-﻿/*
+﻿﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -27,6 +27,9 @@ namespace DScript.Extras.FunctionProviders
     [ScriptClass("Math")]
     public static class MathFunctionProvider
     {
+        // Static Random instance for better randomness and performance
+        private static readonly Random Random = new Random();
+        
         [ScriptMethod("min", "val1", "val2")]
         public static void MathMinImpl(ScriptVar var, object userData)
         {
@@ -201,8 +204,7 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("random")]
         public static void MathRandomImpl(ScriptVar var, object userData)
         {
-            var random = new Random();
-            var randomNumber = random.NextDouble();
+            var randomNumber = Random.NextDouble();
             var.ReturnVar.Float = (randomNumber);
         }
 
@@ -211,12 +213,10 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("randInt", "min", "max")]
         public static void MathRandomIntImpl(ScriptVar var, object userData)
         {
-            var random = new Random();
-
             var min = var.GetParameter("min").Int;
             var max = var.GetParameter("max").Int;
 
-            var randomInt = random.Next(min, max);
+            var randomInt = Random.Next(min, max);
 
             var.ReturnVar.Int = randomInt;
         }
