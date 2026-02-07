@@ -28,20 +28,21 @@ namespace DScript
         {
             var a = Unary(ref execute);
 
-            while (currentLexer.TokenType == (ScriptLex.LexTypes)'*' ||
-                currentLexer.TokenType == (ScriptLex.LexTypes)'/' ||
-                currentLexer.TokenType == (ScriptLex.LexTypes)'%')
+            while (currentLexer.TokenType is 
+                   (ScriptLex.LexTypes)'*' or 
+                   (ScriptLex.LexTypes)'/' or 
+                   (ScriptLex.LexTypes)'%')
             {
                 var op = currentLexer.TokenType;
                 currentLexer.Match(currentLexer.TokenType);
 
                 var b = Unary(ref execute);
-                if (execute)
-                {
-                    var res = a.Var.MathsOp(b.Var, op);
+                
+                if (!execute) continue;
+                
+                var res = a.Var.MathsOp(b.Var, op);
 
-                    CreateLink(ref a, res);
-                }
+                CreateLink(ref a, res);
             }
 
             return a;

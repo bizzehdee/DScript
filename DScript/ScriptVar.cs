@@ -31,7 +31,7 @@ namespace DScript
     public sealed class ScriptVar : IDisposable
     {
         // Cache compiled regex patterns to avoid recompilation (performance optimization)
-        private static readonly Dictionary<string, Regex> RegexCache = new Dictionary<string, Regex>();
+        private static readonly Dictionary<string, Regex> RegexCache = [];
 
         #region IDisposable
         private bool disposed;
@@ -166,13 +166,14 @@ namespace DScript
 
                 foreach (var c in opts)
                 {
-                    if (c == 'i')
+                    switch (c)
                     {
-                        regexOpts |= RegexOptions.IgnoreCase;
-                    }
-                    else if(c=='m')
-                    {
-                        regexOpts |= RegexOptions.Multiline;
+                        case 'i':
+                            regexOpts |= RegexOptions.IgnoreCase;
+                            break;
+                        case 'm':
+                            regexOpts |= RegexOptions.Multiline;
+                            break;
                     }
                 }
 
@@ -428,13 +429,13 @@ namespace DScript
             {
                 LastChild.Next = link;
                 link.Prev = LastChild;
-                LastChild = link;
             }
             else
             {
                 FirstChild = link;
-                LastChild = link;
             }
+
+            LastChild = link;
 
             return link;
         }
@@ -556,11 +557,10 @@ namespace DScript
             }
             else
             {
-                if (!value.IsUndefined)
-                {
-                    AddChild($"{idx}", value);
-                    cachedArrayLength = -1;  // Invalidate cache on addition
-                }
+                if (value.IsUndefined) return;
+                
+                AddChild($"{idx}", value);
+                cachedArrayLength = -1;  // Invalidate cache on addition
             }
         }
 
@@ -606,12 +606,9 @@ namespace DScript
 
         public bool Equal(ScriptVar v)
         {
-            bool res;
-
-            using (var resV = MathsOp(v, ScriptLex.LexTypes.Equal))
-            {
-                res = resV.Bool;
-            }
+            using var resV = MathsOp(v, ScriptLex.LexTypes.Equal);
+            
+            var res = resV.Bool;
 
             return res;
         }
@@ -642,90 +639,91 @@ namespace DScript
 
             if (a.IsUndefined && b.IsUndefined)
             {
-                if (op == ScriptLex.LexTypes.Equal)
-                {
-                    return new ScriptVar(true);
-                }
-                if (op == ScriptLex.LexTypes.NEqual)
-                {
-                    return new ScriptVar(false);
-                }
-
-                return new ScriptVar();
-            }
-            else if ((a.IsNumeric || a.IsUndefined) && (b.IsNumeric || b.IsUndefined))
-            {
-                if (!a.IsDouble && !b.IsDouble)
-                {
-                    //ints
-                    var da = a.Int;
-                    var db = b.Int;
-
-                    switch (opc)
-                    {
-                        case '+': return new ScriptVar(da + db);
-                        case '-': return new ScriptVar(da - db);
-                        case '*': return new ScriptVar(da * db);
-                        case '/': return new ScriptVar(da / db);
-                        case '&': return new ScriptVar(da & db);
-                        case '|': return new ScriptVar(da | db);
-                        case '^': return new ScriptVar(da ^ db);
-                        case '%': return new ScriptVar(da % db);
-                        case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(da == db);
-                        case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(da != db);
-                        case '<': return new ScriptVar(da < db);
-                        case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar(da <= db);
-                        case '>': return new ScriptVar(da > db);
-                        case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar(da >= db);
-
-                        default: throw new ScriptException("Operation not supported on the Int datatype");
-                    }
-                }
-                else
-                {
-                    //doubles
-                    var da = a.Float;
-                    var db = b.Float;
-
-                    switch (opc)
-                    {
-                        case '+': return new ScriptVar(da + db);
-                        case '-': return new ScriptVar(da - db);
-                        case '*': return new ScriptVar(da * db);
-                        case '/': return new ScriptVar(da / db);
-                        case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(Math.Abs(da - db) < 0.00001);
-                        case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(Math.Abs(da - db) > 0.00001);
-                        case '<': return new ScriptVar(da < db);
-                        case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar(da <= db);
-                        case '>': return new ScriptVar(da > db);
-                        case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar(da >= db);
-
-                        default: throw new ScriptException("Operation not supported on the Int datatype");
-                    }
-                }
-            }
-            else if (a.IsArray)
-            {
                 switch (op)
                 {
-                    case ScriptLex.LexTypes.Equal: return new ScriptVar(a == b);
-                    case ScriptLex.LexTypes.NEqual: return new ScriptVar(a != b);
-
-                    default: throw new ScriptException("Operation not supported on the Array datatype");
-                }
-            }
-            else if (a.IsObject)
-            {
-                switch (op)
-                {
-                    case ScriptLex.LexTypes.Equal: return new ScriptVar(a == b);
-                    case ScriptLex.LexTypes.NEqual: return new ScriptVar(a != b);
-
-                    default: throw new ScriptException("Operation not supported on the Object datatype");
+                    case ScriptLex.LexTypes.Equal:
+                        return new ScriptVar(true);
+                    case ScriptLex.LexTypes.NEqual:
+                        return new ScriptVar(false);
+                    default:
+                        return new ScriptVar();
                 }
             }
             else
             {
+                if ((a.IsNumeric || a.IsUndefined) && (b.IsNumeric || b.IsUndefined))
+                {
+                    if (!a.IsDouble && !b.IsDouble)
+                    {
+                        //ints
+                        var da = a.Int;
+                        var db = b.Int;
+
+                        switch (opc)
+                        {
+                            case '+': return new ScriptVar(da + db);
+                            case '-': return new ScriptVar(da - db);
+                            case '*': return new ScriptVar(da * db);
+                            case '/': return new ScriptVar(da / db);
+                            case '&': return new ScriptVar(da & db);
+                            case '|': return new ScriptVar(da | db);
+                            case '^': return new ScriptVar(da ^ db);
+                            case '%': return new ScriptVar(da % db);
+                            case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(da == db);
+                            case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(da != db);
+                            case '<': return new ScriptVar(da < db);
+                            case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar(da <= db);
+                            case '>': return new ScriptVar(da > db);
+                            case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar(da >= db);
+
+                            default: throw new ScriptException("Operation not supported on the Int datatype");
+                        }
+                    }
+                    else
+                    {
+                        //doubles
+                        var da = a.Float;
+                        var db = b.Float;
+
+                        switch (opc)
+                        {
+                            case '+': return new ScriptVar(da + db);
+                            case '-': return new ScriptVar(da - db);
+                            case '*': return new ScriptVar(da * db);
+                            case '/': return new ScriptVar(da / db);
+                            case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(Math.Abs(da - db) < 0.00001);
+                            case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(Math.Abs(da - db) > 0.00001);
+                            case '<': return new ScriptVar(da < db);
+                            case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar(da <= db);
+                            case '>': return new ScriptVar(da > db);
+                            case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar(da >= db);
+
+                            default: throw new ScriptException("Operation not supported on the Int datatype");
+                        }
+                    }
+                }
+                if (a.IsArray)
+                {
+                    switch (op)
+                    {
+                        case ScriptLex.LexTypes.Equal: return new ScriptVar(a == b);
+                        case ScriptLex.LexTypes.NEqual: return new ScriptVar(a != b);
+
+                        default: throw new ScriptException("Operation not supported on the Array datatype");
+                    }
+                }
+
+                if (a.IsObject)
+                {
+                    switch (op)
+                    {
+                        case ScriptLex.LexTypes.Equal: return new ScriptVar(a == b);
+                        case ScriptLex.LexTypes.NEqual: return new ScriptVar(a != b);
+
+                        default: throw new ScriptException("Operation not supported on the Object datatype");
+                    }
+                }
+
                 var sda = a.GetString();
                 var sdb = b.GetString();
 
@@ -954,8 +952,7 @@ namespace DScript
                 else if (IsRegexp)
                 {
                     // Store regex pattern and options
-                    var regex = scriptData as Regex;
-                    if (regex != null)
+                    if (scriptData is Regex regex)
                     {
                         writer.Write(regex.ToString());
                         writer.Write((int)regex.Options);
@@ -998,15 +995,17 @@ namespace DScript
         {
             // Read flags
             var flags = (Flags)reader.ReadInt32();
-            
+
             // Create a new ScriptVar using the default constructor to avoid null reference issues
-            var var = new ScriptVar();
-            var.flags = flags;
-            
-            // Read data
-            var.intData = reader.ReadInt32();
-            var.doubleData = reader.ReadDouble();
-            
+            var var = new ScriptVar
+            {
+                flags = flags,
+
+                // Read data
+                intData = reader.ReadInt32(),
+                doubleData = reader.ReadDouble()
+            };
+
             // Read string/object data
             var hasData = reader.ReadBoolean();
             if (hasData)
@@ -1049,7 +1048,7 @@ namespace DScript
             
             // Read children
             var childCount = reader.ReadInt32();
-            for (int i = 0; i < childCount; i++)
+            for (var i = 0; i < childCount; i++)
             {
                 var childName = reader.ReadString();
                 var isConst = reader.ReadBoolean();

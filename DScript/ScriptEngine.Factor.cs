@@ -28,243 +28,239 @@ namespace DScript
     {
         private ScriptVarLink Factor(ref bool execute)
         {
-            if (currentLexer.TokenType == (ScriptLex.LexTypes)'(')
+            switch (currentLexer.TokenType)
             {
-                currentLexer.Match((ScriptLex.LexTypes)'(');
-                var a = Base(ref execute);
-                currentLexer.Match((ScriptLex.LexTypes)')');
-                return a;
-            }
-            if (currentLexer.TokenType == ScriptLex.LexTypes.RTrue)
-            {
-                currentLexer.Match(ScriptLex.LexTypes.RTrue);
-                return new ScriptVarLink(new ScriptVar(1), null);
-            }
-            if (currentLexer.TokenType == ScriptLex.LexTypes.RFalse)
-            {
-                currentLexer.Match(ScriptLex.LexTypes.RFalse);
-                return new ScriptVarLink(new ScriptVar(0), null);
-            }
-            if (currentLexer.TokenType == ScriptLex.LexTypes.RNull)
-            {
-                currentLexer.Match(ScriptLex.LexTypes.RNull);
-                return new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Null), null);
-            }
-            if (currentLexer.TokenType == ScriptLex.LexTypes.RUndefined)
-            {
-                currentLexer.Match(ScriptLex.LexTypes.RUndefined);
-                return new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Undefined), null);
-            }
-            if (currentLexer.TokenType == ScriptLex.LexTypes.Id)
-            {
-                var a = execute ? FindInScopes(currentLexer.TokenString) : new ScriptVarLink(new ScriptVar(), null);
-
-                ScriptVar parent = null;
-
-                if (execute && a == null)
+                case (ScriptLex.LexTypes)'(':
                 {
-                    a = new ScriptVarLink(new ScriptVar(), currentLexer.TokenString);
+                    currentLexer.Match((ScriptLex.LexTypes)'(');
+                    var a = Base(ref execute);
+                    currentLexer.Match((ScriptLex.LexTypes)')');
+                    return a;
                 }
-
-                currentLexer.Match(ScriptLex.LexTypes.Id);
-
-                while (currentLexer.TokenType == (ScriptLex.LexTypes)'(' || currentLexer.TokenType == (ScriptLex.LexTypes)'.' || currentLexer.TokenType == (ScriptLex.LexTypes)'[')
+                case ScriptLex.LexTypes.RTrue:
+                    currentLexer.Match(ScriptLex.LexTypes.RTrue);
+                    return new ScriptVarLink(new ScriptVar(1), null);
+                case ScriptLex.LexTypes.RFalse:
+                    currentLexer.Match(ScriptLex.LexTypes.RFalse);
+                    return new ScriptVarLink(new ScriptVar(0), null);
+                case ScriptLex.LexTypes.RNull:
+                    currentLexer.Match(ScriptLex.LexTypes.RNull);
+                    return new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Null), null);
+                case ScriptLex.LexTypes.RUndefined:
+                    currentLexer.Match(ScriptLex.LexTypes.RUndefined);
+                    return new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Undefined), null);
+                case ScriptLex.LexTypes.Id:
                 {
-                    if (currentLexer.TokenType == (ScriptLex.LexTypes)'(') // function call
+                    var a = execute ? FindInScopes(currentLexer.TokenString) : new ScriptVarLink(new ScriptVar(), null);
+
+                    ScriptVar parent = null;
+
+                    if (execute && a == null)
                     {
-                        a = FunctionCall(ref execute, a, parent);
-                    }
-                    else if (currentLexer.TokenType == (ScriptLex.LexTypes)'.') // child access
-                    {
-                        currentLexer.Match((ScriptLex.LexTypes)'.');
-                        if (execute)
-                        {
-                            var name = currentLexer.TokenString;
-                            var child = a.Var.FindChild(name);
-
-                            if (child == null)
-                            {
-                                child = FindInParentClasses(a.Var, name);
-                            }
-
-                            if (child == null)
-                            {
-                                if (a.Var.IsArray && name == "length")
-                                {
-                                    var length = a.Var.GetArrayLength();
-                                    child = new ScriptVarLink(new ScriptVar(length), null);
-                                }
-                                else if (a.Var.IsString && name == "length")
-                                {
-                                    var length = a.Var.String.Length;
-                                    child = new ScriptVarLink(new ScriptVar(length), null);
-                                }
-                                else
-                                {
-                                    child = a.Var.AddChild(name, null);
-                                }
-                            }
-
-                            parent = a.Var;
-                            a = child;
-                        }
-
-                        currentLexer.Match(ScriptLex.LexTypes.Id);
-                    }
-                    else if (currentLexer.TokenType == (ScriptLex.LexTypes)'[') // array access
-                    {
-                        currentLexer.Match((ScriptLex.LexTypes)'[');
-                        var index = Base(ref execute);
-                        currentLexer.Match((ScriptLex.LexTypes)']');
-
-                        if (execute)
-                        {
-                            var child = a.Var.FindChildOrCreate(index.Var.String);
-                            parent = a.Var;
-                            a = child;
-                        }
-                    }
-                    else
-                    {
-                        throw new ScriptException("WTF?");
-                    }
-                }
-
-                return a;
-            }
-
-            if (currentLexer.TokenType == ScriptLex.LexTypes.Int || currentLexer.TokenType == ScriptLex.LexTypes.Float)
-            {
-                var a = new ScriptVar(currentLexer.TokenString, currentLexer.TokenType == ScriptLex.LexTypes.Int ? ScriptVar.Flags.Integer : ScriptVar.Flags.Double);
-                currentLexer.Match(currentLexer.TokenType);
-                return new ScriptVarLink(a, null);
-            }
-
-            if (currentLexer.TokenType == ScriptLex.LexTypes.Str)
-            {
-                var a = new ScriptVar(currentLexer.TokenString, ScriptVar.Flags.String);
-                currentLexer.Match(currentLexer.TokenType);
-                return new ScriptVarLink(a, null);
-            }
-
-            if (currentLexer.TokenType == (ScriptLex.LexTypes)'{')
-            {
-                var contents = new ScriptVar(null, ScriptVar.Flags.Object);
-                //looking for JSON like objects
-                currentLexer.Match((ScriptLex.LexTypes)'{');
-                while (currentLexer.TokenType != (ScriptLex.LexTypes)'}')
-                {
-                    var id = currentLexer.TokenString;
-
-                    if (currentLexer.TokenType == ScriptLex.LexTypes.Str)
-                    {
-                        currentLexer.Match(ScriptLex.LexTypes.Str);
-                    }
-                    else
-                    {
-                        currentLexer.Match(ScriptLex.LexTypes.Id);
-                    }
-
-                    currentLexer.Match((ScriptLex.LexTypes)':');
-
-                    if (execute)
-                    {
-                        var a = Base(ref execute);
-                        contents.AddChild(id, a.Var);
-                    }
-
-                    if (currentLexer.TokenType != (ScriptLex.LexTypes)'}')
-                    {
-                        currentLexer.Match((ScriptLex.LexTypes)',');
-                    }
-                }
-                currentLexer.Match((ScriptLex.LexTypes)'}');
-
-                return new ScriptVarLink(contents, null);
-            }
-
-            if (currentLexer.TokenType == (ScriptLex.LexTypes)'[')
-            {
-                var idx = 0;
-                var contents = new ScriptVar(null, ScriptVar.Flags.Array);
-                //looking for JSON like arrays
-                currentLexer.Match((ScriptLex.LexTypes)'[');
-                while (currentLexer.TokenType != (ScriptLex.LexTypes)']')
-                {
-                    if (execute)
-                    {
-                        var id = $"{idx}";
-
-                        var a = Base(ref execute);
-                        contents.AddChild(id, a.Var);
-                    }
-
-                    if (currentLexer.TokenType != (ScriptLex.LexTypes)']')
-                    {
-                        currentLexer.Match((ScriptLex.LexTypes)',');
-                    }
-
-                    idx++;
-                }
-                currentLexer.Match((ScriptLex.LexTypes)']');
-
-                return new ScriptVarLink(contents, null);
-            }
-
-            if (currentLexer.TokenType == ScriptLex.LexTypes.RFunction)
-            {
-                var funcVar = ParseFunctionDefinition();
-                if (funcVar.Name != string.Empty)
-                {
-                    System.Diagnostics.Trace.TraceWarning("Functions not defined at statement level are not supposed to have a name");
-                }
-                return funcVar;
-            }
-
-            if (currentLexer.TokenType == ScriptLex.LexTypes.RNew) // new
-            {
-                currentLexer.Match(ScriptLex.LexTypes.RNew);
-
-                var className = currentLexer.TokenString;
-                if (execute)
-                {
-                    var classOrFuncObject = FindInScopes(className);
-                    if (classOrFuncObject == null)
-                    {
-                        System.Diagnostics.Trace.TraceWarning("{0} is not a valid class name", className);
-                        return new ScriptVarLink(new ScriptVar(), null);
+                        a = new ScriptVarLink(new ScriptVar(), currentLexer.TokenString);
                     }
 
                     currentLexer.Match(ScriptLex.LexTypes.Id);
 
-                    var obj = new ScriptVar(null, ScriptVar.Flags.Object);
-                    var objLink = new ScriptVarLink(obj, null);
-
-                    if (classOrFuncObject.Var.IsFunction)
+                    while (currentLexer.TokenType == (ScriptLex.LexTypes)'(' || currentLexer.TokenType == (ScriptLex.LexTypes)'.' || currentLexer.TokenType == (ScriptLex.LexTypes)'[')
                     {
-                        FunctionCall(ref execute, classOrFuncObject, obj);
-                    }
-                    else
-                    {
-                        obj.AddChild(ScriptVar.PrototypeClassName, classOrFuncObject.Var);
-
-                        if (currentLexer.TokenType == (ScriptLex.LexTypes)'(')
+                        switch (currentLexer.TokenType)
                         {
-                            currentLexer.Match((ScriptLex.LexTypes)'(');
-                            currentLexer.Match((ScriptLex.LexTypes)')');
+                            // function call
+                            case (ScriptLex.LexTypes)'(':
+                                a = FunctionCall(ref execute, a, parent);
+                                break;
+                            // child access
+                            case (ScriptLex.LexTypes)'.':
+                            {
+                                currentLexer.Match((ScriptLex.LexTypes)'.');
+                                if (execute)
+                                {
+                                    var name = currentLexer.TokenString;
+                                    var child = a.Var.FindChild(name);
+
+                                    if (child == null)
+                                    {
+                                        child = FindInParentClasses(a.Var, name);
+                                    }
+
+                                    if (child == null)
+                                    {
+                                        if (a.Var.IsArray && name == "length")
+                                        {
+                                            var length = a.Var.GetArrayLength();
+                                            child = new ScriptVarLink(new ScriptVar(length), null);
+                                        }
+                                        else if (a.Var.IsString && name == "length")
+                                        {
+                                            var length = a.Var.String.Length;
+                                            child = new ScriptVarLink(new ScriptVar(length), null);
+                                        }
+                                        else
+                                        {
+                                            child = a.Var.AddChild(name, null);
+                                        }
+                                    }
+
+                                    parent = a.Var;
+                                    a = child;
+                                }
+
+                                currentLexer.Match(ScriptLex.LexTypes.Id);
+                                break;
+                            }
+                            // array access
+                            case (ScriptLex.LexTypes)'[':
+                            {
+                                currentLexer.Match((ScriptLex.LexTypes)'[');
+                                var index = Base(ref execute);
+                                currentLexer.Match((ScriptLex.LexTypes)']');
+
+                                if (execute)
+                                {
+                                    var child = a.Var.FindChildOrCreate(index.Var.String);
+                                    parent = a.Var;
+                                    a = child;
+                                }
+
+                                break;
+                            }
+                            default:
+                                throw new ScriptException("WTF?");
                         }
                     }
 
-                    return objLink;
+                    return a;
                 }
-                else
+                case ScriptLex.LexTypes.Int:
+                case ScriptLex.LexTypes.Float:
                 {
+                    var a = new ScriptVar(currentLexer.TokenString, currentLexer.TokenType == ScriptLex.LexTypes.Int ? ScriptVar.Flags.Integer : ScriptVar.Flags.Double);
+                    currentLexer.Match(currentLexer.TokenType);
+                    return new ScriptVarLink(a, null);
+                }
+                case ScriptLex.LexTypes.Str:
+                {
+                    var a = new ScriptVar(currentLexer.TokenString, ScriptVar.Flags.String);
+                    currentLexer.Match(currentLexer.TokenType);
+                    return new ScriptVarLink(a, null);
+                }
+                case (ScriptLex.LexTypes)'{':
+                {
+                    var contents = new ScriptVar(null, ScriptVar.Flags.Object);
+                    //looking for JSON like objects
+                    currentLexer.Match((ScriptLex.LexTypes)'{');
+                    while (currentLexer.TokenType != (ScriptLex.LexTypes)'}')
+                    {
+                        var id = currentLexer.TokenString;
+
+                        if (currentLexer.TokenType == ScriptLex.LexTypes.Str)
+                        {
+                            currentLexer.Match(ScriptLex.LexTypes.Str);
+                        }
+                        else
+                        {
+                            currentLexer.Match(ScriptLex.LexTypes.Id);
+                        }
+
+                        currentLexer.Match((ScriptLex.LexTypes)':');
+
+                        if (execute)
+                        {
+                            var a = Base(ref execute);
+                            contents.AddChild(id, a.Var);
+                        }
+
+                        if (currentLexer.TokenType != (ScriptLex.LexTypes)'}')
+                        {
+                            currentLexer.Match((ScriptLex.LexTypes)',');
+                        }
+                    }
+                    currentLexer.Match((ScriptLex.LexTypes)'}');
+
+                    return new ScriptVarLink(contents, null);
+                }
+                case (ScriptLex.LexTypes)'[':
+                {
+                    var idx = 0;
+                    var contents = new ScriptVar(null, ScriptVar.Flags.Array);
+                    //looking for JSON like arrays
+                    currentLexer.Match((ScriptLex.LexTypes)'[');
+                    while (currentLexer.TokenType != (ScriptLex.LexTypes)']')
+                    {
+                        if (execute)
+                        {
+                            var id = $"{idx}";
+
+                            var a = Base(ref execute);
+                            contents.AddChild(id, a.Var);
+                        }
+
+                        if (currentLexer.TokenType != (ScriptLex.LexTypes)']')
+                        {
+                            currentLexer.Match((ScriptLex.LexTypes)',');
+                        }
+
+                        idx++;
+                    }
+                    currentLexer.Match((ScriptLex.LexTypes)']');
+
+                    return new ScriptVarLink(contents, null);
+                }
+                case ScriptLex.LexTypes.RFunction:
+                {
+                    var funcVar = ParseFunctionDefinition();
+                    if (funcVar.Name != string.Empty)
+                    {
+                        System.Diagnostics.Trace.TraceWarning("Functions not defined at statement level are not supposed to have a name");
+                    }
+                    return funcVar;
+                }
+                // new
+                case ScriptLex.LexTypes.RNew:
+                {
+                    currentLexer.Match(ScriptLex.LexTypes.RNew);
+
+                    var className = currentLexer.TokenString;
+                    if (execute)
+                    {
+                        var classOrFuncObject = FindInScopes(className);
+                        if (classOrFuncObject == null)
+                        {
+                            System.Diagnostics.Trace.TraceWarning("{0} is not a valid class name", className);
+                            return new ScriptVarLink(new ScriptVar(), null);
+                        }
+
+                        currentLexer.Match(ScriptLex.LexTypes.Id);
+
+                        var obj = new ScriptVar(null, ScriptVar.Flags.Object);
+                        var objLink = new ScriptVarLink(obj, null);
+
+                        if (classOrFuncObject.Var.IsFunction)
+                        {
+                            FunctionCall(ref execute, classOrFuncObject, obj);
+                        }
+                        else
+                        {
+                            obj.AddChild(ScriptVar.PrototypeClassName, classOrFuncObject.Var);
+
+                            if (currentLexer.TokenType != (ScriptLex.LexTypes)'(') return objLink;
+                            
+                            currentLexer.Match((ScriptLex.LexTypes)'(');
+                            currentLexer.Match((ScriptLex.LexTypes)')');
+                        }
+
+                        return objLink;
+                    }
+
                     currentLexer.Match(ScriptLex.LexTypes.Id);
                     if (currentLexer.TokenType == (ScriptLex.LexTypes)'(')
                     {
                         currentLexer.Match((ScriptLex.LexTypes)'(');
                         currentLexer.Match((ScriptLex.LexTypes)')');
                     }
+
+                    break;
                 }
             }
 

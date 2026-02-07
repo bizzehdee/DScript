@@ -27,46 +27,55 @@ namespace DScript
         private ScriptVarLink Unary(ref bool execute)
         {
             ScriptVarLink a;
-            if (currentLexer.TokenType == (ScriptLex.LexTypes)'!')
+            switch (currentLexer.TokenType)
             {
-                currentLexer.Match((ScriptLex.LexTypes)'!');
-                a = Factor(ref execute);
-                if (execute)
+                case (ScriptLex.LexTypes)'!':
                 {
-                    var zero = new ScriptVar(0);
-                    var res = a.Var.MathsOp(zero, ScriptLex.LexTypes.Equal);
+                    currentLexer.Match((ScriptLex.LexTypes)'!');
+                    a = Factor(ref execute);
+                    if (execute)
+                    {
+                        var zero = new ScriptVar(0);
+                        var res = a.Var.MathsOp(zero, ScriptLex.LexTypes.Equal);
 
-                    CreateLink(ref a, res);
+                        CreateLink(ref a, res);
+                    }
+
+                    break;
                 }
-            }
-            else if (currentLexer.TokenType == ScriptLex.LexTypes.RTypeOf)
-            {
-                currentLexer.Match(ScriptLex.LexTypes.RTypeOf);
-                a = Factor(ref execute);
-                if (execute)
+                case ScriptLex.LexTypes.RTypeOf:
                 {
-                    var varType = new ScriptVar(a.Var.GetObjectType());
+                    currentLexer.Match(ScriptLex.LexTypes.RTypeOf);
+                    a = Factor(ref execute);
+                    if (execute)
+                    {
+                        var varType = new ScriptVar(a.Var.GetObjectType());
 
-                    CreateLink(ref a, varType);
+                        CreateLink(ref a, varType);
+                    }
+
+                    break;
                 }
-            }
-            else if (currentLexer.TokenType == ScriptLex.LexTypes.PlusPlus || currentLexer.TokenType == ScriptLex.LexTypes.MinusMinus)
-            {
-                var op = currentLexer.TokenType == ScriptLex.LexTypes.PlusPlus ? '+' : '-';
-                currentLexer.Match(currentLexer.TokenType);
-
-                a = Factor(ref execute);
-                if (execute)
+                case ScriptLex.LexTypes.PlusPlus:
+                case ScriptLex.LexTypes.MinusMinus:
                 {
-                    var one = new ScriptVar(1);
-                    var res = a.Var.MathsOp(one, (ScriptLex.LexTypes)op);
-                    a.ReplaceWith(res);
-                    //CreateLink(ref a, res);
+                    var op = currentLexer.TokenType == ScriptLex.LexTypes.PlusPlus ? '+' : '-';
+                    currentLexer.Match(currentLexer.TokenType);
+
+                    a = Factor(ref execute);
+                    if (execute)
+                    {
+                        var one = new ScriptVar(1);
+                        var res = a.Var.MathsOp(one, (ScriptLex.LexTypes)op);
+                        a.ReplaceWith(res);
+                        //CreateLink(ref a, res);
+                    }
+
+                    break;
                 }
-            }
-            else
-            {
-                a = Factor(ref execute);
+                default:
+                    a = Factor(ref execute);
+                    break;
             }
 
             return a;

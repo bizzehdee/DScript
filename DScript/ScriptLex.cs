@@ -53,20 +53,20 @@ namespace DScript
         }
         #endregion
 
-        private readonly LexTypes[] notAllowedBeforeRegex = new LexTypes[]
-        {
+        private readonly LexTypes[] notAllowedBeforeRegex =
+        [
             LexTypes.Id, LexTypes.Int, LexTypes.Float, LexTypes.Str, 
             LexTypes.RTrue, LexTypes.RFalse, LexTypes.RNull, (LexTypes)']', 
             (LexTypes)')', (LexTypes)'.', LexTypes.PlusPlus, LexTypes.MinusMinus,
             LexTypes.Eof
-        };
+        ];
 
         private string data;
         private readonly bool dataOwned;
         private readonly int dataStart;
         private readonly int dataEnd;
         private int dataPos;
-        private readonly StringBuilder tokenBuilder = new StringBuilder(64);
+        private readonly StringBuilder tokenBuilder = new(64);
 
         public char CurrentChar { get; private set; }
         public char NextChar { get; private set; }
@@ -394,7 +394,7 @@ namespace DScript
                                 }
                                 break;
                             default:
-                                if (CurrentChar >= '0' && CurrentChar <= '7')
+                                if (CurrentChar is >= '0' and <= '7')
                                 {
                                     var str = "";
                                     str += CurrentChar;
@@ -669,7 +669,7 @@ namespace DScript
 
         public static string LexTypesToString(LexTypes lexTypes)
         {
-            if(lexTypes < (LexTypes)256 && lexTypes > 0)
+            if(lexTypes is < (LexTypes)256 and > 0)
             {
                 return $"{(char)lexTypes}";
             }

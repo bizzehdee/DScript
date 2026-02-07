@@ -28,69 +28,67 @@ namespace DScript
         {
             var leftHandSide = Ternary(ref execute);
 
-            if (currentLexer.TokenType == (ScriptLex.LexTypes)'=' ||
-                currentLexer.TokenType == ScriptLex.LexTypes.PlusEqual ||
-                currentLexer.TokenType == ScriptLex.LexTypes.MinusEqual ||
-                currentLexer.TokenType == ScriptLex.LexTypes.SlashEqual ||
-                currentLexer.TokenType == ScriptLex.LexTypes.PercentEqual)
+            if (currentLexer.TokenType is not 
+                ((ScriptLex.LexTypes)'=' or
+                ScriptLex.LexTypes.PlusEqual or
+                ScriptLex.LexTypes.MinusEqual or
+                ScriptLex.LexTypes.SlashEqual or
+                ScriptLex.LexTypes.PercentEqual)) return leftHandSide;
+            
+            if (execute && !leftHandSide.Owned)
             {
-                if (execute && leftHandSide.Owned == false)
+                if (leftHandSide.Name.Length > 0)
                 {
-                    if (leftHandSide.Name.Length > 0)
-                    {
-                        var leftHandSideReal = Root.AddChildNoDup(leftHandSide.Name, leftHandSide.Var);
-                        leftHandSide = leftHandSideReal;
-                    }
-                    else
-                    {
-                        //?wtf?
-                        System.Diagnostics.Trace.TraceWarning("Trying to assign to an unnamed type...");
-                    }
+                    var leftHandSideReal = Root.AddChildNoDup(leftHandSide.Name, leftHandSide.Var);
+                    leftHandSide = leftHandSideReal;
                 }
-
-                var op = currentLexer.TokenType;
-                currentLexer.Match(op);
-
-                var rightHandSide = Base(ref execute);
-
-                if (execute)
+                else
                 {
-                    switch (op)
-                    {
-                        case (ScriptLex.LexTypes)'=':
-                            {
-                                leftHandSide.ReplaceWith(rightHandSide);
-                            }
-                            break;
-                        case ScriptLex.LexTypes.PlusEqual:
-                            {
-                                var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'+');
-                                leftHandSide.ReplaceWith(res);
-                            }
-                            break;
-                        case ScriptLex.LexTypes.MinusEqual:
-                            {
-                                var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'-');
-                                leftHandSide.ReplaceWith(res);
-                            }
-                            break;
-                        case ScriptLex.LexTypes.SlashEqual:
-                            {
-                                var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'/');
-                                leftHandSide.ReplaceWith(res);
-                            }
-                            break;
-                        case ScriptLex.LexTypes.PercentEqual:
-                            {
-                                var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'%');
-                                leftHandSide.ReplaceWith(res);
-                            }
-                            break;
-                        default:
-                            throw new ScriptException("Base broke");
-                    }
+                    //?wtf?
+                    System.Diagnostics.Trace.TraceWarning("Trying to assign to an unnamed type...");
                 }
+            }
 
+            var op = currentLexer.TokenType;
+            currentLexer.Match(op);
+
+            var rightHandSide = Base(ref execute);
+
+            if (!execute) return leftHandSide;
+                
+            switch (op)
+            {
+                case (ScriptLex.LexTypes)'=':
+                {
+                    leftHandSide.ReplaceWith(rightHandSide);
+                }
+                    break;
+                case ScriptLex.LexTypes.PlusEqual:
+                {
+                    var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'+');
+                    leftHandSide.ReplaceWith(res);
+                }
+                    break;
+                case ScriptLex.LexTypes.MinusEqual:
+                {
+                    var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'-');
+                    leftHandSide.ReplaceWith(res);
+                }
+                    break;
+                case ScriptLex.LexTypes.SlashEqual:
+                {
+                    var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'/');
+                    leftHandSide.ReplaceWith(res);
+                }
+                    break;
+                case ScriptLex.LexTypes.PercentEqual:
+                {
+                    var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'%');
+                    leftHandSide.ReplaceWith(res);
+                }
+                    break;
+                default:
+                    throw new ScriptException("Base broke");
             }
 
             return leftHandSide;

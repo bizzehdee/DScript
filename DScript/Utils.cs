@@ -28,12 +28,12 @@ namespace DScript
     {
         internal static bool IsWhitespace(this char ch)
         {
-            return (ch == ' ') || (ch == '\t') || (ch == '\n') || (ch == '\r');
+            return ch is ' ' or '\t' or '\n' or '\r';
         }
 
         internal static bool IsNumeric(this char ch)
         {
-            return (ch >= '0') && (ch <= '9');
+            return ch is >= '0' and <= '9';
         }
 
         internal static bool IsNumber(this string str)
@@ -47,12 +47,12 @@ namespace DScript
 
         internal static bool IsHexadecimal(this char ch)
         {
-            return ((ch >= '0') && (ch <= '9')) || ((ch >= 'a') && (ch <= 'f')) || ((ch >= 'A') && (ch <= 'F'));
+            return ch is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
         }
 
         internal static bool IsAlpha(this char ch)
         {
-            return ((ch >= 'a') && (ch <= 'z')) || ((ch >= 'A') && (ch <= 'Z')) || ch == '_' || ch == '$';
+            return ch is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or '_' or '$';
         }
 
         internal static bool IsIDString(this string str)
@@ -102,8 +102,8 @@ namespace DScript
                         break;
                     default:
                     {
-                        var nCh = ((int)ch) & 0xFF;
-                        if (nCh < 32 || nCh > 127)
+                        var nCh = ch & 0xFF;
+                        if (nCh is < 32 or > 127)
                         {
                             builder.Append("\\x");
                             builder.Append(nCh.ToString("x2"));

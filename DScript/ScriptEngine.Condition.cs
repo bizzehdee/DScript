@@ -28,25 +28,25 @@ namespace DScript
         {
             var a = Shift(ref execute);
 
-            while (currentLexer.TokenType == ScriptLex.LexTypes.Equal ||
-                currentLexer.TokenType == ScriptLex.LexTypes.NEqual ||
-                currentLexer.TokenType == ScriptLex.LexTypes.TypeEqual ||
-                currentLexer.TokenType == ScriptLex.LexTypes.NTypeEqual ||
-                currentLexer.TokenType == ScriptLex.LexTypes.LEqual ||
-                currentLexer.TokenType == ScriptLex.LexTypes.GEqual ||
-                currentLexer.TokenType == (ScriptLex.LexTypes)'>' ||
-                currentLexer.TokenType == (ScriptLex.LexTypes)'<'
+            while (currentLexer.TokenType is 
+                   ScriptLex.LexTypes.Equal or 
+                   ScriptLex.LexTypes.NEqual or 
+                   ScriptLex.LexTypes.TypeEqual or 
+                   ScriptLex.LexTypes.NTypeEqual or 
+                   ScriptLex.LexTypes.LEqual or 
+                   ScriptLex.LexTypes.GEqual or 
+                   (ScriptLex.LexTypes)'>' or 
+                   (ScriptLex.LexTypes)'<'
                 )
             {
                 var op = currentLexer.TokenType;
                 currentLexer.Match(op);
                 var b = Shift(ref execute);
 
-                if (execute)
-                {
-                    var res = a.Var.MathsOp(b.Var, op);
-                    CreateLink(ref a, res);
-                }
+                if (!execute) continue;
+                
+                var res = a.Var.MathsOp(b.Var, op);
+                CreateLink(ref a, res);
             }
 
             return a;

@@ -50,36 +50,34 @@ namespace DScript
                 }
             }
 
-            while (currentLexer.TokenType == (ScriptLex.LexTypes)'+' ||
-                   currentLexer.TokenType == (ScriptLex.LexTypes)'-' ||
-                   currentLexer.TokenType == ScriptLex.LexTypes.PlusPlus ||
-                   currentLexer.TokenType == ScriptLex.LexTypes.MinusMinus)
+            while (currentLexer.TokenType is 
+                   (ScriptLex.LexTypes)'+' or 
+                   (ScriptLex.LexTypes)'-' or 
+                   ScriptLex.LexTypes.PlusPlus or 
+                   ScriptLex.LexTypes.MinusMinus)
             {
                 var op = currentLexer.TokenType;
                 currentLexer.Match(op);
 
-                if (op == ScriptLex.LexTypes.PlusPlus || op == ScriptLex.LexTypes.MinusMinus)
+                if (op is ScriptLex.LexTypes.PlusPlus or ScriptLex.LexTypes.MinusMinus)
                 {
-                    if (execute)
-                    {
-                        var one = new ScriptVar(1);
-                        var res = a.Var.MathsOp(one, (ScriptLex.LexTypes)(op == ScriptLex.LexTypes.PlusPlus ? '+' : '-'));
-                        var oldVal = new ScriptVarLink(a.Var, null);
+                    if (!execute) continue;
+                    
+                    var one = new ScriptVar(1);
+                    var res = a.Var.MathsOp(one, (ScriptLex.LexTypes)(op == ScriptLex.LexTypes.PlusPlus ? '+' : '-'));
+                    var oldVal = new ScriptVarLink(a.Var, null);
 
-                        a.ReplaceWith(res);
-                        a = oldVal;
-                    }
+                    a.ReplaceWith(res);
+                    a = oldVal;
                 }
                 else
                 {
                     var b = Term(ref execute);
-                    if (execute)
-                    {
-                        var res = a.Var.MathsOp(b.Var, op);
-
-                        CreateLink(ref a, res);
-
-                    }
+                    
+                    if (!execute) continue;
+                    
+                    var res = a.Var.MathsOp(b.Var, op);
+                    CreateLink(ref a, res);
                 }
             }
 

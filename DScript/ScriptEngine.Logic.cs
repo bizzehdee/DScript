@@ -28,11 +28,12 @@ namespace DScript
         {
             var a = Condition(ref execute);
 
-            while (currentLexer.TokenType == (ScriptLex.LexTypes)'&' ||
-                   currentLexer.TokenType == (ScriptLex.LexTypes)'|' ||
-                   currentLexer.TokenType == (ScriptLex.LexTypes)'^' ||
-                   currentLexer.TokenType == ScriptLex.LexTypes.AndAnd ||
-                   currentLexer.TokenType == ScriptLex.LexTypes.OrOr)
+            while (currentLexer.TokenType is 
+                   (ScriptLex.LexTypes)'&' or 
+                   (ScriptLex.LexTypes)'|' or 
+                   (ScriptLex.LexTypes)'^' or 
+                   ScriptLex.LexTypes.AndAnd or 
+                   ScriptLex.LexTypes.OrOr)
             {
                 var noExecute = false;
                 var op = currentLexer.TokenType;
@@ -41,44 +42,36 @@ namespace DScript
                 var shortcut = false;
                 var isBool = false;
 
-                if (op == ScriptLex.LexTypes.AndAnd)
+                switch (op)
                 {
-                    op = (ScriptLex.LexTypes)'&';
-                    shortcut = !a.Var.Bool;
-                    isBool = true;
-                }
-                else if (op == ScriptLex.LexTypes.OrOr)
-                {
-                    op = (ScriptLex.LexTypes)'|';
-                    shortcut = a.Var.Bool;
-                    isBool = true;
-                }
-
-                ScriptVarLink b;
-                if (shortcut)
-                {
-                    b = Condition(ref noExecute);
-                } 
-                else
-                {
-                    b = Condition(ref execute);
+                    case ScriptLex.LexTypes.AndAnd:
+                        op = (ScriptLex.LexTypes)'&';
+                        shortcut = !a.Var.Bool;
+                        isBool = true;
+                        break;
+                    case ScriptLex.LexTypes.OrOr:
+                        op = (ScriptLex.LexTypes)'|';
+                        shortcut = a.Var.Bool;
+                        isBool = true;
+                        break;
                 }
 
-                if (execute && !shortcut)
+                var b = shortcut ? Condition(ref noExecute) : Condition(ref execute);
+
+                if (!execute || shortcut) continue;
+                
+                if (isBool)
                 {
-                    if (isBool)
-                    {
-                        var newA = new ScriptVar(a.Var.Bool);
-                        var newB = new ScriptVar(b.Var.Bool);
+                    var newA = new ScriptVar(a.Var.Bool);
+                    var newB = new ScriptVar(b.Var.Bool);
 
-                        CreateLink(ref a, newA);
-                        CreateLink(ref b, newB);
-                    }
-
-                    var res = a.Var.MathsOp(b.Var, op);
-
-                    CreateLink(ref a, res);
+                    CreateLink(ref a, newA);
+                    CreateLink(ref b, newB);
                 }
+
+                var res = a.Var.MathsOp(b.Var, op);
+
+                CreateLink(ref a, res);
             }
 
             return a;

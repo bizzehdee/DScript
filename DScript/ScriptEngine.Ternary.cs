@@ -30,34 +30,33 @@ namespace DScript
 
             var noExecute = false;
 
-            if (currentLexer.TokenType == (ScriptLex.LexTypes)'?')
+            if (currentLexer.TokenType != (ScriptLex.LexTypes)'?') return leftHandSide;
+            
+            currentLexer.Match((ScriptLex.LexTypes)'?');
+
+            if (!execute)
             {
-                currentLexer.Match((ScriptLex.LexTypes)'?');
+                Base(ref noExecute);
 
-                if (!execute)
+                currentLexer.Match((ScriptLex.LexTypes)':');
+
+                Base(ref noExecute);
+            }
+            else
+            {
+                var first = leftHandSide.Var.Bool;
+
+                if (first)
                 {
-                    Base(ref noExecute);
-
+                    leftHandSide = Base(ref execute);
                     currentLexer.Match((ScriptLex.LexTypes)':');
-
                     Base(ref noExecute);
                 }
                 else
                 {
-                    var first = leftHandSide.Var.Bool;
-
-                    if (first)
-                    {
-                        leftHandSide = Base(ref execute);
-                        currentLexer.Match((ScriptLex.LexTypes)':');
-                        Base(ref noExecute);
-                    }
-                    else
-                    {
-                        Base(ref noExecute);
-                        currentLexer.Match((ScriptLex.LexTypes)':');
-                        leftHandSide = Base(ref execute);
-                    }
+                    Base(ref noExecute);
+                    currentLexer.Match((ScriptLex.LexTypes)':');
+                    leftHandSide = Base(ref execute);
                 }
             }
 

@@ -122,10 +122,8 @@ namespace DScript
 
                             return;
                         }
-                        else
-                        {
-                            throw;
-                        }
+
+                        throw;
                     }
                 }
             }
@@ -376,24 +374,22 @@ namespace DScript
         /// <returns>A VMState object containing the serialized state</returns>
         public VMState SerializeState()
         {
-            using (var ms = new System.IO.MemoryStream())
-            using (var writer = new System.IO.BinaryWriter(ms))
+            using var ms = new System.IO.MemoryStream();
+            using var writer = new System.IO.BinaryWriter(ms);
+            Root.Serialize(writer);
+            writer.Flush();
+
+            // Collect all native function names for reference
+            var nativeFunctions = new List<string>();
+            CollectNativeFunctionNames(Root, "", nativeFunctions);
+
+            return new VMState
             {
-                Root.Serialize(writer);
-                writer.Flush();
-
-                // Collect all native function names for reference
-                var nativeFunctions = new List<string>();
-                CollectNativeFunctionNames(Root, "", nativeFunctions);
-
-                return new VMState
-                {
-                    RootState = ms.ToArray(),
-                    NativeFunctionNames = nativeFunctions,  // Already a List, which implements IReadOnlyList
-                    Timestamp = DateTime.UtcNow,
-                    Version = "1.0"
-                };
-            }
+                RootState = ms.ToArray(),
+                NativeFunctionNames = nativeFunctions,  // Already a List, which implements IReadOnlyList
+                Timestamp = DateTime.UtcNow,
+                Version = "1.0"
+            };
         }
 
         /// <summary>

@@ -43,13 +43,14 @@ namespace DScript
                 var brackets = 1;
                 while (currentLexer.TokenType != 0 && brackets > 0)
                 {
-                    if (currentLexer.TokenType == (ScriptLex.LexTypes)'{')
+                    switch (currentLexer.TokenType)
                     {
-                        brackets++;
-                    }
-                    if (currentLexer.TokenType == (ScriptLex.LexTypes)'}')
-                    {
-                        brackets--;
+                        case (ScriptLex.LexTypes)'{':
+                            brackets++;
+                            break;
+                        case (ScriptLex.LexTypes)'}':
+                            brackets--;
+                            break;
                     }
 
                     currentLexer.Match(currentLexer.TokenType);

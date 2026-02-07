@@ -30,33 +30,29 @@ namespace DScript
         {
             var a = Expression(ref execute);
 
-            if (currentLexer.TokenType == ScriptLex.LexTypes.LShift ||
-                currentLexer.TokenType == ScriptLex.LexTypes.RShift ||
-                currentLexer.TokenType == ScriptLex.LexTypes.RShiftUnsigned)
+            if (currentLexer.TokenType != ScriptLex.LexTypes.LShift &&
+                currentLexer.TokenType != ScriptLex.LexTypes.RShift &&
+                currentLexer.TokenType != ScriptLex.LexTypes.RShiftUnsigned) return a;
+            
+            var op = currentLexer.TokenType;
+            currentLexer.Match(op);
+            var b = Base(ref execute);
+
+            var shift = execute ? b.Var.Int : 0;
+
+            if (!execute) return a;
+            
+            switch (op)
             {
-                var op = currentLexer.TokenType;
-                currentLexer.Match(op);
-                var b = Base(ref execute);
-
-                var shift = execute ? b.Var.Int : 0;
-
-                if (execute)
-                {
-                    if (op == ScriptLex.LexTypes.LShift)
-                    {
-                        a.Var.Int = (a.Var.Int << shift);
-                    }
-
-                    if (op == ScriptLex.LexTypes.RShift)
-                    {
-                        a.Var.Int = (a.Var.Int >> shift);
-                    }
-
-                    if (op == ScriptLex.LexTypes.RShiftUnsigned)
-                    {
-                        a.Var.Int = ((int)(((uint)a.Var.Int) >> shift));
-                    }
-                }
+                case ScriptLex.LexTypes.LShift:
+                    a.Var.Int = (a.Var.Int << shift);
+                    break;
+                case ScriptLex.LexTypes.RShift:
+                    a.Var.Int = (a.Var.Int >> shift);
+                    break;
+                case ScriptLex.LexTypes.RShiftUnsigned:
+                    a.Var.Int >>>= shift;
+                    break;
             }
 
             return a;
