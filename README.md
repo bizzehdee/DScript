@@ -79,7 +79,7 @@ Using DScript from C#
 - Global, class, and method scope
 - Functions: named, anonymous, and nested; callable with fewer or more arguments than declared
 - Arithmetic, comparison, bitwise and boolean operators
-- `if` / `else`, `while`, `for`, `switch` / `case` / `default`, `return`
+- `if` / `else`, `while`, `do` / `while`, `for`, `switch` / `case` / `default`, `return`
 - Ternary (`?:`) expressions
 - `typeof`
 - Regular-expression literals (`/pattern/flags`)

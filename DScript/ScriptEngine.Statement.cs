@@ -178,6 +178,48 @@ namespace DScript
                     currentLexer = oldLex;
                     break;
                 }
+                case ScriptLex.LexTypes.RDo:
+                {
+                    //do/while loop - the body always runs at least once
+                    currentLexer.Match(ScriptLex.LexTypes.RDo);
+
+                    var doBodyStart = currentLexer.TokenStart;
+
+                    //run the body once (parses only when not executing)
+                    Statement(ref execute);
+
+                    var doBody = currentLexer.GetSubLex(doBodyStart);
+
+                    currentLexer.Match(ScriptLex.LexTypes.RWhile);
+                    currentLexer.Match((ScriptLex.LexTypes)'(');
+
+                    var doConditionStart = currentLexer.TokenStart;
+                    var condition = Base(ref execute);
+                    var loopCondition = execute && condition.Var.Bool;
+
+                    var doCond = currentLexer.GetSubLex(doConditionStart);
+
+                    currentLexer.Match((ScriptLex.LexTypes)')');
+                    currentLexer.Match((ScriptLex.LexTypes)';');
+
+                    var oldLex = currentLexer;
+
+                    //TODO: possible maximum iteration limit?
+                    while (loopCondition)
+                    {
+                        doBody.Reset();
+                        currentLexer = doBody;
+                        Statement(ref execute);
+
+                        doCond.Reset();
+                        currentLexer = doCond;
+                        condition = Base(ref execute);
+                        loopCondition = execute && condition.Var.Bool;
+                    }
+
+                    currentLexer = oldLex;
+                    break;
+                }
                 case ScriptLex.LexTypes.RFor:
                 {
                     //for loop
