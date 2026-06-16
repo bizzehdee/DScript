@@ -27,6 +27,81 @@ namespace DScript
     public sealed partial class ScriptEngine
     {
         /// <summary>
+        /// Invoke a script function (user-defined or native) programmatically with
+        /// the supplied arguments. This lets native/host code call back into script
+        /// functions — e.g. Array.map/filter/forEach callbacks and sort comparators.
+        /// </summary>
+        /// <param name="function">The function ScriptVar to invoke.</param>
+        /// <param name="thisArg">Value bound to <c>this</c> in the call (may be null).</param>
+        /// <param name="args">Positional arguments; extras are ignored and missing
+        /// parameters are bound as undefined.</param>
+        /// <returns>The function's return value (undefined if it returned nothing).</returns>
+        public ScriptVar CallFunction(ScriptVar function, ScriptVar thisArg, params ScriptVar[] args)
+        {
+            if (function == null || !function.IsFunction)
+            {
+                throw new ScriptException("Value is not a function");
+            }
+
+            var functionRoot = new ScriptVar(null, ScriptVar.Flags.Function);
+
+            if (thisArg != null)
+            {
+                functionRoot.AddChildNoDup("this", thisArg);
+            }
+
+            //bind arguments positionally to the declared parameters
+            var argIndex = 0;
+            var param = function.FirstChild;
+            while (param != null)
+            {
+                var argValue = args != null && argIndex < args.Length && args[argIndex] != null
+                    ? args[argIndex]
+                    : new ScriptVar(null, ScriptVar.Flags.Undefined);
+
+                //primitives are passed by value, objects/functions by reference
+                functionRoot.AddChild(param.Name, argValue.IsBasic ? argValue.DeepCopy() : argValue);
+
+                argIndex++;
+                param = param.Next;
+            }
+
+            var returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
+
+            scopes.PushBack(functionRoot);
+            callStack.Push(new ScriptVarLink(function, null));
+
+            var execute = true;
+
+            if (function.IsNative)
+            {
+                var callback = function.GetCallback();
+                callback?.Invoke(functionRoot, function.GetCallbackUserData());
+            }
+            else
+            {
+                var oldLex = currentLexer;
+                currentLexer = new ScriptLex(function.String);
+
+                try
+                {
+                    Block(ref execute);
+                }
+                finally
+                {
+                    currentLexer = oldLex;
+                    //a loop never spans a call boundary
+                    loopControl = LoopControl.None;
+                }
+            }
+
+            callStack.Pop();
+            scopes.PopBack();
+
+            return returnVarLink.Var;
+        }
+
+        /// <summary>
         /// Invoke a function with no arguments and no parentheses in the token
         /// stream (used by <c>new Ctor</c> without a call list). Returns the
         /// function's return-value link, mirroring <see cref="FunctionCall"/>.

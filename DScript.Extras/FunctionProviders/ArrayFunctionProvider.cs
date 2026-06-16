@@ -274,10 +274,12 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar = arr;
         }
 
-        [ScriptMethod("sort")]
+        [ScriptMethod("sort", "compare")]
         public static void ArraySortImpl(ScriptVar var, object userData)
         {
+            var engine = (ScriptEngine)userData;
             var arr = var.GetParameter("this");
+            var compare = var.GetParameter("compare");
             var len = arr.GetArrayLength();
 
             var values = new List<ScriptVar>();
@@ -286,8 +288,16 @@ namespace DScript.Extras.FunctionProviders
                 values.Add(arr.GetArrayIndex(x).DeepCopy());
             }
 
-            //default ordering is lexicographic, matching JavaScript's default sort
-            values.Sort((a, b) => string.CompareOrdinal(a.String, b.String));
+            if (compare.IsFunction)
+            {
+                //use the supplied comparator: negative => a before b
+                values.Sort((a, b) => engine.CallFunction(compare, null, a, b).Int);
+            }
+            else
+            {
+                //default ordering is lexicographic, matching JavaScript's default sort
+                values.Sort((a, b) => string.CompareOrdinal(a.String, b.String));
+            }
 
             for (var x = 0; x < len; x++)
             {
@@ -295,6 +305,83 @@ namespace DScript.Extras.FunctionProviders
             }
 
             var.ReturnVar = arr;
+        }
+
+        [ScriptMethod("map", "callback")]
+        public static void ArrayMapImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+
+            var.ReturnVar.SetArray();
+            for (var x = 0; x < len; x++)
+            {
+                var mapped = engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr);
+                var.ReturnVar.SetArrayIndex(x, mapped);
+            }
+        }
+
+        [ScriptMethod("filter", "callback")]
+        public static void ArrayFilterImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+
+            var.ReturnVar.SetArray();
+            var outIdx = 0;
+            for (var x = 0; x < len; x++)
+            {
+                var element = arr.GetArrayIndex(x);
+                var keep = engine.CallFunction(callback, null, element, new ScriptVar(x), arr);
+                if (keep.Bool)
+                {
+                    var.ReturnVar.SetArrayIndex(outIdx++, element.DeepCopy());
+                }
+            }
+        }
+
+        [ScriptMethod("forEach", "callback")]
+        public static void ArrayForEachImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+
+            for (var x = 0; x < len; x++)
+            {
+                engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr);
+            }
+        }
+
+        [ScriptMethod("reduce", "callback", "initial")]
+        public static void ArrayReduceImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+
+            var accumulator = var.GetParameter("initial");
+            var start = 0;
+
+            //with no initial value, seed from the first element
+            if (accumulator.IsUndefined && len > 0)
+            {
+                accumulator = arr.GetArrayIndex(0).DeepCopy();
+                start = 1;
+            }
+
+            for (var x = start; x < len; x++)
+            {
+                accumulator = engine.CallFunction(callback, null, accumulator, arr.GetArrayIndex(x), new ScriptVar(x), arr);
+            }
+
+            var.ReturnVar = accumulator;
         }
     }
 }
