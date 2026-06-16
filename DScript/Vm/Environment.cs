@@ -55,12 +55,13 @@ namespace DScript.Vm
             return null;
         }
 
+        private Environment cachedGlobal;
+
         /// <summary>The outermost (global) environment.</summary>
         public Environment Global()
         {
-            var env = this;
-            while (env.Parent != null) env = env.Parent;
-            return env;
+            if (Parent == null) return this;
+            return cachedGlobal ??= Parent.Global();
         }
     }
 }

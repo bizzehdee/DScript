@@ -282,7 +282,7 @@ namespace DScript
         {
             if (IsInt)
             {
-                return $"{Int:D}";
+                return Int.ToString(CultureInfo.InvariantCulture);
             }
             if (IsDouble)
             {

@@ -34,7 +34,12 @@ namespace DScript.Vm
     public sealed partial class VirtualMachine
     {
         private readonly ScriptEngine engine;
-        private readonly List<ScriptVar> stack = [];
+        private readonly List<ScriptVar> stack = new(64);
+
+        // Shared read-only operand for unary 0-based ops. MathsOp only reads its
+        // operands (results are always freshly allocated), so sharing is safe and
+        // avoids allocating a throwaway zero on every Negate/Not.
+        private static readonly ScriptVar Zero = new(0);
 
         public VirtualMachine() { }
 
@@ -256,13 +261,17 @@ namespace DScript.Vm
                     case OpCode.Negate:
                     {
                         var a = Pop();
-                        Push(new ScriptVar(0).MathsOp(a, (ScriptLex.LexTypes)'-'));
+                        // numeric fast path avoids the MathsOp dispatch + a temp;
+                        // fall back to MathsOp for the (rare) non-numeric cases
+                        if (a.IsInt) Push(new ScriptVar(-a.Int));
+                        else if (a.IsDouble) Push(new ScriptVar(-a.Float));
+                        else Push(Zero.MathsOp(a, (ScriptLex.LexTypes)'-'));
                         break;
                     }
                     case OpCode.Not:
                     {
                         var a = Pop();
-                        Push(a.MathsOp(new ScriptVar(0), ScriptLex.LexTypes.Equal));
+                        Push(a.MathsOp(Zero, ScriptLex.LexTypes.Equal));
                         break;
                     }
                     case OpCode.BitNot:
