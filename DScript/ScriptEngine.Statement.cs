@@ -147,12 +147,13 @@ namespace DScript
                     if(loopCondition)
                     {
                         Statement(ref execute);
+                        if (HandleLoopControl(ref execute)) loopCondition = false;
                     }
                     else
                     {
                         Statement(ref noExecute);
                     }
-                
+
                     var whileBody = currentLexer.GetSubLex(whileBodyStart);
                     var oldLex = currentLexer;
 
@@ -172,7 +173,57 @@ namespace DScript
                             whileBody.Reset();
                             currentLexer = whileBody;
                             Statement(ref execute);
+                            if (HandleLoopControl(ref execute)) loopCondition = false;
                         }
+                    }
+
+                    currentLexer = oldLex;
+                    break;
+                }
+                case ScriptLex.LexTypes.RDo:
+                {
+                    //do/while loop - the body always runs at least once
+                    currentLexer.Match(ScriptLex.LexTypes.RDo);
+
+                    var doBodyStart = currentLexer.TokenStart;
+                    var doNoExecute = false;
+
+                    //run the body once (parses only when not executing)
+                    Statement(ref execute);
+
+                    //a break/continue/return from the first pass stops the loop
+                    //(continue still falls through to the condition check below).
+                    var stop = HandleLoopControl(ref execute);
+
+                    var doBody = currentLexer.GetSubLex(doBodyStart);
+
+                    currentLexer.Match(ScriptLex.LexTypes.RWhile);
+                    currentLexer.Match((ScriptLex.LexTypes)'(');
+
+                    var doConditionStart = currentLexer.TokenStart;
+                    //when stopping, parse the condition without executing it
+                    var condition = stop ? Base(ref doNoExecute) : Base(ref execute);
+                    var loopCondition = !stop && execute && condition.Var.Bool;
+
+                    var doCond = currentLexer.GetSubLex(doConditionStart);
+
+                    currentLexer.Match((ScriptLex.LexTypes)')');
+                    currentLexer.Match((ScriptLex.LexTypes)';');
+
+                    var oldLex = currentLexer;
+
+                    //TODO: possible maximum iteration limit?
+                    while (loopCondition)
+                    {
+                        doBody.Reset();
+                        currentLexer = doBody;
+                        Statement(ref execute);
+                        if (HandleLoopControl(ref execute)) break;
+
+                        doCond.Reset();
+                        currentLexer = doCond;
+                        condition = Base(ref execute);
+                        loopCondition = execute && condition.Var.Bool;
                     }
 
                     currentLexer = oldLex;
@@ -183,6 +234,89 @@ namespace DScript
                     //for loop
                     currentLexer.Match(ScriptLex.LexTypes.RFor);
                     currentLexer.Match((ScriptLex.LexTypes)'(');
+
+                    //distinguish for...in from a C-style for by scanning the header
+                    //for a top-level `in` that appears before any `;`
+                    var isForIn = false;
+                    {
+                        var lookahead = currentLexer.CloneToEnd(currentLexer.TokenStart);
+                        var depth = 0;
+                        while (lookahead.TokenType != ScriptLex.LexTypes.Eof)
+                        {
+                            var t = lookahead.TokenType;
+                            if (depth == 0)
+                            {
+                                if (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')') break;
+                                if (t == ScriptLex.LexTypes.RIn) { isForIn = true; break; }
+                            }
+
+                            if (t is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{') depth++;
+                            else if (t is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}') depth--;
+
+                            lookahead.GetNextToken();
+                        }
+                    }
+
+                    if (isForIn)
+                    {
+                        //for...in loop over an object's (or array's) member names
+                        if (currentLexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst)
+                        {
+                            currentLexer.Match(currentLexer.TokenType);
+                        }
+
+                        var iteratorName = currentLexer.TokenString;
+                        ScriptVarLink iteratorVar = null;
+                        if (execute)
+                        {
+                            iteratorVar = scopes.Back().FindChildOrCreate(iteratorName);
+                        }
+
+                        currentLexer.Match(ScriptLex.LexTypes.Id);
+                        currentLexer.Match(ScriptLex.LexTypes.RIn);
+
+                        var forInObj = Base(ref execute);
+
+                        currentLexer.Match((ScriptLex.LexTypes)')');
+
+                        var forInNoExecute = false;
+                        var forInBodyStart = currentLexer.TokenStart;
+
+                        //parse the body once (without executing) to capture its extent
+                        Statement(ref forInNoExecute);
+
+                        var forInBody = currentLexer.GetSubLex(forInBodyStart);
+                        var forInOldLex = currentLexer;
+
+                        if (execute && forInObj?.Var != null)
+                        {
+                            //snapshot the member names so the body may mutate the object safely
+                            var names = new System.Collections.Generic.List<string>();
+                            var member = forInObj.Var.FirstChild;
+                            while (member != null)
+                            {
+                                if (member.Name != ScriptVar.PrototypeClassName)
+                                {
+                                    names.Add(member.Name);
+                                }
+                                member = member.Next;
+                            }
+
+                            foreach (var name in names)
+                            {
+                                iteratorVar?.ReplaceWith(new ScriptVar(name));
+
+                                forInBody.Reset();
+                                currentLexer = forInBody;
+                                Statement(ref execute);
+
+                                if (HandleLoopControl(ref execute)) break;
+                            }
+                        }
+
+                        currentLexer = forInOldLex;
+                        break;
+                    }
 
                     Statement(ref execute); //init
 
@@ -208,6 +342,7 @@ namespace DScript
                     if (loopCondition)
                     {
                         Statement(ref execute);
+                        if (HandleLoopControl(ref execute)) loopCondition = false;
                     }
                     else
                     {
@@ -216,7 +351,7 @@ namespace DScript
 
                     var forBody = currentLexer.GetSubLex(forBodyStart);
                     var oldLex = currentLexer;
-                    if (loopCondition)
+                    if (loopCondition && execute)
                     {
                         forIter.Reset();
                         currentLexer = forIter;
@@ -240,6 +375,10 @@ namespace DScript
                             currentLexer = forBody;
 
                             Statement(ref execute);
+
+                            //consume break/continue: break stops the loop, continue
+                            //falls through to run the iterator then re-test.
+                            if (HandleLoopControl(ref execute)) loopCondition = false;
                         }
 
                         if (execute && loopCondition)
@@ -468,6 +607,31 @@ namespace DScript
                     }
 
                     currentLexer.Match((ScriptLex.LexTypes)'}');
+                    break;
+                }
+                case ScriptLex.LexTypes.RBreak:
+                {
+                    currentLexer.Match(ScriptLex.LexTypes.RBreak);
+                    currentLexer.Match((ScriptLex.LexTypes)';');
+                    if (execute)
+                    {
+                        //signal the enclosing loop to stop; subsequent statements
+                        //are parsed but not executed until the loop consumes this.
+                        loopControl = LoopControl.Break;
+                        execute = false;
+                    }
+                    break;
+                }
+                case ScriptLex.LexTypes.RContinue:
+                {
+                    currentLexer.Match(ScriptLex.LexTypes.RContinue);
+                    currentLexer.Match((ScriptLex.LexTypes)';');
+                    if (execute)
+                    {
+                        //signal the enclosing loop to skip to its next iteration.
+                        loopControl = LoopControl.Continue;
+                        execute = false;
+                    }
                     break;
                 }
                 default:

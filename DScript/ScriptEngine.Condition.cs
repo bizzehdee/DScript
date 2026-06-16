@@ -36,6 +36,7 @@ namespace DScript
                    ScriptLex.LexTypes.LEqual or
                    ScriptLex.LexTypes.GEqual or
                    ScriptLex.LexTypes.RInstanceOf or
+                   ScriptLex.LexTypes.RIn or
                    (ScriptLex.LexTypes)'>' or
                    (ScriptLex.LexTypes)'<'
                 )
@@ -64,6 +65,18 @@ namespace DScript
                     }
 
                     CreateLink(ref a, new ScriptVar(isInstance));
+                    continue;
+                }
+
+                if (op == ScriptLex.LexTypes.RIn)
+                {
+                    //`key in obj` is true when obj has a property of that name,
+                    //either as an own member or inherited via the prototype chain.
+                    var name = a.Var.String;
+                    var exists = b.Var.FindChild(name) != null ||
+                                 FindInParentClasses(b.Var, name) != null;
+
+                    CreateLink(ref a, new ScriptVar(exists));
                     continue;
                 }
 

@@ -102,6 +102,7 @@ namespace DScript
             MinusEqual,
             SlashEqual,
             PercentEqual,
+            TimesEqual,
             PlusPlus,
             MinusMinus,
             AndEqual,
@@ -136,7 +137,9 @@ namespace DScript
             RSwitch,
             RCase,
             RDefault,
-            RInstanceOf
+            RInstanceOf,
+            RIn,
+            RDelete
         }
 
         public ScriptLex(string input)
@@ -291,6 +294,8 @@ namespace DScript
                     case "case": TokenType = LexTypes.RCase; break;
                     case "default": TokenType = LexTypes.RDefault; break;
                     case "instanceof": TokenType = LexTypes.RInstanceOf; break;
+                    case "in": TokenType = LexTypes.RIn; break;
+                    case "delete": TokenType = LexTypes.RDelete; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers
@@ -606,11 +611,27 @@ namespace DScript
                     TokenType = LexTypes.PercentEqual;
                     GetNextChar();
                 }
+                else if (TokenType == (LexTypes)'*' && CurrentChar == '=') // *=
+                {
+                    TokenType = LexTypes.TimesEqual;
+                    GetNextChar();
+                }
             }
 
             /* Something broke... */
             TokenLastEnd = TokenEnd;
             TokenEnd = dataPos - 3;
+        }
+
+        /// <summary>
+        /// Create a read-only lexer spanning from <paramref name="startPos"/> to the
+        /// end of the current data, positioned at the token that starts there. Used
+        /// for limited look-ahead (e.g. distinguishing for...in from a C-style for)
+        /// without disturbing this lexer's position.
+        /// </summary>
+        public ScriptLex CloneToEnd(int startPos)
+        {
+            return new ScriptLex(this, startPos, dataEnd);
         }
 
         public ScriptLex GetSubLex(int lastPosition)

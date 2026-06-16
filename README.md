@@ -63,6 +63,17 @@ Using DScript from C#
 
     engine.Execute("console.log(add(2, 3));"); // 5
 
+***Calling script functions from C#***
+
+    engine.Execute("function square(n) { return n * n; }");
+
+    var square = engine.Root.GetParameter("square");
+    var result = engine.CallFunction(square, null, new ScriptVar(9)).Int; // 81
+
+`CallFunction(function, thisArg, args...)` invokes any script (or native) function
+programmatically. It is also what powers the higher-order array methods
+(`map` / `filter` / `forEach` / `reduce` and `sort` comparators).
+
 ***Saving and restoring engine state***
 
     var state = engine.SerializeState();   // capture all variables/values
@@ -79,9 +90,10 @@ Using DScript from C#
 - Global, class, and method scope
 - Functions: named, anonymous, and nested; callable with fewer or more arguments than declared
 - Arithmetic, comparison, bitwise and boolean operators
-- `if` / `else`, `while`, `for`, `switch` / `case` / `default`, `return`
+- `if` / `else`, `while`, `do` / `while`, `for`, `for...in`, `switch` / `case` / `default`, `return`
+- `break` and `continue` within loops
 - Ternary (`?:`) expressions
-- `typeof`
+- `typeof`, `instanceof`, `in`, `delete`
 - Regular-expression literals (`/pattern/flags`)
 - Eval / Exec
 - Basic exception handling (`try` / `catch` / `finally` / `throw`)
@@ -126,20 +138,35 @@ update an *own* property on the target object, so instances never share each oth
 state. `new Ctor` may be written with or without parentheses, and a constructor that
 returns an object uses that object as the result of the `new` expression.
 
+Iteration
+---------
+
+C-style and `for...in` loops are both supported; `for...in` walks an object's
+member names (and an array's index keys).
+
+    var obj = { a: 1, b: 2, c: 3 };
+    for (var key in obj) {
+        console.log(key + " = " + obj[key]);
+    }
+
+    var nums = [1, 2, 3, 4];
+    var doubled = nums.map(function (n) { return n * 2; });   // [2, 4, 6, 8]
+    var evens   = nums.filter(function (n) { return n % 2 == 0; });
+
 ***Arithmetic operators***
-+, -, *, /, %, ++, --
++, -, *, /, %, ++, --  (and unary +, -)
 
 ***Assignment operators***
-=, +=, -=, /=, %=
+=, +=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=, >>>=
 
 ***Comparison operators***
 <, >, <=, >=, ==, !=, ===, !==
 
 ***Boolean / bitwise operators***
-!, &, |, ^, &&, ||, <<, >>, >>>
+!, ~, &, |, ^, &&, ||, <<, >>, >>>
 
 ***Other operators***
-?: (ternary), typeof, instanceof, new
+?: (ternary), typeof, instanceof, in, delete, new
 
 Standard library (DScript.Extras)
 ---------------------------------
@@ -148,8 +175,9 @@ Standard library (DScript.Extras)
 - eval
 - exec
 - trace
-- parseInt
+- parseInt (supports an optional radix)
 - parseFloat
+- isNaN, isFinite
 - charToInt
 
 ***Console***
@@ -160,8 +188,10 @@ Standard library (DScript.Extras)
 ***Math***
 - abs, acos, asin, atan, atan2
 - ceil, cos, cosh, exp, floor
-- log, min, max, pow, random
+- log, min, max, pow
+- random, randomInt (alias randInt)
 - round, sin, sinh, sqrt, tan, tanh
+- constants: PI, E, LOG2E, LOG10E
 
 ***String***
 - length (property)
@@ -174,13 +204,17 @@ Standard library (DScript.Extras)
 
 ***Array***
 - length (property)
+- push, pop, shift, unshift
+- slice, indexOf, reverse, sort
 - contains, remove, join
+- map, filter, forEach, reduce
 
 ***Object***
+- keys, hasOwnProperty
 - dump, clone
 
 ***Integer***
-- parseInt, parseFloat, valueOf
+- parseInt (supports an optional radix), parseFloat, valueOf
 
 ***JSON***
 - parse

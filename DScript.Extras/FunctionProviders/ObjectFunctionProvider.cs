@@ -38,5 +38,33 @@ namespace DScript.Extras.FunctionProviders
             var obj = var.GetParameter("this");
             var.ReturnVar.CopyValue(obj);
         }
+
+        [ScriptMethod("keys", "obj")]
+        public static void ObjectKeysImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+
+            var.ReturnVar.SetArray();
+
+            var idx = 0;
+            var link = obj.FirstChild;
+            while (link != null)
+            {
+                if (link.Name != ScriptVar.PrototypeClassName)
+                {
+                    var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name));
+                }
+                link = link.Next;
+            }
+        }
+
+        [ScriptMethod("hasOwnProperty", "name")]
+        public static void ObjectHasOwnPropertyImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("this");
+            var name = var.GetParameter("name").String;
+
+            var.ReturnVar.Int = obj.FindChild(name) != null ? 1 : 0;
+        }
     }
 }

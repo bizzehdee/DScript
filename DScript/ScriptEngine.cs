@@ -71,6 +71,42 @@ namespace DScript
         private string memberAccessName;
         private bool memberAccessInherited;
 
+        // Pending loop control-flow request raised by a `break`/`continue`
+        // statement and consumed by the nearest enclosing loop.
+        private enum LoopControl
+        {
+            None,
+            Break,
+            Continue
+        }
+
+        private LoopControl loopControl = LoopControl.None;
+
+        /// <summary>
+        /// Called by a loop after running its body. Returns true when the loop
+        /// must stop (a pending <c>break</c>, or a <c>return</c> propagating out),
+        /// and false when it should keep iterating (normal flow or <c>continue</c>).
+        /// Resets <paramref name="execute"/> to true when consuming a break/continue.
+        /// </summary>
+        private bool HandleLoopControl(ref bool execute)
+        {
+            switch (loopControl)
+            {
+                case LoopControl.Break:
+                    loopControl = LoopControl.None;
+                    execute = true;
+                    return true;
+                case LoopControl.Continue:
+                    loopControl = LoopControl.None;
+                    execute = true;
+                    return false;
+                default:
+                    // No break/continue pending: a false execute here means a
+                    // return is propagating, which must also stop the loop.
+                    return !execute;
+            }
+        }
+
         public delegate void ScriptCallbackCB(ScriptVar var, object userdata);
 
         public ScriptVar Root { get; private set; }
