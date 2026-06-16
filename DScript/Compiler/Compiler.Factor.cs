@@ -190,6 +190,18 @@ namespace DScript.Compiler
                         continue;
                     }
 
+                    if (lexer.TokenType is ScriptLex.LexTypes.PlusPlus or ScriptLex.LexTypes.MinusMinus)
+                    {
+                        var op = lexer.TokenType == ScriptLex.LexTypes.PlusPlus ? (ScriptLex.LexTypes)'+' : (ScriptLex.LexTypes)'-';
+                        lexer.Match(lexer.TokenType);
+                        chunk.Emit(OpCode.Dup);                 // keep obj
+                        chunk.Emit(OpCode.GetProp, nameIndex);  // current value
+                        EmitConstantInt(1);
+                        chunk.Emit(OpCode.Binary, (int)op);
+                        chunk.Emit(OpCode.SetProp, nameIndex);  // leaves new value
+                        return;
+                    }
+
                     if (canAssign && lexer.TokenType == (ScriptLex.LexTypes)'=')
                     {
                         lexer.Match((ScriptLex.LexTypes)'=');
@@ -233,6 +245,18 @@ namespace DScript.Compiler
                         CompileBase();
                         EmitBinaryOrShift(baseOp, isShift);
                         chunk.Emit(OpCode.SetIndex);
+                        return;
+                    }
+
+                    if (lexer.TokenType is ScriptLex.LexTypes.PlusPlus or ScriptLex.LexTypes.MinusMinus)
+                    {
+                        var op = lexer.TokenType == ScriptLex.LexTypes.PlusPlus ? (ScriptLex.LexTypes)'+' : (ScriptLex.LexTypes)'-';
+                        lexer.Match(lexer.TokenType);
+                        chunk.Emit(OpCode.Dup2);                // keep obj,key
+                        chunk.Emit(OpCode.GetIndex);            // current value
+                        EmitConstantInt(1);
+                        chunk.Emit(OpCode.Binary, (int)op);
+                        chunk.Emit(OpCode.SetIndex);            // leaves new value
                         return;
                     }
 
@@ -304,6 +328,10 @@ namespace DScript.Compiler
         {
             var fnChunk = new Chunk { Name = string.IsNullOrEmpty(name) ? "<anonymous>" : name };
 
+            // capture the source span so the function can be rendered back to
+            // text by JSON.stringify / GetParsableString and re-parsed by eval
+            var sourceStart = lexer.TokenStart;
+
             lexer.Match((ScriptLex.LexTypes)'(');
             while (lexer.TokenType != (ScriptLex.LexTypes)')')
             {
@@ -322,6 +350,8 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
             chunk = saved;
+
+            fnChunk.Source = "function " + name + lexer.GetSubString(sourceStart);
 
             return saved.AddFunction(fnChunk);
         }

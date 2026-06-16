@@ -34,6 +34,9 @@ namespace DScript.Vm
         public Chunk Body { get; }
         public Environment Captured { get; }
 
+        /// <summary>The function's original source text (for stringify / eval).</summary>
+        public string Source => Body.Source;
+
         public VmFunction(Chunk body, Environment captured)
         {
             Body = body;

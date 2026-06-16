@@ -280,7 +280,9 @@ namespace DScript
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
 
-            return (string)scriptData;
+            if (scriptData is Vm.VmFunction fn) return fn.Source;
+
+            return scriptData as string ?? string.Empty;
         }
 
         public object GetData()
@@ -877,6 +879,9 @@ namespace DScript
             }
             if(IsFunction)
             {
+                // compiled functions retain their source for round-tripping
+                if (scriptData is Vm.VmFunction fn) return fn.Source;
+
                 var builder = new StringBuilder();
                 builder.Append("function (");
                 var link = FirstChild;

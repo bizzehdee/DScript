@@ -49,6 +49,13 @@ namespace DScript.Vm
         /// <summary>Optional name (function name or "&lt;main&gt;") for diagnostics.</summary>
         public string Name { get; set; } = "<main>";
 
+        /// <summary>
+        /// Original source text of a function body (set for function chunks).
+        /// Retained so a function value can be rendered back to source by
+        /// JSON.stringify / GetParsableString and round-tripped through eval.
+        /// </summary>
+        public string Source { get; set; } = string.Empty;
+
         public int Count => Code.Count;
 
         // --- emit helpers (distinct by arity to avoid overload ambiguity) ---

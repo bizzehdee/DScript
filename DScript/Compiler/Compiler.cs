@@ -250,6 +250,9 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.MinusMinus:
                     CompilePrefixIncrement();
                     break;
+                case ScriptLex.LexTypes.RDelete:
+                    CompileDelete();
+                    break;
                 default:
                     CompileFactor(canAssign);
                     break;
@@ -274,6 +277,60 @@ namespace DScript.Compiler
         private void EmitConstantInt(int value)
         {
             chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Int(value)));
+        }
+
+        // delete obj.prop / obj[key] : the final member segment is removed.
+        private void CompileDelete()
+        {
+            lexer.Match(ScriptLex.LexTypes.RDelete);
+
+            var name = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.Id);
+            chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+
+            if (lexer.TokenType is not ((ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'['))
+            {
+                // delete of a bare variable is unsupported; yields false
+                chunk.Emit(OpCode.Pop);
+                chunk.Emit(OpCode.PushFalse);
+                return;
+            }
+
+            while (true)
+            {
+                if (lexer.TokenType == (ScriptLex.LexTypes)'.')
+                {
+                    lexer.Match((ScriptLex.LexTypes)'.');
+                    var idx = chunk.AddName(lexer.TokenString);
+                    lexer.Match(ScriptLex.LexTypes.Id);
+
+                    if (lexer.TokenType is (ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'[')
+                    {
+                        chunk.Emit(OpCode.GetProp, idx);
+                    }
+                    else
+                    {
+                        chunk.Emit(OpCode.DeleteProp, idx);
+                        return;
+                    }
+                }
+                else
+                {
+                    lexer.Match((ScriptLex.LexTypes)'[');
+                    CompileBase();
+                    lexer.Match((ScriptLex.LexTypes)']');
+
+                    if (lexer.TokenType is (ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'[')
+                    {
+                        chunk.Emit(OpCode.GetIndex);
+                    }
+                    else
+                    {
+                        chunk.Emit(OpCode.DeleteIndex);
+                        return;
+                    }
+                }
+            }
         }
     }
 }
