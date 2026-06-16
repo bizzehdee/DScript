@@ -131,7 +131,7 @@ namespace DScript
         /// be run with <see cref="Run(Chunk)"/>, or saved with
         /// <see cref="BytecodeSerializer"/> and re-run later.
         /// </summary>
-        public Chunk Compile(string code)
+        public static Chunk Compile(string code)
         {
             using var compiler = new DScriptCompiler();
             return compiler.CompileProgram(code);

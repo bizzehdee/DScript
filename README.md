@@ -80,8 +80,8 @@ programmatically. It is also what powers the higher-order array methods
 
 ***Compiling to bytecode and re-running it***
 
-    // compile once...
-    var program = engine.Compile("var answer = 6 * 7;");
+    // compile once... (compilation is engine-independent)
+    var program = ScriptEngine.Compile("var answer = 6 * 7;");
 
     // ...run it (repeatedly, cheaply)
     engine.Run(program);

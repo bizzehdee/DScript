@@ -10,7 +10,7 @@ namespace DScript.Test
         // Compile on a throwaway engine, save+load the bytecode, run on runEngine.
         private static ScriptVar RoundTrip(string source, ScriptEngine runEngine)
         {
-            var compiled = new ScriptEngine().Compile(source);
+            var compiled = ScriptEngine.Compile(source);
             var bytes = BytecodeSerializer.Save(compiled);
             var loaded = BytecodeSerializer.Load(bytes);
             runEngine.Run(loaded);
