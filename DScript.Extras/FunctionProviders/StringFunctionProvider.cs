@@ -43,8 +43,22 @@ namespace DScript.Extras.FunctionProviders
         public static void StringSubStringImpl(ScriptVar var, object userData)
         {
             var str = var.GetParameter("this").String;
+            var hiVar = var.GetParameter("hi");
+
+            // JS substring: clamp both indices to [0, length] and swap if lo > hi.
+            // When the end index is omitted it defaults to the end of the string.
             var lo = var.GetParameter("lo").Int;
-            var hi = var.GetParameter("hi").Int;
+            var hi = hiVar.IsUndefined ? str.Length : hiVar.Int;
+
+            if (lo < 0) lo = 0;
+            if (hi < 0) hi = 0;
+            if (lo > str.Length) lo = str.Length;
+            if (hi > str.Length) hi = str.Length;
+
+            if (lo > hi)
+            {
+                (lo, hi) = (hi, lo);
+            }
 
             var substr = str.Substring(lo, hi - lo);
 
@@ -183,8 +197,17 @@ namespace DScript.Extras.FunctionProviders
         public static void StringSubStr2Impl(ScriptVar var, object userData)
         {
             var str = var.GetParameter("this").String;
+            var lengthVar = var.GetParameter("length");
+
+            // JS substr: a negative start counts from the end of the string; an
+            // omitted length runs to the end. Indices/lengths are clamped.
             var start = var.GetParameter("start").Int;
-            var length = var.GetParameter("length").Int;
+            if (start < 0) start = System.Math.Max(str.Length + start, 0);
+            if (start > str.Length) start = str.Length;
+
+            var length = lengthVar.IsUndefined ? str.Length - start : lengthVar.Int;
+            if (length < 0) length = 0;
+            if (length > str.Length - start) length = str.Length - start;
 
             var subStr = str.Substring(start, length);
 
@@ -196,9 +219,22 @@ namespace DScript.Extras.FunctionProviders
         {
             var str = var.GetParameter("this").String;
             var searchString = var.GetParameter("searchString").String;
-            var position = var.GetParameter("position").Int;
+            var positionVar = var.GetParameter("position");
 
-            var lastIndex = str.LastIndexOf(searchString, position);
+            // JS defaults the start position to the end of the string when omitted
+            int lastIndex;
+            if (positionVar.IsUndefined)
+            {
+                lastIndex = str.LastIndexOf(searchString);
+            }
+            else
+            {
+                var position = positionVar.Int;
+                if (position < 0) position = 0;
+                if (position >= str.Length) position = str.Length == 0 ? 0 : str.Length - 1;
+
+                lastIndex = str.Length == 0 ? -1 : str.LastIndexOf(searchString, position);
+            }
 
             var.ReturnVar.Int = lastIndex;
         }

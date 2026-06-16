@@ -44,10 +44,14 @@ namespace DScript
                 }
 
                 var v = function.Var.FirstChild;
-                while (v != null)
+
+                // Bind the supplied arguments to the declared parameters. Extra
+                // arguments are still evaluated (for side effects) but discarded;
+                // parameters with no matching argument are left undefined.
+                while (currentLexer.TokenType != (ScriptLex.LexTypes)')')
                 {
                     var value = Base(ref execute);
-                    if (execute)
+                    if (execute && v != null)
                     {
                         if (value.Var.IsBasic)
                         {
@@ -61,11 +65,22 @@ namespace DScript
                         }
                     }
 
+                    if (v != null)
+                    {
+                        v = v.Next;
+                    }
+
                     if (currentLexer.TokenType != (ScriptLex.LexTypes)')')
                     {
                         currentLexer.Match((ScriptLex.LexTypes)',');
                     }
+                }
 
+                // Declared parameters that received no argument are bound as
+                // undefined so the function body can still reference them.
+                while (execute && v != null)
+                {
+                    functionRoot.AddChild(v.Name, new ScriptVar(null, ScriptVar.Flags.Undefined));
                     v = v.Next;
                 }
 

@@ -21,7 +21,9 @@ SOFTWARE.
 */
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -31,7 +33,7 @@ namespace DScript
     public sealed class ScriptVar : IDisposable
     {
         // Cache compiled regex patterns to avoid recompilation (performance optimization)
-        private static readonly Dictionary<string, Regex> RegexCache = [];
+        private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
 
         #region IDisposable
         private bool disposed;
@@ -148,9 +150,9 @@ namespace DScript
             }
             else if (flags.HasFlag(Flags.Double))
             {
-                if (!double.TryParse(val, out doubleData))
+                if (!double.TryParse(val, NumberStyles.Any, CultureInfo.InvariantCulture, out doubleData))
                 {
-                    doubleData = Convert.ToDouble(val);
+                    doubleData = Convert.ToDouble(val, CultureInfo.InvariantCulture);
                 }
             }
             else if(flags.HasFlag(Flags.Regexp))
@@ -179,13 +181,7 @@ namespace DScript
 
                 // Use cache key combining pattern and options
                 var cacheKey = $"{regexStr}|{regexOpts}";
-                if (!RegexCache.TryGetValue(cacheKey, out var regex))
-                {
-                    regex = new Regex(regexStr, regexOpts);
-                    RegexCache[cacheKey] = regex;
-                }
-                
-                scriptData = regex;
+                scriptData = RegexCache.GetOrAdd(cacheKey, _ => new Regex(regexStr, regexOpts));
             }
             else
             {
@@ -279,7 +275,7 @@ namespace DScript
             }
             if (IsDouble)
             {
-                return $"{Float}";
+                return Float.ToString(CultureInfo.InvariantCulture);
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
@@ -406,9 +402,10 @@ namespace DScript
             var p = path.IndexOf('.');
             if (p < 0) return FindChildOrCreate(path);
 
-            var parts = path.Split('.');
+            var head = path.Substring(0, p);
+            var tail = path.Substring(p + 1);
 
-            return FindChildOrCreate(parts[0], Flags.Object).Var.FindChildOrCreateByPath(parts[1]);
+            return FindChildOrCreate(head, Flags.Object).Var.FindChildOrCreateByPath(tail);
         }
 
         public ScriptVarLink AddChild(string childName, ScriptVar child, bool readOnly = false)
@@ -436,6 +433,13 @@ namespace DScript
             }
 
             LastChild = link;
+
+            // Invalidate array length cache if this is an array, as a numeric
+            // child may have been added directly (bypassing SetArrayIndex)
+            if (IsArray)
+            {
+                cachedArrayLength = -1;
+            }
 
             return link;
         }
@@ -506,6 +510,7 @@ namespace DScript
             while (c != null)
             {
                 var t = c.Next;
+                c.Dispose();
                 c = t;
             }
 
@@ -664,11 +669,13 @@ namespace DScript
                             case '+': return new ScriptVar(da + db);
                             case '-': return new ScriptVar(da - db);
                             case '*': return new ScriptVar(da * db);
-                            case '/': return new ScriptVar(da / db);
+                            // Match JS semantics for division by zero (Infinity/NaN)
+                            // instead of throwing a DivideByZeroException.
+                            case '/': return db == 0 ? new ScriptVar((double)da / db) : new ScriptVar(da / db);
                             case '&': return new ScriptVar(da & db);
                             case '|': return new ScriptVar(da | db);
                             case '^': return new ScriptVar(da ^ db);
-                            case '%': return new ScriptVar(da % db);
+                            case '%': return db == 0 ? new ScriptVar(double.NaN) : new ScriptVar(da % db);
                             case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(da == db);
                             case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(da != db);
                             case '<': return new ScriptVar(da < db);
