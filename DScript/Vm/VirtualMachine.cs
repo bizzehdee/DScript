@@ -34,7 +34,12 @@ namespace DScript.Vm
     public sealed partial class VirtualMachine
     {
         private readonly ScriptEngine engine;
-        private readonly List<ScriptVar> stack = new(64);
+
+        // Operand stack backed by a plain array with an explicit pointer. This is
+        // markedly cheaper than List<ScriptVar>: Push/Pop/Peek become bare array
+        // indexing with no per-call method dispatch, bounds-clearing, or shifting.
+        private ScriptVar[] stack = new ScriptVar[64];
+        private int sp;
 
         // Shared read-only operand for unary 0-based ops. MathsOp only reads its
         // operands (results are always freshly allocated), so sharing is safe and
@@ -48,16 +53,18 @@ namespace DScript.Vm
             this.engine = engine;
         }
 
-        private void Push(ScriptVar value) => stack.Add(value);
-
-        private ScriptVar Pop()
+        private void Push(ScriptVar value)
         {
-            var top = stack[stack.Count - 1];
-            stack.RemoveAt(stack.Count - 1);
-            return top;
+            if (sp == stack.Length)
+            {
+                System.Array.Resize(ref stack, stack.Length * 2);
+            }
+            stack[sp++] = value;
         }
 
-        private ScriptVar Peek() => stack[stack.Count - 1];
+        private ScriptVar Pop() => stack[--sp];
+
+        private ScriptVar Peek() => stack[sp - 1];
 
         /// <summary>
         /// Execute a top-level chunk and return the produced value (the operand
@@ -70,14 +77,11 @@ namespace DScript.Vm
 
         public ScriptVar Run(Chunk chunk, Environment env)
         {
-            var startDepth = stack.Count;
+            var startDepth = sp;
             var result = Execute(chunk, env);
 
             // discard anything the chunk left behind to keep the stack balanced
-            while (stack.Count > startDepth)
-            {
-                Pop();
-            }
+            sp = startDepth;
 
             return result ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
         }
@@ -95,7 +99,7 @@ namespace DScript.Vm
                 switch (op)
                 {
                     case OpCode.Constant:
-                        Push(chunk.Constants[ReadOperand(chunk, ref ip)].Materialize());
+                        Push(chunk.Constants[ReadOperand(code, ref ip)].Materialize());
                         break;
                     case OpCode.PushUndefined:
                         Push(new ScriptVar(null, ScriptVar.Flags.Undefined));
@@ -118,8 +122,8 @@ namespace DScript.Vm
                         break;
                     case OpCode.Dup2:
                     {
-                        var b = stack[stack.Count - 1];
-                        var a = stack[stack.Count - 2];
+                        var b = stack[sp - 1];
+                        var a = stack[sp - 2];
                         Push(a);
                         Push(b);
                         break;
@@ -144,14 +148,14 @@ namespace DScript.Vm
 
                     case OpCode.GetVar:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         var link = env.Resolve(name);
                         Push(link != null ? link.Var : new ScriptVar(null, ScriptVar.Flags.Undefined));
                         break;
                     }
                     case OpCode.SetVar:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         var value = Pop();
                         var link = env.Resolve(name);
                         if (link != null)
@@ -167,27 +171,27 @@ namespace DScript.Vm
                     }
                     case OpCode.DeclareVar:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         env.Vars.FindChildOrCreate(name);
                         break;
                     }
                     case OpCode.DeclareConst:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         env.Vars.FindChildOrCreate(name, ScriptVar.Flags.Undefined, readOnly: true);
                         break;
                     }
 
                     case OpCode.GetProp:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         var obj = Pop();
                         Push(GetMember(obj, name));
                         break;
                     }
                     case OpCode.SetProp:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         var value = Pop();
                         var obj = Pop();
                         SetMember(obj, name, value);
@@ -212,7 +216,7 @@ namespace DScript.Vm
                     }
                     case OpCode.DeleteProp:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         DeleteMember(Pop(), name);
                         Push(new ScriptVar(true));
                         break;
@@ -244,7 +248,7 @@ namespace DScript.Vm
 
                     case OpCode.Binary:
                     {
-                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(chunk, ref ip);
+                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var b = Pop();
                         var a = Pop();
                         Push(a.MathsOp(b, operatorCode));
@@ -252,7 +256,7 @@ namespace DScript.Vm
                     }
                     case OpCode.Shift:
                     {
-                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(chunk, ref ip);
+                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var b = Pop();
                         var a = Pop();
                         Push(ApplyShift(a, b, operatorCode));
@@ -301,50 +305,50 @@ namespace DScript.Vm
                         break;
                     case OpCode.InitProp:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         var value = Pop();
                         Peek().AddChild(name, value); // object kept on stack
                         break;
                     }
                     case OpCode.InitElem:
                     {
-                        var index = ReadOperand(chunk, ref ip);
+                        var index = ReadOperand(code, ref ip);
                         var value = Pop();
                         Peek().SetArrayIndex(index, value); // array kept on stack
                         break;
                     }
 
                     case OpCode.Jump:
-                        ip = ReadOperand(chunk, ref ip);
+                        ip = ReadOperand(code, ref ip);
                         break;
                     case OpCode.JumpIfFalse:
                     {
-                        var target = ReadOperand(chunk, ref ip);
+                        var target = ReadOperand(code, ref ip);
                         if (!Pop().Bool) ip = target;
                         break;
                     }
                     case OpCode.JumpIfTrue:
                     {
-                        var target = ReadOperand(chunk, ref ip);
+                        var target = ReadOperand(code, ref ip);
                         if (Pop().Bool) ip = target;
                         break;
                     }
                     case OpCode.JumpIfFalseOrPop:
                     {
-                        var target = ReadOperand(chunk, ref ip);
+                        var target = ReadOperand(code, ref ip);
                         if (!Peek().Bool) ip = target; else Pop();
                         break;
                     }
                     case OpCode.JumpIfTrueOrPop:
                     {
-                        var target = ReadOperand(chunk, ref ip);
+                        var target = ReadOperand(code, ref ip);
                         if (Peek().Bool) ip = target; else Pop();
                         break;
                     }
 
                     case OpCode.MakeClosure:
                     {
-                        var fnChunk = chunk.Functions[ReadOperand(chunk, ref ip)];
+                        var fnChunk = chunk.Functions[ReadOperand(code, ref ip)];
                         var fn = new ScriptVar(null, ScriptVar.Flags.Function);
                         fn.SetData(new VmFunction(fnChunk, env));
                         Push(fn);
@@ -352,14 +356,14 @@ namespace DScript.Vm
                     }
                     case OpCode.Call:
                     {
-                        var args = PopArgs(ReadOperand(chunk, ref ip));
+                        var args = PopArgs(ReadOperand(code, ref ip));
                         var callee = Pop();
                         Push(InvokeCallable(callee, null, args));
                         break;
                     }
                     case OpCode.CallMethod:
                     {
-                        var args = PopArgs(ReadOperand(chunk, ref ip));
+                        var args = PopArgs(ReadOperand(code, ref ip));
                         var callee = Pop();
                         var receiver = Pop();
                         Push(InvokeCallable(callee, receiver, args));
@@ -367,7 +371,7 @@ namespace DScript.Vm
                     }
                     case OpCode.New:
                     {
-                        var args = PopArgs(ReadOperand(chunk, ref ip));
+                        var args = PopArgs(ReadOperand(code, ref ip));
                         var ctor = Pop();
                         Push(Construct(ctor, args));
                         break;
@@ -376,7 +380,7 @@ namespace DScript.Vm
                     case OpCode.Throw:
                         throw new JITException(Pop());
                     case OpCode.Try:
-                        ExecuteTry(chunk, env, ref ip);
+                        ExecuteTry(chunk, code, env, ref ip);
                         break;
 
                     case OpCode.Return:
@@ -396,12 +400,12 @@ namespace DScript.Vm
         // chunks. `throw` surfaces as a JITException that propagates across VM
         // frames (C# call stack), so the C# try/catch/finally here mirrors the
         // tree-walking engine's behaviour exactly.
-        private void ExecuteTry(Chunk chunk, Environment env, ref int ip)
+        private void ExecuteTry(Chunk chunk, byte[] code, Environment env, ref int ip)
         {
-            var tryIndex = ReadOperand(chunk, ref ip);
-            var catchIndex = ReadOperand(chunk, ref ip);
-            var finallyIndex = ReadOperand(chunk, ref ip);
-            var catchParamIndex = ReadOperand(chunk, ref ip);
+            var tryIndex = ReadOperand(code, ref ip);
+            var catchIndex = ReadOperand(code, ref ip);
+            var finallyIndex = ReadOperand(code, ref ip);
+            var catchParamIndex = ReadOperand(code, ref ip);
 
             var tryChunk = chunk.Functions[tryIndex];
             var catchChunk = catchIndex >= 0 ? chunk.Functions[catchIndex] : null;
@@ -575,9 +579,15 @@ namespace DScript.Vm
             return false;
         }
 
-        private static int ReadOperand(Chunk chunk, ref int ip)
+        private static int ReadOperand(byte[] code, ref int ip)
         {
-            var value = chunk.ReadInt(ip);
+            // Little-endian read straight from the contiguous code array, skipping
+            // the Chunk.ReadInt property indirection (and its CodeBytes re-fetch)
+            // that would otherwise run on every operand in the dispatch loop.
+            var value = code[ip]
+                        | (code[ip + 1] << 8)
+                        | (code[ip + 2] << 16)
+                        | (code[ip + 3] << 24);
             ip += 4;
             return value;
         }
