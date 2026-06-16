@@ -120,5 +120,55 @@ namespace DScript.Test
         {
             Assert.That(IntOf("var t = 0; for (var i = 0; i < 3; i = i + 1) { for (var j = 0; j < 3; j = j + 1) { t = t + 1; } }", "t"), Is.EqualTo(9));
         }
+
+        // --- variable-resolution inline-cache correctness -----------------------
+        // These exercise scenarios where a per-site resolution cache could serve a
+        // stale binding if it were not invalidated when a scope gains a binding.
+
+        [Test]
+        public void ReassignmentInLoopIsObservedThroughCache()
+        {
+            // The same GetVar/SetVar sites run every iteration; the cache must read
+            // the variable's current value (it caches the link, not the value).
+            Assert.That(IntOf("var s = 0; for (var i = 1; i <= 5; i = i + 1) { s = s + i; }", "s"), Is.EqualTo(15));
+        }
+
+        [Test]
+        public void RedeclarationLaterInScopeShadowsCachedOuterValue()
+        {
+            // 'x' is read (resolving to the outer x) before a local 'x' is declared
+            // in the function scope. After redeclaration, reads must see the local
+            // value, not the cached outer resolution.
+            const string src =
+                "var x = 1; var first; var second; " +
+                "function f() { first = x; var x = 99; second = x; } f();";
+            Assert.That(IntOf(src, "first"), Is.EqualTo(1));
+            Assert.That(IntOf(src, "second"), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void RecursionResolvesPerFrameNotFromCache()
+        {
+            // Each recursive frame has its own 'n'; a per-site cache keyed on the
+            // wrong frame would return a sibling frame's value.
+            const string src =
+                "function fib(n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); } " +
+                "var r = fib(10);";
+            Assert.That(IntOf(src, "r"), Is.EqualTo(55));
+        }
+
+        [Test]
+        public void ClosuresCaptureDistinctEnvironments()
+        {
+            // Two calls to make() must produce counters over independent bindings;
+            // a resolution cache keyed only by site (ignoring environment identity)
+            // would let them share state.
+            const string src =
+                "function make() { var c = 0; function inc() { c = c + 1; return c; } return inc; } " +
+                "var a = make(); var b = make(); " +
+                "a(); a(); var ra = a(); var rb = b();";
+            Assert.That(IntOf(src, "ra"), Is.EqualTo(3));
+            Assert.That(IntOf(src, "rb"), Is.EqualTo(1));
+        }
     }
 }
