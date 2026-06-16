@@ -89,6 +89,9 @@ namespace DScript.Vm
         private ScriptVar Execute(Chunk chunk, Environment env)
         {
             var code = chunk.CodeBytes;
+            // Hoist the inline-cache array once so each GetVar/SetVar avoids the
+            // property's lazy null-check on every resolution.
+            var cache = chunk.InlineCache;
             var ip = 0;
 
             while (ip < code.Length)
@@ -150,7 +153,7 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var nameIdx = ReadOperand(code, ref ip);
-                        var link = ResolveCached(chunk, site, env, nameIdx);
+                        var link = ResolveCached(cache, chunk, site, env, nameIdx);
                         Push(link != null ? link.Var : new ScriptVar(null, ScriptVar.Flags.Undefined));
                         break;
                     }
@@ -159,7 +162,7 @@ namespace DScript.Vm
                         var site = ip;
                         var nameIdx = ReadOperand(code, ref ip);
                         var value = Pop();
-                        var link = ResolveCached(chunk, site, env, nameIdx);
+                        var link = ResolveCached(cache, chunk, site, env, nameIdx);
                         if (link != null)
                         {
                             link.ReplaceWith(value);
@@ -673,9 +676,8 @@ namespace DScript.Vm
         // unchanged environment reuses the cached link without walking the scope
         // chain. Only successful resolutions are cached; misses always re-resolve
         // (so a later-declared binding is picked up).
-        private static ScriptVarLink ResolveCached(Chunk chunk, int site, Environment env, int nameIdx)
+        private static ScriptVarLink ResolveCached(Chunk.InlineCacheEntry[] cache, Chunk chunk, int site, Environment env, int nameIdx)
         {
-            var cache = chunk.InlineCache;
             ref var entry = ref cache[site];
             if (ReferenceEquals(entry.Env, env) && entry.Version == env.Version)
             {
