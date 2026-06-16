@@ -20,25 +20,31 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System;
 using DScript.Vm;
 
 namespace DScript.Compiler
 {
     /// <summary>
-    /// Compiles DScript source into bytecode <see cref="Chunk"/>s. It walks the
-    /// token stream with the same operator-precedence recursive descent as the
-    /// tree-walking engine, but emits opcodes instead of executing. Forward jumps
-    /// are backpatched.
+    /// Compiles DScript source into bytecode <see cref="Chunk"/>s using the same
+    /// operator-precedence recursive descent as the tree-walking engine, but
+    /// emitting opcodes instead of executing. Forward jumps are backpatched.
+    ///
+    /// A <c>canAssign</c> flag flows down the precedence chain: only an operand
+    /// parsed at assignment precedence may become an assignment target, so the
+    /// identifier/member code knows whether to emit a get or a set.
     /// </summary>
-    public sealed partial class DScriptCompiler
+    public sealed partial class DScriptCompiler : IDisposable
     {
         private ScriptLex lexer;
         private Chunk chunk;
 
-        /// <summary>
-        /// Compile a single expression to a chunk that leaves its value via
-        /// <see cref="OpCode.Return"/>. Used for expression evaluation and tests.
-        /// </summary>
+        public void Dispose()
+        {
+            lexer?.Dispose();
+        }
+
+        /// <summary>Compile a single expression to a chunk that returns its value.</summary>
         public Chunk CompileExpression(string source)
         {
             lexer = new ScriptLex(source);
@@ -50,38 +56,52 @@ namespace DScript.Compiler
             return chunk;
         }
 
-        // ----- precedence chain (mirrors ScriptEngine.* tiers) --------------
-
-        // Assignment tier. Statement-level assignment is added in a later phase;
-        // for now this simply forwards to the ternary tier.
-        private void CompileBase()
+        /// <summary>Compile a full program (statement sequence) to a chunk.</summary>
+        public Chunk CompileProgram(string source)
         {
-            CompileTernary();
+            lexer = new ScriptLex(source);
+            chunk = new Chunk { Name = "<main>" };
+
+            while (lexer.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                CompileStatement();
+            }
+
+            chunk.Emit(OpCode.PushUndefined);
+            chunk.Emit(OpCode.Return);
+
+            return chunk;
         }
 
-        private void CompileTernary()
+        // ----- precedence chain (mirrors ScriptEngine.* tiers) --------------
+
+        private void CompileBase()
         {
-            CompileLogic();
+            CompileTernary(true);
+        }
+
+        private void CompileTernary(bool canAssign)
+        {
+            CompileLogic(canAssign);
 
             if (lexer.TokenType != (ScriptLex.LexTypes)'?') return;
 
             lexer.Match((ScriptLex.LexTypes)'?');
 
-            // condition is on the stack; jump to the else arm when falsy
             var toElse = chunk.EmitJump(OpCode.JumpIfFalse);
-            CompileBase();                       // then arm leaves its value
+            CompileBase();                       // then arm
             var toEnd = chunk.EmitJump(OpCode.Jump);
 
             chunk.PatchJump(toElse);
             lexer.Match((ScriptLex.LexTypes)':');
-            CompileBase();                       // else arm leaves its value
+            CompileBase();                       // else arm
 
             chunk.PatchJump(toEnd);
         }
 
-        private void CompileLogic()
+        private void CompileLogic(bool canAssign)
         {
-            CompileCondition();
+            CompileCondition(canAssign);
 
             while (lexer.TokenType is
                    (ScriptLex.LexTypes)'&' or
@@ -97,30 +117,29 @@ namespace DScript.Compiler
                 {
                     case ScriptLex.LexTypes.AndAnd:
                     {
-                        // short-circuit: if left is falsy, keep it as the result
                         var end = chunk.EmitJump(OpCode.JumpIfFalseOrPop);
-                        CompileCondition();
+                        CompileCondition(false);
                         chunk.PatchJump(end);
                         break;
                     }
                     case ScriptLex.LexTypes.OrOr:
                     {
                         var end = chunk.EmitJump(OpCode.JumpIfTrueOrPop);
-                        CompileCondition();
+                        CompileCondition(false);
                         chunk.PatchJump(end);
                         break;
                     }
                     default:
-                        CompileCondition();
+                        CompileCondition(false);
                         chunk.Emit(OpCode.Binary, (int)op);
                         break;
                 }
             }
         }
 
-        private void CompileCondition()
+        private void CompileCondition(bool canAssign)
         {
-            CompileShift();
+            CompileShift(canAssign);
 
             while (lexer.TokenType is
                    ScriptLex.LexTypes.Equal or
@@ -136,7 +155,7 @@ namespace DScript.Compiler
             {
                 var op = lexer.TokenType;
                 lexer.Match(op);
-                CompileShift();
+                CompileShift(false);
 
                 switch (op)
                 {
@@ -153,9 +172,9 @@ namespace DScript.Compiler
             }
         }
 
-        private void CompileShift()
+        private void CompileShift(bool canAssign)
         {
-            CompileAdditive();
+            CompileAdditive(canAssign);
 
             while (lexer.TokenType is
                    ScriptLex.LexTypes.LShift or
@@ -164,27 +183,27 @@ namespace DScript.Compiler
             {
                 var op = lexer.TokenType;
                 lexer.Match(op);
-                CompileAdditive();
+                CompileAdditive(false);
                 chunk.Emit(OpCode.Shift, (int)op);
             }
         }
 
-        private void CompileAdditive()
+        private void CompileAdditive(bool canAssign)
         {
-            CompileTerm();
+            CompileTerm(canAssign);
 
             while (lexer.TokenType is (ScriptLex.LexTypes)'+' or (ScriptLex.LexTypes)'-')
             {
                 var op = lexer.TokenType;
                 lexer.Match(op);
-                CompileTerm();
+                CompileTerm(false);
                 chunk.Emit(OpCode.Binary, (int)op);
             }
         }
 
-        private void CompileTerm()
+        private void CompileTerm(bool canAssign)
         {
-            CompileUnary();
+            CompileUnary(canAssign);
 
             while (lexer.TokenType is
                    (ScriptLex.LexTypes)'*' or
@@ -193,44 +212,68 @@ namespace DScript.Compiler
             {
                 var op = lexer.TokenType;
                 lexer.Match(op);
-                CompileUnary();
+                CompileUnary(false);
                 chunk.Emit(OpCode.Binary, (int)op);
             }
         }
 
-        private void CompileUnary()
+        private void CompileUnary(bool canAssign)
         {
             switch (lexer.TokenType)
             {
                 case (ScriptLex.LexTypes)'!':
                     lexer.Match((ScriptLex.LexTypes)'!');
-                    CompileUnary();
+                    CompileUnary(false);
                     chunk.Emit(OpCode.Not);
                     break;
                 case (ScriptLex.LexTypes)'~':
                     lexer.Match((ScriptLex.LexTypes)'~');
-                    CompileUnary();
+                    CompileUnary(false);
                     chunk.Emit(OpCode.BitNot);
                     break;
                 case (ScriptLex.LexTypes)'-':
                     lexer.Match((ScriptLex.LexTypes)'-');
-                    CompileUnary();
+                    CompileUnary(false);
                     chunk.Emit(OpCode.Negate);
                     break;
                 case (ScriptLex.LexTypes)'+':
                     lexer.Match((ScriptLex.LexTypes)'+');
-                    CompileUnary();
+                    CompileUnary(false);
                     chunk.Emit(OpCode.ToNumber);
                     break;
                 case ScriptLex.LexTypes.RTypeOf:
                     lexer.Match(ScriptLex.LexTypes.RTypeOf);
-                    CompileUnary();
+                    CompileUnary(false);
                     chunk.Emit(OpCode.Typeof);
                     break;
+                case ScriptLex.LexTypes.PlusPlus:
+                case ScriptLex.LexTypes.MinusMinus:
+                    CompilePrefixIncrement();
+                    break;
                 default:
-                    CompileFactor();
+                    CompileFactor(canAssign);
                     break;
             }
+        }
+
+        // ++a / --a on a simple variable: a = a +/- 1, value is the new value.
+        private void CompilePrefixIncrement()
+        {
+            var op = lexer.TokenType == ScriptLex.LexTypes.PlusPlus ? (ScriptLex.LexTypes)'+' : (ScriptLex.LexTypes)'-';
+            lexer.Match(lexer.TokenType);
+
+            var name = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.Id);
+
+            chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+            EmitConstantInt(1);
+            chunk.Emit(OpCode.Binary, (int)op);
+            chunk.Emit(OpCode.SetVar, chunk.AddName(name)); // leaves the new value
+        }
+
+        private void EmitConstantInt(int value)
+        {
+            chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Int(value)));
         }
     }
 }

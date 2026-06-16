@@ -33,7 +33,15 @@ namespace DScript.Vm
     /// </summary>
     public sealed partial class VirtualMachine
     {
+        private readonly ScriptEngine engine;
         private readonly List<ScriptVar> stack = [];
+
+        public VirtualMachine() { }
+
+        public VirtualMachine(ScriptEngine engine)
+        {
+            this.engine = engine;
+        }
 
         private void Push(ScriptVar value) => stack.Add(value);
 
@@ -52,8 +60,13 @@ namespace DScript.Vm
         /// </summary>
         public ScriptVar Run(Chunk chunk)
         {
+            return Run(chunk, new Environment(new ScriptVar(null, ScriptVar.Flags.Object), null));
+        }
+
+        public ScriptVar Run(Chunk chunk, Environment env)
+        {
             var startDepth = stack.Count;
-            var result = Execute(chunk);
+            var result = Execute(chunk, env);
 
             // discard anything the chunk left behind to keep the stack balanced
             while (stack.Count > startDepth)
@@ -64,7 +77,7 @@ namespace DScript.Vm
             return result ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
         }
 
-        private ScriptVar Execute(Chunk chunk)
+        private ScriptVar Execute(Chunk chunk, Environment env)
         {
             var code = chunk.Code;
             var ip = 0;
@@ -98,6 +111,131 @@ namespace DScript.Vm
                     case OpCode.Dup:
                         Push(Peek());
                         break;
+                    case OpCode.Dup2:
+                    {
+                        var b = stack[stack.Count - 1];
+                        var a = stack[stack.Count - 2];
+                        Push(a);
+                        Push(b);
+                        break;
+                    }
+                    case OpCode.EnumKeys:
+                    {
+                        var obj = Pop();
+                        var keys = new ScriptVar(null, ScriptVar.Flags.Array);
+                        var index = 0;
+                        var member = obj.FirstChild;
+                        while (member != null)
+                        {
+                            if (member.Name != ScriptVar.PrototypeClassName)
+                            {
+                                keys.SetArrayIndex(index++, new ScriptVar(member.Name));
+                            }
+                            member = member.Next;
+                        }
+                        Push(keys);
+                        break;
+                    }
+
+                    case OpCode.GetVar:
+                    {
+                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var link = env.Resolve(name);
+                        Push(link != null ? link.Var : new ScriptVar(null, ScriptVar.Flags.Undefined));
+                        break;
+                    }
+                    case OpCode.SetVar:
+                    {
+                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var value = Pop();
+                        var link = env.Resolve(name);
+                        if (link != null)
+                        {
+                            link.ReplaceWith(value);
+                        }
+                        else
+                        {
+                            env.Global().Vars.AddChildNoDup(name, value);
+                        }
+                        Push(value); // assignment is an expression
+                        break;
+                    }
+                    case OpCode.DeclareVar:
+                    {
+                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        env.Vars.FindChildOrCreate(name);
+                        break;
+                    }
+                    case OpCode.DeclareConst:
+                    {
+                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        env.Vars.FindChildOrCreate(name, ScriptVar.Flags.Undefined, readOnly: true);
+                        break;
+                    }
+
+                    case OpCode.GetProp:
+                    {
+                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var obj = Pop();
+                        Push(GetMember(obj, name));
+                        break;
+                    }
+                    case OpCode.SetProp:
+                    {
+                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var value = Pop();
+                        var obj = Pop();
+                        SetMember(obj, name, value);
+                        Push(value);
+                        break;
+                    }
+                    case OpCode.GetIndex:
+                    {
+                        var key = Pop();
+                        var obj = Pop();
+                        Push(GetMember(obj, key.String));
+                        break;
+                    }
+                    case OpCode.SetIndex:
+                    {
+                        var value = Pop();
+                        var key = Pop();
+                        var obj = Pop();
+                        SetMember(obj, key.String, value);
+                        Push(value);
+                        break;
+                    }
+                    case OpCode.DeleteProp:
+                    {
+                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        DeleteMember(Pop(), name);
+                        Push(new ScriptVar(true));
+                        break;
+                    }
+                    case OpCode.DeleteIndex:
+                    {
+                        var key = Pop();
+                        DeleteMember(Pop(), key.String);
+                        Push(new ScriptVar(true));
+                        break;
+                    }
+
+                    case OpCode.In:
+                    {
+                        var obj = Pop();
+                        var key = Pop();
+                        var exists = obj.FindChild(key.String) != null ||
+                                     (engine != null && engine.FindInParentClasses(obj, key.String) != null);
+                        Push(new ScriptVar(exists));
+                        break;
+                    }
+                    case OpCode.InstanceOf:
+                    {
+                        var ctor = Pop();
+                        var value = Pop();
+                        Push(new ScriptVar(IsInstanceOf(value, ctor)));
+                        break;
+                    }
 
                     case OpCode.Binary:
                     {
@@ -206,6 +344,57 @@ namespace DScript.Vm
             }
 
             return null;
+        }
+
+        private ScriptVar GetMember(ScriptVar obj, string name)
+        {
+            var link = obj.FindChild(name);
+            if (link == null && engine != null)
+            {
+                link = engine.FindInParentClasses(obj, name);
+            }
+            if (link != null) return link.Var;
+
+            if (obj.IsArray && name == "length") return new ScriptVar(obj.GetArrayLength());
+            if (obj.IsString && name == "length") return new ScriptVar(obj.String.Length);
+
+            return new ScriptVar(null, ScriptVar.Flags.Undefined);
+        }
+
+        private static void SetMember(ScriptVar obj, string name, ScriptVar value)
+        {
+            // Assignment always targets an OWN property (FindChild searches own
+            // members only), so inherited members are shadowed, never mutated.
+            var link = obj.FindChild(name);
+            if (link != null)
+            {
+                link.ReplaceWith(value);
+            }
+            else
+            {
+                obj.AddChild(name, value);
+            }
+        }
+
+        private static void DeleteMember(ScriptVar obj, string name)
+        {
+            var link = obj.FindChild(name);
+            if (link != null)
+            {
+                obj.RemoveLink(link);
+                link.Dispose();
+            }
+        }
+
+        private static bool IsInstanceOf(ScriptVar value, ScriptVar ctor)
+        {
+            var proto = value.FindChild(ScriptVar.PrototypeClassName);
+            while (proto != null)
+            {
+                if (ReferenceEquals(proto.Var, ctor)) return true;
+                proto = proto.Var.FindChild(ScriptVar.PrototypeClassName);
+            }
+            return false;
         }
 
         private static int ReadOperand(Chunk chunk, ref int ip)

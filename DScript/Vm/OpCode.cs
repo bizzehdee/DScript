@@ -42,6 +42,8 @@ namespace DScript.Vm
         // --- stack ----------------------------------------------------------
         Pop,             //                 discard top of stack
         Dup,             //                 duplicate top of stack
+        Dup2,            //                 duplicate the top two values (a,b -> a,b,a,b)
+        EnumKeys,        //                 obj -> array of own member-name strings (for...in)
 
         // --- variables (lexical scope) --------------------------------------
         GetVar,          // [i nameIndex]   push the value of the named variable

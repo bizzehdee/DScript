@@ -1,0 +1,66 @@
+/*
+Copyright (c) 2014 - 2020 Darren Horrocks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+namespace DScript.Vm
+{
+    /// <summary>
+    /// A lexical scope: a set of variable bindings (held as children of a
+    /// <see cref="ScriptVar"/>) plus a link to the enclosing scope. Variable
+    /// resolution walks the <see cref="Parent"/> chain to the global scope,
+    /// giving true lexical scoping — a function closes over the environment it
+    /// was defined in, not the call-time stack.
+    /// </summary>
+    public sealed class Environment
+    {
+        /// <summary>Bindings declared directly in this scope.</summary>
+        public ScriptVar Vars { get; }
+
+        /// <summary>Enclosing lexical scope, or null for the global scope.</summary>
+        public Environment Parent { get; }
+
+        public Environment(ScriptVar vars, Environment parent)
+        {
+            Vars = vars;
+            Parent = parent;
+        }
+
+        /// <summary>Find the binding for <paramref name="name"/>, or null.</summary>
+        public ScriptVarLink Resolve(string name)
+        {
+            for (var env = this; env != null; env = env.Parent)
+            {
+                var link = env.Vars.FindChild(name);
+                if (link != null) return link;
+            }
+
+            return null;
+        }
+
+        /// <summary>The outermost (global) environment.</summary>
+        public Environment Global()
+        {
+            var env = this;
+            while (env.Parent != null) env = env.Parent;
+            return env;
+        }
+    }
+}

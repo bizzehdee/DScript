@@ -306,7 +306,7 @@ namespace DScript
             return null;
         }
 
-        private ScriptVarLink FindInParentClasses(ScriptVar obj, string name)
+        internal ScriptVarLink FindInParentClasses(ScriptVar obj, string name)
         {
             ScriptVarLink implementation;
             var parentClass = obj.FindChild(ScriptVar.PrototypeClassName);
