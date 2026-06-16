@@ -202,7 +202,7 @@ namespace DScript.Vm
                     {
                         var key = Pop();
                         var obj = Pop();
-                        Push(GetMember(obj, key.String));
+                        Push(GetMember(obj, KeyName(key)));
                         break;
                     }
                     case OpCode.SetIndex:
@@ -210,7 +210,7 @@ namespace DScript.Vm
                         var value = Pop();
                         var key = Pop();
                         var obj = Pop();
-                        SetMember(obj, key.String, value);
+                        SetMember(obj, KeyName(key), value);
                         Push(value);
                         break;
                     }
@@ -224,7 +224,7 @@ namespace DScript.Vm
                     case OpCode.DeleteIndex:
                     {
                         var key = Pop();
-                        DeleteMember(Pop(), key.String);
+                        DeleteMember(Pop(), KeyName(key));
                         Push(new ScriptVar(true));
                         break;
                     }
@@ -587,6 +587,14 @@ namespace DScript.Vm
                 proto = proto.Var.FindChild(ScriptVar.PrototypeClassName);
             }
             return false;
+        }
+
+        // Resolve a computed [] key to its property-name string. Integer keys go
+        // through ScriptVar's cached index names, so array element access does not
+        // allocate a fresh Int.ToString() string on every get/set/delete.
+        private static string KeyName(ScriptVar key)
+        {
+            return key.IsInt ? ScriptVar.IndexName(key.Int) : key.String;
         }
 
         private static int ReadOperand(byte[] code, ref int ip)

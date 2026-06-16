@@ -49,7 +49,9 @@ namespace DScript
             return names;
         }
 
-        private static string IndexName(int idx)
+        // Internal so the VM can reuse the cached index-name strings for integer
+        // [] keys instead of allocating a fresh Int.ToString() on every access.
+        internal static string IndexName(int idx)
         {
             return idx >= 0 && idx < IndexNames.Length
                 ? IndexNames[idx]
