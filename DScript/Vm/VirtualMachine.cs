@@ -508,7 +508,17 @@ namespace DScript.Vm
             }
 
             var value = args[index];
-            return value.IsBasic ? value.DeepCopy() : value;
+
+            // Objects/arrays/functions are passed by reference.
+            if (!value.IsBasic) return value;
+
+            // Primitives are passed by value, so a shared one (held by a variable,
+            // hence ref-counted) must be copied to prevent the callee mutating the
+            // caller's binding. But a value with no refs is an unaliased temporary
+            // freshly produced on the operand stack (e.g. the result of `n - 1` in
+            // `fib(n - 1)`): nothing else can observe it, so binding it directly is
+            // safe and skips a DeepCopy allocation on the hot call path.
+            return value.GetRefs() == 0 ? value : value.DeepCopy();
         }
 
         private ScriptVar Construct(ScriptVar ctor, ScriptVar[] args)

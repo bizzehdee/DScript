@@ -71,28 +71,34 @@ internal static class Program
         };
 
         Console.WriteLine($"DScript benchmark  (scale={scale.ToString(CultureInfo.InvariantCulture)}, .NET {System.Environment.Version})");
-        Console.WriteLine(new string('-', 64));
-        Console.WriteLine($"{"workload",-34}{"best ms",12}{"result",16}");
-        Console.WriteLine(new string('-', 64));
+        Console.WriteLine(new string('-', 78));
+        Console.WriteLine($"{"workload",-34}{"best ms",12}{"alloc MB",12}{"result",20}");
+        Console.WriteLine(new string('-', 78));
 
         var total = 0.0;
         foreach (var (name, code) in benchmarks)
         {
-            TimeExecute(code, out _); // warm up
+            TimeExecute(code, out _, out _); // warm up
 
+            // Five runs (was three): best-of smooths timing jitter, and the extra
+            // runs make the allocation figure — which is far more stable than wall
+            // time — easy to read for spotting GC-pressure regressions.
             var best = double.MaxValue;
+            var bestAlloc = long.MaxValue;
             string result = null;
-            for (var run = 0; run < 3; run++)
+            for (var run = 0; run < 5; run++)
             {
-                var ms = TimeExecute(code, out result);
+                var ms = TimeExecute(code, out result, out var allocated);
                 if (ms < best) best = ms;
+                if (allocated < bestAlloc) bestAlloc = allocated;
             }
 
             total += best;
-            Console.WriteLine($"{name,-34}{best,12:F2}{result,16}");
+            var allocMb = bestAlloc / (1024.0 * 1024.0);
+            Console.WriteLine($"{name,-34}{best,12:F2}{allocMb,12:F1}{result,20}");
         }
 
-        Console.WriteLine(new string('-', 64));
+        Console.WriteLine(new string('-', 78));
         Console.WriteLine($"{"total (best of each)",-34}{total,12:F2}");
 
         CompileOnceDemo();
@@ -108,13 +114,15 @@ internal static class Program
 
     // Times ONLY script execution; engine construction + native registration is
     // outside the stopwatch so the measurement reflects interpretation cost.
-    private static double TimeExecute(string code, out string result)
+    private static double TimeExecute(string code, out string result, out long allocatedBytes)
     {
         var engine = NewEngine();
 
+        var before = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         engine.Execute(code);
         sw.Stop();
+        allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
 
         result = engine.Root.GetParameter("result").String;
         return sw.Elapsed.TotalMilliseconds;
