@@ -21,24 +21,99 @@ SOFTWARE.
 */
 
 using System;
+using System.Globalization;
 
 namespace DScript.Extras.FunctionProviders
 {
     [ScriptClass("Integer")]
     public static class IntegerFunctionProvider
     {
-        [ScriptMethod("parseInt", "str")]
-        [ScriptMethod("parseInt", "str", AppearAtRoot = true)]
+        [ScriptMethod("parseInt", "str", "radix")]
+        [ScriptMethod("parseInt", "str", "radix", AppearAtRoot = true)]
         public static void IntParseIntImpl(ScriptVar var, object userData)
         {
-            var str = var.GetParameter("str").String;
+            var str = var.GetParameter("str").String.Trim();
+            var radixVar = var.GetParameter("radix");
+            var radix = radixVar.IsUndefined ? 0 : radixVar.Int;
 
-            if (int.TryParse(str, out var intResult) == false)
+            var index = 0;
+            var sign = 1;
+            if (index < str.Length && (str[index] == '+' || str[index] == '-'))
             {
-                intResult = 0;
+                if (str[index] == '-') sign = -1;
+                index++;
             }
 
-            var.ReturnVar.Int = intResult;
+            //honour an explicit 0x prefix when the radix is unspecified or 16
+            if ((radix == 0 || radix == 16) &&
+                index + 1 < str.Length && str[index] == '0' && (str[index + 1] == 'x' || str[index + 1] == 'X'))
+            {
+                index += 2;
+                radix = 16;
+            }
+
+            if (radix == 0) radix = 10;
+
+            if (radix < 2 || radix > 36)
+            {
+                var.ReturnVar.Float = double.NaN;
+                return;
+            }
+
+            long result = 0;
+            var any = false;
+            for (; index < str.Length; index++)
+            {
+                var c = str[index];
+                int digit;
+                if (c >= '0' && c <= '9') digit = c - '0';
+                else if (c >= 'a' && c <= 'z') digit = c - 'a' + 10;
+                else if (c >= 'A' && c <= 'Z') digit = c - 'A' + 10;
+                else break;
+
+                if (digit >= radix) break;
+
+                result = (result * radix) + digit;
+                any = true;
+            }
+
+            //no valid leading digits -> NaN, matching JavaScript
+            if (!any)
+            {
+                var.ReturnVar.Float = double.NaN;
+                return;
+            }
+
+            var.ReturnVar.Int = (int)(sign * result);
+        }
+
+        [ScriptMethod("isNaN", "val", AppearAtRoot = true)]
+        public static void IsNaNImpl(ScriptVar var, object userData)
+        {
+            var value = ToNumber(var.GetParameter("val"));
+            var.ReturnVar.Int = double.IsNaN(value) ? 1 : 0;
+        }
+
+        [ScriptMethod("isFinite", "val", AppearAtRoot = true)]
+        public static void IsFiniteImpl(ScriptVar var, object userData)
+        {
+            var value = ToNumber(var.GetParameter("val"));
+            var.ReturnVar.Int = (!double.IsNaN(value) && !double.IsInfinity(value)) ? 1 : 0;
+        }
+
+        private static double ToNumber(ScriptVar value)
+        {
+            if (value.IsInt) return value.Int;
+            if (value.IsDouble) return value.Float;
+            if (value.IsNull) return 0;
+
+            if (value.IsString &&
+                double.TryParse(value.String, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+            {
+                return parsed;
+            }
+
+            return double.NaN;
         }
 
         [ScriptMethod("parseFloat", "str")]
