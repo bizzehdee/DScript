@@ -94,8 +94,7 @@ namespace DScript
         {
             try
             {
-                var chunk = Compile(code);
-                new VirtualMachine(this).Run(chunk, globalEnvironment);
+                Run(Compile(code));
             }
             catch (Exception ex) when (ex is ScriptException || ex is JITException)
             {
@@ -127,11 +126,25 @@ namespace DScript
             }
         }
 
-        /// <summary>Compile source to a bytecode program chunk.</summary>
-        private static Chunk Compile(string code)
+        /// <summary>
+        /// Compile source to a bytecode program <see cref="Chunk"/>. The chunk can
+        /// be run with <see cref="Run(Chunk)"/>, or saved with
+        /// <see cref="BytecodeSerializer"/> and re-run later.
+        /// </summary>
+        public Chunk Compile(string code)
         {
             using var compiler = new DScriptCompiler();
             return compiler.CompileProgram(code);
+        }
+
+        /// <summary>
+        /// Run a previously compiled (or loaded) bytecode program. Script/runtime
+        /// errors propagate; use <see cref="Execute(string)"/> for the
+        /// compile-and-report-errors convenience path.
+        /// </summary>
+        public void Run(Chunk program)
+        {
+            new VirtualMachine(this).Run(program, globalEnvironment);
         }
 
         /// <summary>
