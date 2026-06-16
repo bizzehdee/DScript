@@ -121,50 +121,43 @@ namespace DScript
         public ScriptVarLink FirstChild { get; set; }
         public ScriptVarLink LastChild { get; set; }
 
+        // The CLR zero-initializes every freshly allocated object, so the
+        // constructors only need to set the fields that differ from default
+        // (flags and the relevant value field). They deliberately avoid the old
+        // Init() call, which re-zeroed already-zero fields on every allocation —
+        // a measurable cost given how many short-lived ScriptVars the VM creates.
         public ScriptVar()
         {
-            refs = 0;
-            flags = Flags.Undefined;
-            Init();
+            // Undefined == 0, so a zero-initialized instance is already correct.
         }
 
         public ScriptVar(int val)
         {
-            refs = 0;
             flags = Flags.Integer;
-            Init();
             intData = val;
         }
 
         public ScriptVar(double val)
         {
-            refs = 0;
             flags = Flags.Double;
-            Init();
             doubleData = val;
         }
 
         public ScriptVar(string val)
         {
-            refs = 0;
             flags = Flags.String;
-            Init();
             scriptData = val;
         }
 
         public ScriptVar(bool val)
         {
-            refs = 0;
             flags = Flags.Integer;
-            Init();
             intData = val ? 1 : 0;
         }
 
         public ScriptVar(string val, Flags flags)
         {
-            refs = 0;
             this.flags = flags;
-            Init();
             if (flags.HasFlag(Flags.Integer))
             {
                 if (val.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
@@ -219,17 +212,6 @@ namespace DScript
             {
                 scriptData = val;
             }
-        }
-
-        private void Init()
-        {
-            FirstChild = null;
-            LastChild = null;
-            scriptCallback = null;
-            callbackUserData = null;
-            scriptData = null;
-            intData = 0;
-            doubleData = 0;
         }
 
         public bool IsInt => (flags & Flags.Integer) != 0;
