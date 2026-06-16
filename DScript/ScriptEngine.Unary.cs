@@ -20,6 +20,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System.Globalization;
+
 namespace DScript
 {
     public sealed partial class ScriptEngine
@@ -101,12 +103,59 @@ namespace DScript
 
                     break;
                 }
+                case (ScriptLex.LexTypes)'~':
+                {
+                    //bitwise NOT
+                    currentLexer.Match((ScriptLex.LexTypes)'~');
+                    a = Factor(ref execute);
+                    if (execute)
+                    {
+                        CreateLink(ref a, new ScriptVar(~a.Var.Int));
+                    }
+
+                    break;
+                }
+                case (ScriptLex.LexTypes)'+':
+                {
+                    //unary plus: coerce the operand to a number
+                    currentLexer.Match((ScriptLex.LexTypes)'+');
+                    a = Factor(ref execute);
+                    if (execute)
+                    {
+                        CreateLink(ref a, CoerceToNumber(a.Var));
+                    }
+
+                    break;
+                }
                 default:
                     a = Factor(ref execute);
                     break;
             }
 
             return a;
+        }
+
+        private static ScriptVar CoerceToNumber(ScriptVar value)
+        {
+            if (value.IsInt) return new ScriptVar(value.Int);
+            if (value.IsDouble) return new ScriptVar(value.Float);
+            if (value.IsNull) return new ScriptVar(0);
+
+            if (value.IsString)
+            {
+                var str = value.String;
+                if (int.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intResult))
+                {
+                    return new ScriptVar(intResult);
+                }
+                if (double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var doubleResult))
+                {
+                    return new ScriptVar(doubleResult);
+                }
+            }
+
+            //anything not convertible to a number becomes NaN, matching JavaScript
+            return new ScriptVar(double.NaN);
         }
     }
 }
