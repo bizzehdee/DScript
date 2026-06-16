@@ -55,6 +55,9 @@ namespace DScript
         public bool Owned { get; internal set; }
         public bool IsConst { get; private set; }
 
+        /// <summary>The ScriptVar this link is a child of (set when added).</summary>
+        internal ScriptVar Owner { get; set; }
+
         public ScriptVarLink(ScriptVar var, string name, bool readOnly = false)
         {
             Name = name;
@@ -101,6 +104,8 @@ namespace DScript
 
         public void SetIntName(int n)
         {
+            // renaming changes the owner's lookup key, so invalidate its index
+            Owner?.InvalidateChildIndex();
             Name = $"{n}";
         }
 

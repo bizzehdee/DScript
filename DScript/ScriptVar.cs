@@ -66,6 +66,17 @@ namespace DScript
         private object callbackUserData;
         private int cachedArrayLength = -1;  // -1 means not cached
 
+        // O(1) name -> child lookup, rebuilt lazily from the child linked list.
+        // The linked list remains the source of truth for ordering (for...in,
+        // JSON, array length); this index only accelerates FindChild. It is only
+        // used once a var has more than LinearScanThreshold children, since for
+        // small scopes (e.g. function call frames) a linear scan is faster and
+        // avoids allocating/populating a dictionary per call.
+        private const int LinearScanThreshold = 8;
+        private Dictionary<string, ScriptVarLink> childIndex;
+        private bool childIndexValid;
+        private int childCount;
+
         public const string ReturnVarName = "return";
         public const string PrototypeClassName = "prototype";
 
@@ -376,19 +387,48 @@ namespace DScript
 
         public ScriptVarLink FindChild(string childName)
         {
-            var v = FirstChild;
+            if (FirstChild == null) return null;
 
+            // small scopes: a linear scan beats hashing and allocates nothing
+            if (childCount <= LinearScanThreshold)
+            {
+                var v = FirstChild;
+                while (v != null)
+                {
+                    if (v.Name == childName) return v;
+                    v = v.Next;
+                }
+                return null;
+            }
+
+            if (!childIndexValid) RebuildChildIndex();
+
+            return childIndex.TryGetValue(childName, out var link) ? link : null;
+        }
+
+        private void RebuildChildIndex()
+        {
+            childIndex ??= new Dictionary<string, ScriptVarLink>();
+            childIndex.Clear();
+
+            var v = FirstChild;
             while (v != null)
             {
-                if (v.Name == childName)
+                // first occurrence wins, matching the previous linear scan
+                if (!childIndex.ContainsKey(v.Name))
                 {
-                    return v;
+                    childIndex[v.Name] = v;
                 }
-
                 v = v.Next;
             }
 
-            return null;
+            childIndexValid = true;
+        }
+
+        // Marks the lookup index stale; it is rebuilt on the next FindChild.
+        internal void InvalidateChildIndex()
+        {
+            childIndexValid = false;
         }
 
         public ScriptVarLink FindChildOrCreate(string childName, Flags varFlags = Flags.Undefined, bool readOnly = false)
@@ -421,7 +461,8 @@ namespace DScript
 
             var link = new ScriptVarLink(c, childName, readOnly)
             {
-                Owned = true
+                Owned = true,
+                Owner = this
             };
 
             if (LastChild != null)
@@ -435,6 +476,13 @@ namespace DScript
             }
 
             LastChild = link;
+            childCount++;
+
+            // keep the lookup index in sync while it is valid (first occurrence wins)
+            if (childIndexValid && !childIndex.ContainsKey(childName))
+            {
+                childIndex[childName] = link;
+            }
 
             // Invalidate array length cache if this is an array, as a numeric
             // child may have been added directly (bypassing SetArrayIndex)
@@ -497,7 +545,12 @@ namespace DScript
             {
                 FirstChild = link.Next;
             }
-            
+
+            childCount--;
+
+            // removing a child may expose a shadowed duplicate name; rebuild lazily
+            childIndexValid = false;
+
             // Invalidate array length cache if this is an array
             if (IsArray)
             {
@@ -518,7 +571,11 @@ namespace DScript
 
             FirstChild = null;
             LastChild = null;
-            
+
+            childIndex?.Clear();
+            childIndexValid = false;
+            childCount = 0;
+
             // Invalidate array length cache
             if (IsArray)
             {
