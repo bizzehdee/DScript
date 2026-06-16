@@ -91,8 +91,8 @@ namespace DScript.Vm
         InitElem,        // [i index]       arr, value -> arr  (array literal element)
 
         // --- exceptions -----------------------------------------------------
-        SetupTry,        // [i catch][i fin] push an exception handler (-1 = absent)
-        PopTry,          //                 pop the current exception handler
+        Try,             // [i try][i catch][i fin][i param] run a try/catch/finally
+                         //                 (body indices into Functions; -1 = absent)
         Throw,           //                 throw top of stack
 
         // --- termination ----------------------------------------------------

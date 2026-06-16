@@ -36,8 +36,8 @@ namespace DScript.Vm
         {
             switch (op)
             {
-                case OpCode.SetupTry:
-                    return 2;
+                case OpCode.Try:
+                    return 4;
 
                 case OpCode.Constant:
                 case OpCode.GetVar:

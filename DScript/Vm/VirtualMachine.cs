@@ -364,6 +364,12 @@ namespace DScript.Vm
                         break;
                     }
 
+                    case OpCode.Throw:
+                        throw new JITException(Pop());
+                    case OpCode.Try:
+                        ExecuteTry(chunk, env, ref ip);
+                        break;
+
                     case OpCode.Return:
                         return Pop();
                     case OpCode.Halt:
@@ -375,6 +381,53 @@ namespace DScript.Vm
             }
 
             return null;
+        }
+
+        // Runs a try/catch/finally whose three bodies are compiled as nested
+        // chunks. `throw` surfaces as a JITException that propagates across VM
+        // frames (C# call stack), so the C# try/catch/finally here mirrors the
+        // tree-walking engine's behaviour exactly.
+        private void ExecuteTry(Chunk chunk, Environment env, ref int ip)
+        {
+            var tryIndex = ReadOperand(chunk, ref ip);
+            var catchIndex = ReadOperand(chunk, ref ip);
+            var finallyIndex = ReadOperand(chunk, ref ip);
+            var catchParamIndex = ReadOperand(chunk, ref ip);
+
+            var tryChunk = chunk.Functions[tryIndex];
+            var catchChunk = catchIndex >= 0 ? chunk.Functions[catchIndex] : null;
+            var finallyChunk = finallyIndex >= 0 ? chunk.Functions[finallyIndex] : null;
+
+            JITException pending = null;
+            try
+            {
+                Execute(tryChunk, env);
+            }
+            catch (JITException ex)
+            {
+                if (catchChunk != null)
+                {
+                    var catchEnv = new Environment(new ScriptVar(null, ScriptVar.Flags.Object), env);
+                    if (catchParamIndex >= 0)
+                    {
+                        catchEnv.Vars.AddChild(chunk.Names[catchParamIndex], ex.VarObj);
+                    }
+                    Execute(catchChunk, catchEnv);
+                }
+                else
+                {
+                    pending = ex; // no catch: rethrow after finally
+                }
+            }
+            finally
+            {
+                if (finallyChunk != null)
+                {
+                    Execute(finallyChunk, env);
+                }
+            }
+
+            if (pending != null) throw pending;
         }
 
         private ScriptVar[] PopArgs(int count)

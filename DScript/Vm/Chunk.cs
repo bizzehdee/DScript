@@ -78,6 +78,17 @@ namespace DScript.Vm
             return at;
         }
 
+        /// <summary>Emit an opcode followed by four 4-byte int operands.</summary>
+        public int Emit(OpCode op, int operand1, int operand2, int operand3, int operand4)
+        {
+            var at = Emit(op);
+            EmitInt(operand1);
+            EmitInt(operand2);
+            EmitInt(operand3);
+            EmitInt(operand4);
+            return at;
+        }
+
         /// <summary>Append a raw 4-byte little-endian int to the stream.</summary>
         public void EmitInt(int value)
         {

@@ -81,6 +81,12 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.RFunction:
                     CompileFunctionDeclaration();
                     break;
+                case ScriptLex.LexTypes.RThrow:
+                    CompileThrow();
+                    break;
+                case ScriptLex.LexTypes.RTry:
+                    CompileTry();
+                    break;
                 default:
                     // expression statement: evaluate and discard the value
                     CompileBase();
@@ -391,6 +397,65 @@ namespace DScript.Compiler
 
             PatchJumps(endJumps, chunk.Count);
             chunk.Emit(OpCode.Pop); // discard the discriminant
+        }
+
+        private void CompileThrow()
+        {
+            lexer.Match(ScriptLex.LexTypes.RThrow);
+
+            if (lexer.TokenType != (ScriptLex.LexTypes)';')
+            {
+                CompileBase();
+            }
+            else
+            {
+                chunk.Emit(OpCode.PushUndefined);
+            }
+
+            chunk.Emit(OpCode.Throw);
+            lexer.Match((ScriptLex.LexTypes)';');
+        }
+
+        private void CompileTry()
+        {
+            lexer.Match(ScriptLex.LexTypes.RTry);
+            var tryIndex = CompileSubBlock("<try>");
+
+            var catchIndex = -1;
+            var catchParamIndex = -1;
+            var finallyIndex = -1;
+
+            if (lexer.TokenType == ScriptLex.LexTypes.RCatch)
+            {
+                lexer.Match(ScriptLex.LexTypes.RCatch);
+                lexer.Match((ScriptLex.LexTypes)'(');
+                catchParamIndex = chunk.AddName(lexer.TokenString);
+                lexer.Match(ScriptLex.LexTypes.Id);
+                lexer.Match((ScriptLex.LexTypes)')');
+                catchIndex = CompileSubBlock("<catch>");
+            }
+
+            if (lexer.TokenType == ScriptLex.LexTypes.RFinally)
+            {
+                lexer.Match(ScriptLex.LexTypes.RFinally);
+                finallyIndex = CompileSubBlock("<finally>");
+            }
+
+            chunk.Emit(OpCode.Try, tryIndex, catchIndex, finallyIndex, catchParamIndex);
+        }
+
+        // Compile a brace-delimited block into a nested chunk; returns its index
+        // in the enclosing chunk's function table.
+        private int CompileSubBlock(string name)
+        {
+            var sub = new Chunk { Name = name };
+            var saved = chunk;
+            chunk = sub;
+            CompileBlock();
+            chunk.Emit(OpCode.PushUndefined);
+            chunk.Emit(OpCode.Return);
+            chunk = saved;
+            return saved.AddFunction(sub);
         }
 
         private void CompileFunctionDeclaration()
