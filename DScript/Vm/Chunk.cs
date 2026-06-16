@@ -42,6 +42,27 @@ namespace DScript.Vm
         /// <summary>The instruction bytes as a contiguous array (cached).</summary>
         public byte[] CodeBytes => codeArray ??= Code.ToArray();
 
+        /// <summary>
+        /// Per-call-site inline cache for variable resolution. One slot per byte of
+        /// code (indexed by a name-opcode's operand offset, which is unique per
+        /// site). Each slot remembers the environment a GetVar/SetVar last resolved
+        /// against, that environment's binding version, and the resolved link — so a
+        /// repeat hit in a stable scope (e.g. a loop body) skips the scope-chain
+        /// walk entirely. Validated by environment identity + version, so a new
+        /// binding that could shadow the cached result forces a re-resolve.
+        /// </summary>
+        public struct InlineCacheEntry
+        {
+            public Environment Env;
+            public ScriptVarLink Link;
+            public int Version;
+        }
+
+        private InlineCacheEntry[] inlineCache;
+
+        /// <summary>Lazily-allocated inline cache, one slot per code byte.</summary>
+        public InlineCacheEntry[] InlineCache => inlineCache ??= new InlineCacheEntry[CodeBytes.Length];
+
         /// <summary>Literal value constants referenced by <see cref="OpCode.Constant"/>.</summary>
         public List<ConstantValue> Constants { get; } = [];
 

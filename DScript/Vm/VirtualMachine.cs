@@ -148,23 +148,29 @@ namespace DScript.Vm
 
                     case OpCode.GetVar:
                     {
-                        var name = chunk.Names[ReadOperand(code, ref ip)];
-                        var link = env.Resolve(name);
+                        var site = ip;
+                        var nameIdx = ReadOperand(code, ref ip);
+                        var link = ResolveCached(chunk, site, env, nameIdx);
                         Push(link != null ? link.Var : new ScriptVar(null, ScriptVar.Flags.Undefined));
                         break;
                     }
                     case OpCode.SetVar:
                     {
-                        var name = chunk.Names[ReadOperand(code, ref ip)];
+                        var site = ip;
+                        var nameIdx = ReadOperand(code, ref ip);
                         var value = Pop();
-                        var link = env.Resolve(name);
+                        var link = ResolveCached(chunk, site, env, nameIdx);
                         if (link != null)
                         {
                             link.ReplaceWith(value);
                         }
                         else
                         {
-                            env.Global().Vars.AddChildNoDup(name, value);
+                            // New global binding: bump the global scope's version so
+                            // any cached resolutions of this name re-validate.
+                            var global = env.Global();
+                            global.Vars.AddChildNoDup(chunk.Names[nameIdx], value);
+                            global.Version++;
                         }
                         Push(value); // assignment is an expression
                         break;
@@ -173,12 +179,14 @@ namespace DScript.Vm
                     {
                         var name = chunk.Names[ReadOperand(code, ref ip)];
                         env.Vars.FindChildOrCreate(name);
+                        env.Version++; // a new binding may shadow a cached outer resolution
                         break;
                     }
                     case OpCode.DeclareConst:
                     {
                         var name = chunk.Names[ReadOperand(code, ref ip)];
                         env.Vars.FindChildOrCreate(name, ScriptVar.Flags.Undefined, readOnly: true);
+                        env.Version++; // a new binding may shadow a cached outer resolution
                         break;
                     }
 
@@ -658,6 +666,30 @@ namespace DScript.Vm
         private static string KeyName(ScriptVar key)
         {
             return key.IsInt ? ScriptVar.IndexName(key.Int) : key.String;
+        }
+
+        // Resolve a variable name through the inline cache. A site (identified by
+        // its operand offset) that re-resolves the same name against the same,
+        // unchanged environment reuses the cached link without walking the scope
+        // chain. Only successful resolutions are cached; misses always re-resolve
+        // (so a later-declared binding is picked up).
+        private static ScriptVarLink ResolveCached(Chunk chunk, int site, Environment env, int nameIdx)
+        {
+            var cache = chunk.InlineCache;
+            ref var entry = ref cache[site];
+            if (ReferenceEquals(entry.Env, env) && entry.Version == env.Version)
+            {
+                return entry.Link;
+            }
+
+            var link = env.Resolve(chunk.Names[nameIdx]);
+            if (link != null)
+            {
+                entry.Env = env;
+                entry.Version = env.Version;
+                entry.Link = link;
+            }
+            return link;
         }
 
         private static int ReadOperand(byte[] code, ref int ip)
