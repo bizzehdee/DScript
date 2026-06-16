@@ -72,7 +72,7 @@ namespace DScript.Vm
         /// </summary>
         public ScriptVar Run(Chunk chunk)
         {
-            return Run(chunk, new Environment(new ScriptVar(null, ScriptVar.Flags.Object), null));
+            return Run(chunk, new Environment(new ScriptVar(ScriptVar.Flags.Object), null));
         }
 
         public ScriptVar Run(Chunk chunk, Environment env)
@@ -83,7 +83,7 @@ namespace DScript.Vm
             // discard anything the chunk left behind to keep the stack balanced
             sp = startDepth;
 
-            return result ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
+            return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
         private ScriptVar Execute(Chunk chunk, Environment env)
@@ -105,10 +105,10 @@ namespace DScript.Vm
                         Push(chunk.Constants[ReadOperand(code, ref ip)].Materialize());
                         break;
                     case OpCode.PushUndefined:
-                        Push(new ScriptVar(null, ScriptVar.Flags.Undefined));
+                        Push(new ScriptVar(ScriptVar.Flags.Undefined));
                         break;
                     case OpCode.PushNull:
-                        Push(new ScriptVar(null, ScriptVar.Flags.Null));
+                        Push(new ScriptVar(ScriptVar.Flags.Null));
                         break;
                     case OpCode.PushTrue:
                         Push(new ScriptVar(1));
@@ -134,7 +134,7 @@ namespace DScript.Vm
                     case OpCode.EnumKeys:
                     {
                         var obj = Pop();
-                        var keys = new ScriptVar(null, ScriptVar.Flags.Array);
+                        var keys = new ScriptVar(ScriptVar.Flags.Array);
                         var index = 0;
                         var member = obj.FirstChild;
                         while (member != null)
@@ -154,7 +154,7 @@ namespace DScript.Vm
                         var site = ip;
                         var nameIdx = ReadOperand(code, ref ip);
                         var link = ResolveCached(cache, chunk, site, env, nameIdx);
-                        Push(link != null ? link.Var : new ScriptVar(null, ScriptVar.Flags.Undefined));
+                        Push(link != null ? link.Var : new ScriptVar(ScriptVar.Flags.Undefined));
                         break;
                     }
                     case OpCode.SetVar:
@@ -329,10 +329,10 @@ namespace DScript.Vm
                     }
 
                     case OpCode.NewObject:
-                        Push(new ScriptVar(null, ScriptVar.Flags.Object));
+                        Push(new ScriptVar(ScriptVar.Flags.Object));
                         break;
                     case OpCode.NewArray:
-                        Push(new ScriptVar(null, ScriptVar.Flags.Array));
+                        Push(new ScriptVar(ScriptVar.Flags.Array));
                         break;
                     case OpCode.InitProp:
                     {
@@ -380,7 +380,7 @@ namespace DScript.Vm
                     case OpCode.MakeClosure:
                     {
                         var fnChunk = chunk.Functions[ReadOperand(code, ref ip)];
-                        var fn = new ScriptVar(null, ScriptVar.Flags.Function);
+                        var fn = new ScriptVar(ScriptVar.Flags.Function);
                         fn.SetData(new VmFunction(fnChunk, env));
                         Push(fn);
                         break;
@@ -476,7 +476,7 @@ namespace DScript.Vm
             {
                 if (catchChunk != null)
                 {
-                    var catchEnv = new Environment(new ScriptVar(null, ScriptVar.Flags.Object), env);
+                    var catchEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), env);
                     if (catchParamIndex >= 0)
                     {
                         catchEnv.Vars.AddChild(chunk.Names[catchParamIndex], ex.VarObj);
@@ -525,7 +525,7 @@ namespace DScript.Vm
 
             if (callee.IsNative)
             {
-                var scope = new ScriptVar(null, ScriptVar.Flags.Function);
+                var scope = new ScriptVar(ScriptVar.Flags.Function);
                 if (thisArg != null) scope.AddChildNoDup("this", thisArg);
 
                 var p = callee.FirstChild;
@@ -543,7 +543,7 @@ namespace DScript.Vm
             }
 
             var vmfn = (VmFunction)callee.GetData();
-            var callEnv = new Environment(new ScriptVar(null, ScriptVar.Flags.Object), vmfn.Captured);
+            var callEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), vmfn.Captured);
             if (thisArg != null) callEnv.Vars.AddChildNoDup("this", thisArg);
 
             var parameters = vmfn.Body.Parameters;
@@ -552,7 +552,7 @@ namespace DScript.Vm
                 callEnv.Vars.AddChild(parameters[j], BindArg(args, j));
             }
 
-            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
+            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
         // Invoke a compiled (non-native) function whose arguments are sitting on
@@ -566,7 +566,7 @@ namespace DScript.Vm
             var argBase = sp - argc;
 
             var vmfn = (VmFunction)callee.GetData();
-            var callEnv = new Environment(new ScriptVar(null, ScriptVar.Flags.Object), vmfn.Captured);
+            var callEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), vmfn.Captured);
             if (thisArg != null) callEnv.Vars.AddChildNoDup("this", thisArg);
 
             var parameters = vmfn.Body.Parameters;
@@ -581,7 +581,7 @@ namespace DScript.Vm
             // stay alive via the call frame's child links.
             sp = argBase;
 
-            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
+            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
         // primitives are passed by value, objects/functions by reference
@@ -589,7 +589,7 @@ namespace DScript.Vm
         {
             if (args == null || index >= args.Length)
             {
-                return new ScriptVar(null, ScriptVar.Flags.Undefined);
+                return new ScriptVar(ScriptVar.Flags.Undefined);
             }
 
             return BindArgValue(args[index]);
@@ -600,7 +600,7 @@ namespace DScript.Vm
         {
             if (value == null)
             {
-                return new ScriptVar(null, ScriptVar.Flags.Undefined);
+                return new ScriptVar(ScriptVar.Flags.Undefined);
             }
 
             // Objects/arrays/functions are passed by reference.
@@ -617,7 +617,7 @@ namespace DScript.Vm
 
         private ScriptVar Construct(ScriptVar ctor, ScriptVar[] args)
         {
-            var instance = new ScriptVar(null, ScriptVar.Flags.Object);
+            var instance = new ScriptVar(ScriptVar.Flags.Object);
 
             // link the instance to its constructor so shared members resolve
             instance.AddChild(ScriptVar.PrototypeClassName, ctor);
@@ -644,7 +644,7 @@ namespace DScript.Vm
             if (obj.IsArray && name == "length") return new ScriptVar(obj.GetArrayLength());
             if (obj.IsString && name == "length") return new ScriptVar(obj.String.Length);
 
-            return new ScriptVar(null, ScriptVar.Flags.Undefined);
+            return new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
         private static void SetMember(ScriptVar obj, string name, ScriptVar value)

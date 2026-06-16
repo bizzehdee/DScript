@@ -147,6 +147,18 @@ namespace DScript
             // Undefined == 0, so a zero-initialized instance is already correct.
         }
 
+        /// <summary>
+        /// Create a typed but value-less ScriptVar (Object, Array, Function, Null,
+        /// Undefined, ...). Unlike <see cref="ScriptVar(string, Flags)"/> this skips
+        /// the literal-parsing branches and their flag tests, which is worthwhile on
+        /// the hot paths that build call frames and aggregates. Must not be used
+        /// with Integer/Double/Regexp flags, which require a value to parse.
+        /// </summary>
+        public ScriptVar(Flags flags)
+        {
+            this.flags = flags;
+        }
+
         public ScriptVar(int val)
         {
             flags = Flags.Integer;
@@ -455,7 +467,7 @@ namespace DScript
             var l = FindChild(childName);
             if (l != null) return l;
 
-            return AddChild(childName, new ScriptVar(null, varFlags), readOnly);
+            return AddChild(childName, new ScriptVar(varFlags), readOnly);
         }
 
         public ScriptVarLink FindChildOrCreateByPath(string path)
@@ -618,7 +630,7 @@ namespace DScript
             var link = FindChild(IndexName(idx));
             if (link != null) return link.Var;
 
-            return new ScriptVar(null, Flags.Null);
+            return new ScriptVar(Flags.Null);
         }
 
         public void SetArrayIndex(int idx, ScriptVar value)
