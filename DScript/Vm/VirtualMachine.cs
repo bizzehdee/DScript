@@ -34,7 +34,17 @@ namespace DScript.Vm
     public sealed partial class VirtualMachine
     {
         private readonly ScriptEngine engine;
-        private readonly List<ScriptVar> stack = [];
+
+        // Operand stack backed by a plain array with an explicit pointer. This is
+        // markedly cheaper than List<ScriptVar>: Push/Pop/Peek become bare array
+        // indexing with no per-call method dispatch, bounds-clearing, or shifting.
+        private ScriptVar[] stack = new ScriptVar[64];
+        private int sp;
+
+        // Shared read-only operand for unary 0-based ops. MathsOp only reads its
+        // operands (results are always freshly allocated), so sharing is safe and
+        // avoids allocating a throwaway zero on every Negate/Not.
+        private static readonly ScriptVar Zero = new(0);
 
         public VirtualMachine() { }
 
@@ -43,16 +53,18 @@ namespace DScript.Vm
             this.engine = engine;
         }
 
-        private void Push(ScriptVar value) => stack.Add(value);
-
-        private ScriptVar Pop()
+        private void Push(ScriptVar value)
         {
-            var top = stack[stack.Count - 1];
-            stack.RemoveAt(stack.Count - 1);
-            return top;
+            if (sp == stack.Length)
+            {
+                System.Array.Resize(ref stack, stack.Length * 2);
+            }
+            stack[sp++] = value;
         }
 
-        private ScriptVar Peek() => stack[stack.Count - 1];
+        private ScriptVar Pop() => stack[--sp];
+
+        private ScriptVar Peek() => stack[sp - 1];
 
         /// <summary>
         /// Execute a top-level chunk and return the produced value (the operand
@@ -60,29 +72,29 @@ namespace DScript.Vm
         /// </summary>
         public ScriptVar Run(Chunk chunk)
         {
-            return Run(chunk, new Environment(new ScriptVar(null, ScriptVar.Flags.Object), null));
+            return Run(chunk, new Environment(new ScriptVar(ScriptVar.Flags.Object), null));
         }
 
         public ScriptVar Run(Chunk chunk, Environment env)
         {
-            var startDepth = stack.Count;
+            var startDepth = sp;
             var result = Execute(chunk, env);
 
             // discard anything the chunk left behind to keep the stack balanced
-            while (stack.Count > startDepth)
-            {
-                Pop();
-            }
+            sp = startDepth;
 
-            return result ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
+            return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
         private ScriptVar Execute(Chunk chunk, Environment env)
         {
-            var code = chunk.Code;
+            var code = chunk.CodeBytes;
+            // Hoist the inline-cache array once so each GetVar/SetVar avoids the
+            // property's lazy null-check on every resolution.
+            var cache = chunk.InlineCache;
             var ip = 0;
 
-            while (ip < code.Count)
+            while (ip < code.Length)
             {
                 var op = (OpCode)code[ip];
                 ip++;
@@ -90,13 +102,13 @@ namespace DScript.Vm
                 switch (op)
                 {
                     case OpCode.Constant:
-                        Push(chunk.Constants[ReadOperand(chunk, ref ip)].Materialize());
+                        Push(chunk.Constants[ReadOperand(code, ref ip)].Materialize());
                         break;
                     case OpCode.PushUndefined:
-                        Push(new ScriptVar(null, ScriptVar.Flags.Undefined));
+                        Push(new ScriptVar(ScriptVar.Flags.Undefined));
                         break;
                     case OpCode.PushNull:
-                        Push(new ScriptVar(null, ScriptVar.Flags.Null));
+                        Push(new ScriptVar(ScriptVar.Flags.Null));
                         break;
                     case OpCode.PushTrue:
                         Push(new ScriptVar(1));
@@ -113,8 +125,8 @@ namespace DScript.Vm
                         break;
                     case OpCode.Dup2:
                     {
-                        var b = stack[stack.Count - 1];
-                        var a = stack[stack.Count - 2];
+                        var b = stack[sp - 1];
+                        var a = stack[sp - 2];
                         Push(a);
                         Push(b);
                         break;
@@ -122,7 +134,7 @@ namespace DScript.Vm
                     case OpCode.EnumKeys:
                     {
                         var obj = Pop();
-                        var keys = new ScriptVar(null, ScriptVar.Flags.Array);
+                        var keys = new ScriptVar(ScriptVar.Flags.Array);
                         var index = 0;
                         var member = obj.FirstChild;
                         while (member != null)
@@ -139,50 +151,58 @@ namespace DScript.Vm
 
                     case OpCode.GetVar:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
-                        var link = env.Resolve(name);
-                        Push(link != null ? link.Var : new ScriptVar(null, ScriptVar.Flags.Undefined));
+                        var site = ip;
+                        var nameIdx = ReadOperand(code, ref ip);
+                        var link = ResolveCached(cache, chunk, site, env, nameIdx);
+                        Push(link != null ? link.Var : new ScriptVar(ScriptVar.Flags.Undefined));
                         break;
                     }
                     case OpCode.SetVar:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var site = ip;
+                        var nameIdx = ReadOperand(code, ref ip);
                         var value = Pop();
-                        var link = env.Resolve(name);
+                        var link = ResolveCached(cache, chunk, site, env, nameIdx);
                         if (link != null)
                         {
                             link.ReplaceWith(value);
                         }
                         else
                         {
-                            env.Global().Vars.AddChildNoDup(name, value);
+                            // New global binding: bump the global scope's version so
+                            // any cached resolutions of this name re-validate.
+                            var global = env.Global();
+                            global.Vars.AddChildNoDup(chunk.Names[nameIdx], value);
+                            global.Version++;
                         }
                         Push(value); // assignment is an expression
                         break;
                     }
                     case OpCode.DeclareVar:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         env.Vars.FindChildOrCreate(name);
+                        env.Version++; // a new binding may shadow a cached outer resolution
                         break;
                     }
                     case OpCode.DeclareConst:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         env.Vars.FindChildOrCreate(name, ScriptVar.Flags.Undefined, readOnly: true);
+                        env.Version++; // a new binding may shadow a cached outer resolution
                         break;
                     }
 
                     case OpCode.GetProp:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         var obj = Pop();
                         Push(GetMember(obj, name));
                         break;
                     }
                     case OpCode.SetProp:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         var value = Pop();
                         var obj = Pop();
                         SetMember(obj, name, value);
@@ -193,7 +213,7 @@ namespace DScript.Vm
                     {
                         var key = Pop();
                         var obj = Pop();
-                        Push(GetMember(obj, key.String));
+                        Push(GetMember(obj, KeyName(key)));
                         break;
                     }
                     case OpCode.SetIndex:
@@ -201,13 +221,13 @@ namespace DScript.Vm
                         var value = Pop();
                         var key = Pop();
                         var obj = Pop();
-                        SetMember(obj, key.String, value);
+                        SetMember(obj, KeyName(key), value);
                         Push(value);
                         break;
                     }
                     case OpCode.DeleteProp:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         DeleteMember(Pop(), name);
                         Push(new ScriptVar(true));
                         break;
@@ -215,7 +235,7 @@ namespace DScript.Vm
                     case OpCode.DeleteIndex:
                     {
                         var key = Pop();
-                        DeleteMember(Pop(), key.String);
+                        DeleteMember(Pop(), KeyName(key));
                         Push(new ScriptVar(true));
                         break;
                     }
@@ -239,15 +259,35 @@ namespace DScript.Vm
 
                     case OpCode.Binary:
                     {
-                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(chunk, ref ip);
+                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var b = Pop();
                         var a = Pop();
                         Push(a.MathsOp(b, operatorCode));
                         break;
                     }
+                    case OpCode.BinaryConst:
+                    {
+                        // Fused Constant + Binary: the right operand is a literal,
+                        // read from the constant pool instead of the stack.
+                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
+                        var constant = chunk.Constants[ReadOperand(code, ref ip)];
+                        var a = Pop();
+                        // Int-vs-int-literal fast path: compute directly, skipping
+                        // both the constant ScriptVar materialization and MathsOp.
+                        if (constant.Kind == ConstantKind.Int && a.IsInt &&
+                            IntBinary(a.Int, constant.IntValue, operatorCode, out var fast))
+                        {
+                            Push(fast);
+                        }
+                        else
+                        {
+                            Push(a.MathsOp(constant.Materialize(), operatorCode));
+                        }
+                        break;
+                    }
                     case OpCode.Shift:
                     {
-                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(chunk, ref ip);
+                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var b = Pop();
                         var a = Pop();
                         Push(ApplyShift(a, b, operatorCode));
@@ -256,13 +296,17 @@ namespace DScript.Vm
                     case OpCode.Negate:
                     {
                         var a = Pop();
-                        Push(new ScriptVar(0).MathsOp(a, (ScriptLex.LexTypes)'-'));
+                        // numeric fast path avoids the MathsOp dispatch + a temp;
+                        // fall back to MathsOp for the (rare) non-numeric cases
+                        if (a.IsInt) Push(new ScriptVar(-a.Int));
+                        else if (a.IsDouble) Push(new ScriptVar(-a.Float));
+                        else Push(Zero.MathsOp(a, (ScriptLex.LexTypes)'-'));
                         break;
                     }
                     case OpCode.Not:
                     {
                         var a = Pop();
-                        Push(a.MathsOp(new ScriptVar(0), ScriptLex.LexTypes.Equal));
+                        Push(a.MathsOp(Zero, ScriptLex.LexTypes.Equal));
                         break;
                     }
                     case OpCode.BitNot:
@@ -285,80 +329,105 @@ namespace DScript.Vm
                     }
 
                     case OpCode.NewObject:
-                        Push(new ScriptVar(null, ScriptVar.Flags.Object));
+                        Push(new ScriptVar(ScriptVar.Flags.Object));
                         break;
                     case OpCode.NewArray:
-                        Push(new ScriptVar(null, ScriptVar.Flags.Array));
+                        Push(new ScriptVar(ScriptVar.Flags.Array));
                         break;
                     case OpCode.InitProp:
                     {
-                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
                         var value = Pop();
                         Peek().AddChild(name, value); // object kept on stack
                         break;
                     }
                     case OpCode.InitElem:
                     {
-                        var index = ReadOperand(chunk, ref ip);
+                        var index = ReadOperand(code, ref ip);
                         var value = Pop();
                         Peek().SetArrayIndex(index, value); // array kept on stack
                         break;
                     }
 
                     case OpCode.Jump:
-                        ip = ReadOperand(chunk, ref ip);
+                        ip = ReadOperand(code, ref ip);
                         break;
                     case OpCode.JumpIfFalse:
                     {
-                        var target = ReadOperand(chunk, ref ip);
+                        var target = ReadOperand(code, ref ip);
                         if (!Pop().Bool) ip = target;
                         break;
                     }
                     case OpCode.JumpIfTrue:
                     {
-                        var target = ReadOperand(chunk, ref ip);
+                        var target = ReadOperand(code, ref ip);
                         if (Pop().Bool) ip = target;
                         break;
                     }
                     case OpCode.JumpIfFalseOrPop:
                     {
-                        var target = ReadOperand(chunk, ref ip);
+                        var target = ReadOperand(code, ref ip);
                         if (!Peek().Bool) ip = target; else Pop();
                         break;
                     }
                     case OpCode.JumpIfTrueOrPop:
                     {
-                        var target = ReadOperand(chunk, ref ip);
+                        var target = ReadOperand(code, ref ip);
                         if (Peek().Bool) ip = target; else Pop();
                         break;
                     }
 
                     case OpCode.MakeClosure:
                     {
-                        var fnChunk = chunk.Functions[ReadOperand(chunk, ref ip)];
-                        var fn = new ScriptVar(null, ScriptVar.Flags.Function);
+                        var fnChunk = chunk.Functions[ReadOperand(code, ref ip)];
+                        var fn = new ScriptVar(ScriptVar.Flags.Function);
                         fn.SetData(new VmFunction(fnChunk, env));
                         Push(fn);
                         break;
                     }
                     case OpCode.Call:
                     {
-                        var args = PopArgs(ReadOperand(chunk, ref ip));
-                        var callee = Pop();
-                        Push(InvokeCallable(callee, null, args));
+                        var argc = ReadOperand(code, ref ip);
+                        // Fast path: a compiled function called with its args already
+                        // on the operand stack. Bind them directly into the call
+                        // frame instead of materializing a ScriptVar[] per call.
+                        var callee = stack[sp - argc - 1];
+                        if (callee != null && callee.IsFunction && !callee.IsNative)
+                        {
+                            var result = InvokeVmFunctionFromStack(callee, null, argc);
+                            sp--; // discard the callee left below the (already popped) args
+                            Push(result);
+                        }
+                        else
+                        {
+                            var args = PopArgs(argc);
+                            Push(InvokeCallable(Pop(), null, args));
+                        }
                         break;
                     }
                     case OpCode.CallMethod:
                     {
-                        var args = PopArgs(ReadOperand(chunk, ref ip));
-                        var callee = Pop();
-                        var receiver = Pop();
-                        Push(InvokeCallable(callee, receiver, args));
+                        var argc = ReadOperand(code, ref ip);
+                        var callee = stack[sp - argc - 1];
+                        if (callee != null && callee.IsFunction && !callee.IsNative)
+                        {
+                            var receiver = stack[sp - argc - 2];
+                            var result = InvokeVmFunctionFromStack(callee, receiver, argc);
+                            sp -= 2; // discard callee and receiver below the args
+                            Push(result);
+                        }
+                        else
+                        {
+                            var args = PopArgs(argc);
+                            var c = Pop();
+                            var receiver = Pop();
+                            Push(InvokeCallable(c, receiver, args));
+                        }
                         break;
                     }
                     case OpCode.New:
                     {
-                        var args = PopArgs(ReadOperand(chunk, ref ip));
+                        var args = PopArgs(ReadOperand(code, ref ip));
                         var ctor = Pop();
                         Push(Construct(ctor, args));
                         break;
@@ -367,7 +436,7 @@ namespace DScript.Vm
                     case OpCode.Throw:
                         throw new JITException(Pop());
                     case OpCode.Try:
-                        ExecuteTry(chunk, env, ref ip);
+                        ExecuteTry(chunk, code, env, ref ip);
                         break;
 
                     case OpCode.Return:
@@ -387,12 +456,12 @@ namespace DScript.Vm
         // chunks. `throw` surfaces as a JITException that propagates across VM
         // frames (C# call stack), so the C# try/catch/finally here mirrors the
         // tree-walking engine's behaviour exactly.
-        private void ExecuteTry(Chunk chunk, Environment env, ref int ip)
+        private void ExecuteTry(Chunk chunk, byte[] code, Environment env, ref int ip)
         {
-            var tryIndex = ReadOperand(chunk, ref ip);
-            var catchIndex = ReadOperand(chunk, ref ip);
-            var finallyIndex = ReadOperand(chunk, ref ip);
-            var catchParamIndex = ReadOperand(chunk, ref ip);
+            var tryIndex = ReadOperand(code, ref ip);
+            var catchIndex = ReadOperand(code, ref ip);
+            var finallyIndex = ReadOperand(code, ref ip);
+            var catchParamIndex = ReadOperand(code, ref ip);
 
             var tryChunk = chunk.Functions[tryIndex];
             var catchChunk = catchIndex >= 0 ? chunk.Functions[catchIndex] : null;
@@ -407,7 +476,7 @@ namespace DScript.Vm
             {
                 if (catchChunk != null)
                 {
-                    var catchEnv = new Environment(new ScriptVar(null, ScriptVar.Flags.Object), env);
+                    var catchEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), env);
                     if (catchParamIndex >= 0)
                     {
                         catchEnv.Vars.AddChild(chunk.Names[catchParamIndex], ex.VarObj);
@@ -456,7 +525,7 @@ namespace DScript.Vm
 
             if (callee.IsNative)
             {
-                var scope = new ScriptVar(null, ScriptVar.Flags.Function);
+                var scope = new ScriptVar(ScriptVar.Flags.Function);
                 if (thisArg != null) scope.AddChildNoDup("this", thisArg);
 
                 var p = callee.FirstChild;
@@ -474,7 +543,7 @@ namespace DScript.Vm
             }
 
             var vmfn = (VmFunction)callee.GetData();
-            var callEnv = new Environment(new ScriptVar(null, ScriptVar.Flags.Object), vmfn.Captured);
+            var callEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), vmfn.Captured);
             if (thisArg != null) callEnv.Vars.AddChildNoDup("this", thisArg);
 
             var parameters = vmfn.Body.Parameters;
@@ -483,24 +552,72 @@ namespace DScript.Vm
                 callEnv.Vars.AddChild(parameters[j], BindArg(args, j));
             }
 
-            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
+            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
+        }
+
+        // Invoke a compiled (non-native) function whose arguments are sitting on
+        // the operand stack at [sp-argc .. sp-1]. Binds them straight into the new
+        // call frame and pops them, avoiding the per-call ScriptVar[] that the
+        // general InvokeCallable path needs. The caller is responsible for popping
+        // the callee (and receiver) that remain below the args. Mirrors the
+        // compiled-function branch of InvokeCallable exactly.
+        private ScriptVar InvokeVmFunctionFromStack(ScriptVar callee, ScriptVar thisArg, int argc)
+        {
+            var argBase = sp - argc;
+
+            var vmfn = (VmFunction)callee.GetData();
+            var callEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), vmfn.Captured);
+            if (thisArg != null) callEnv.Vars.AddChildNoDup("this", thisArg);
+
+            var parameters = vmfn.Body.Parameters;
+            for (var j = 0; j < parameters.Count; j++)
+            {
+                var arg = j < argc ? stack[argBase + j] : null;
+                callEnv.Vars.AddChild(parameters[j], BindArgValue(arg));
+            }
+
+            // Pop the arguments now that they are bound; the args' slots are free
+            // for the callee's own use of the shared operand stack. Their values
+            // stay alive via the call frame's child links.
+            sp = argBase;
+
+            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
         // primitives are passed by value, objects/functions by reference
         private static ScriptVar BindArg(ScriptVar[] args, int index)
         {
-            if (args == null || index >= args.Length || args[index] == null)
+            if (args == null || index >= args.Length)
             {
-                return new ScriptVar(null, ScriptVar.Flags.Undefined);
+                return new ScriptVar(ScriptVar.Flags.Undefined);
             }
 
-            var value = args[index];
-            return value.IsBasic ? value.DeepCopy() : value;
+            return BindArgValue(args[index]);
+        }
+
+        // Bind a single argument value into a call frame.
+        private static ScriptVar BindArgValue(ScriptVar value)
+        {
+            if (value == null)
+            {
+                return new ScriptVar(ScriptVar.Flags.Undefined);
+            }
+
+            // Objects/arrays/functions are passed by reference.
+            if (!value.IsBasic) return value;
+
+            // Primitives are passed by value, so a shared one (held by a variable,
+            // hence ref-counted) must be copied to prevent the callee mutating the
+            // caller's binding. But a value with no refs is an unaliased temporary
+            // freshly produced on the operand stack (e.g. the result of `n - 1` in
+            // `fib(n - 1)`): nothing else can observe it, so binding it directly is
+            // safe and skips a DeepCopy allocation on the hot call path.
+            return value.GetRefs() == 0 ? value : value.DeepCopy();
         }
 
         private ScriptVar Construct(ScriptVar ctor, ScriptVar[] args)
         {
-            var instance = new ScriptVar(null, ScriptVar.Flags.Object);
+            var instance = new ScriptVar(ScriptVar.Flags.Object);
 
             // link the instance to its constructor so shared members resolve
             instance.AddChild(ScriptVar.PrototypeClassName, ctor);
@@ -527,7 +644,7 @@ namespace DScript.Vm
             if (obj.IsArray && name == "length") return new ScriptVar(obj.GetArrayLength());
             if (obj.IsString && name == "length") return new ScriptVar(obj.String.Length);
 
-            return new ScriptVar(null, ScriptVar.Flags.Undefined);
+            return new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
         private static void SetMember(ScriptVar obj, string name, ScriptVar value)
@@ -566,9 +683,71 @@ namespace DScript.Vm
             return false;
         }
 
-        private static int ReadOperand(Chunk chunk, ref int ip)
+        // Resolve a computed [] key to its property-name string. Integer keys go
+        // through ScriptVar's cached index names, so array element access does not
+        // allocate a fresh Int.ToString() string on every get/set/delete.
+        private static string KeyName(ScriptVar key)
         {
-            var value = chunk.ReadInt(ip);
+            return key.IsInt ? ScriptVar.IndexName(key.Int) : key.String;
+        }
+
+        // Resolve a variable name through the inline cache. A site (identified by
+        // its operand offset) that re-resolves the same name against the same,
+        // unchanged environment reuses the cached link without walking the scope
+        // chain. Only successful resolutions are cached; misses always re-resolve
+        // (so a later-declared binding is picked up).
+        private static ScriptVarLink ResolveCached(Chunk.InlineCacheEntry[] cache, Chunk chunk, int site, Environment env, int nameIdx)
+        {
+            ref var entry = ref cache[site];
+            if (ReferenceEquals(entry.Env, env) && entry.Version == env.Version)
+            {
+                return entry.Link;
+            }
+
+            var link = env.Resolve(chunk.Names[nameIdx]);
+            if (link != null)
+            {
+                entry.Env = env;
+                entry.Version = env.Version;
+                entry.Link = link;
+            }
+            return link;
+        }
+
+        // Direct int-op-int result for the BinaryConst fast path. Mirrors the int
+        // branch of ScriptVar.MathsOp exactly. Returns false for operators handled
+        // only by the general path (e.g. ===), so the caller falls back.
+        private static bool IntBinary(int a, int b, ScriptLex.LexTypes op, out ScriptVar result)
+        {
+            switch ((char)op)
+            {
+                case '+': result = new ScriptVar(a + b); return true;
+                case '-': result = new ScriptVar(a - b); return true;
+                case '*': result = new ScriptVar(a * b); return true;
+                case '/': result = b == 0 ? new ScriptVar((double)a / b) : new ScriptVar(a / b); return true;
+                case '&': result = new ScriptVar(a & b); return true;
+                case '|': result = new ScriptVar(a | b); return true;
+                case '^': result = new ScriptVar(a ^ b); return true;
+                case '%': result = b == 0 ? new ScriptVar(double.NaN) : new ScriptVar(a % b); return true;
+                case (char)ScriptLex.LexTypes.Equal: result = new ScriptVar(a == b); return true;
+                case (char)ScriptLex.LexTypes.NEqual: result = new ScriptVar(a != b); return true;
+                case '<': result = new ScriptVar(a < b); return true;
+                case (char)ScriptLex.LexTypes.LEqual: result = new ScriptVar(a <= b); return true;
+                case '>': result = new ScriptVar(a > b); return true;
+                case (char)ScriptLex.LexTypes.GEqual: result = new ScriptVar(a >= b); return true;
+                default: result = null; return false;
+            }
+        }
+
+        private static int ReadOperand(byte[] code, ref int ip)
+        {
+            // Little-endian read straight from the contiguous code array, skipping
+            // the Chunk.ReadInt property indirection (and its CodeBytes re-fetch)
+            // that would otherwise run on every operand in the dispatch loop.
+            var value = code[ip]
+                        | (code[ip + 1] << 8)
+                        | (code[ip + 2] << 16)
+                        | (code[ip + 3] << 24);
             ip += 4;
             return value;
         }

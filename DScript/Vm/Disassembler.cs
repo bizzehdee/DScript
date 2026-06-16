@@ -39,6 +39,9 @@ namespace DScript.Vm
                 case OpCode.Try:
                     return 4;
 
+                case OpCode.BinaryConst:
+                    return 2;
+
                 case OpCode.Constant:
                 case OpCode.GetVar:
                 case OpCode.SetVar:
@@ -130,6 +133,10 @@ namespace DScript.Vm
                 case OpCode.Binary:
                 case OpCode.Shift:
                     return $" ({ScriptLex.LexTypesToString((ScriptLex.LexTypes)value)})";
+                case OpCode.BinaryConst when operandIndex == 0:
+                    return $" ({ScriptLex.LexTypesToString((ScriptLex.LexTypes)value)})";
+                case OpCode.BinaryConst when operandIndex == 1 && value >= 0 && value < chunk.Constants.Count:
+                    return $" ({chunk.Constants[value]})";
             }
 
             return string.Empty;

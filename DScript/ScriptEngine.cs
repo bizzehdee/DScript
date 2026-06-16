@@ -67,11 +67,11 @@ namespace DScript
 
         public ScriptEngine()
         {
-            Root = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
+            Root = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
 
-            objectClass = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
-            stringClass = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
-            arrayClass = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
+            objectClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
+            stringClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
+            arrayClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
 
             Root.AddChild("Object", objectClass);
             Root.AddChild("String", stringClass);
@@ -174,14 +174,14 @@ namespace DScript
                 var link = baseVar.FindChild(funcName);
                 if (link == null)
                 {
-                    link = baseVar.AddChild(funcName, new ScriptVar(null, ScriptVar.Flags.Object));
+                    link = baseVar.AddChild(funcName, new ScriptVar(ScriptVar.Flags.Object));
                 }
                 baseVar = link.Var;
                 funcName = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Id);
             }
 
-            var funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var funcVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
             funcVar.SetCallback(callbackCB, userData);
             ParseFunctionArguments(funcVar, lexer);
 
@@ -204,7 +204,7 @@ namespace DScript
                 var link = baseVar.FindChild(propName);
                 if (link == null)
                 {
-                    link = baseVar.AddChild(propName, new ScriptVar(null, ScriptVar.Flags.Object));
+                    link = baseVar.AddChild(propName, new ScriptVar(ScriptVar.Flags.Object));
                 }
                 baseVar = link.Var;
                 propName = lexer.TokenString;

@@ -46,6 +46,8 @@ internal static class Program
         var callN = (int)(200_000 * scale);
         var nested = (int)(700 * scale);
         var stringN = (int)(20_000 * scale);
+        var arrayReps = (int)(400 * scale);
+        var propN = (int)(300_000 * scale);
         const int fibN = 27; // exponential — kept fixed regardless of scale
 
         var benchmarks = new (string name, string code)[]
@@ -64,31 +66,44 @@ internal static class Program
 
             ("string concat (" + stringN + ")",
                 $"var str = \"\"; for (var i = 0; i < {stringN}; i = i + 1) {{ str = str + \"x\"; }} result = str.length;"),
+
+            ("array build+sum (x" + arrayReps + ")",
+                $"var s = 0; for (var r = 0; r < {arrayReps}; r = r + 1) {{ var a = []; for (var i = 0; i < 500; i = i + 1) {{ a[i] = i; }} for (var i = 0; i < 500; i = i + 1) {{ s = s + a[i]; }} }} result = s;"),
+
+            // property get/set heavy: exercises GetProp/SetProp on the same object
+            ("property get/set (" + propN + ")",
+                $"var o = {{ n: 0 }}; for (var i = 0; i < {propN}; i = i + 1) {{ o.n = o.n + 1; }} result = o.n;"),
         };
 
         Console.WriteLine($"DScript benchmark  (scale={scale.ToString(CultureInfo.InvariantCulture)}, .NET {System.Environment.Version})");
-        Console.WriteLine(new string('-', 64));
-        Console.WriteLine($"{"workload",-34}{"best ms",12}{"result",16}");
-        Console.WriteLine(new string('-', 64));
+        Console.WriteLine(new string('-', 78));
+        Console.WriteLine($"{"workload",-34}{"best ms",12}{"alloc MB",12}{"result",20}");
+        Console.WriteLine(new string('-', 78));
 
         var total = 0.0;
         foreach (var (name, code) in benchmarks)
         {
-            TimeExecute(code, out _); // warm up
+            TimeExecute(code, out _, out _); // warm up
 
+            // Five runs (was three): best-of smooths timing jitter, and the extra
+            // runs make the allocation figure — which is far more stable than wall
+            // time — easy to read for spotting GC-pressure regressions.
             var best = double.MaxValue;
+            var bestAlloc = long.MaxValue;
             string result = null;
-            for (var run = 0; run < 3; run++)
+            for (var run = 0; run < 5; run++)
             {
-                var ms = TimeExecute(code, out result);
+                var ms = TimeExecute(code, out result, out var allocated);
                 if (ms < best) best = ms;
+                if (allocated < bestAlloc) bestAlloc = allocated;
             }
 
             total += best;
-            Console.WriteLine($"{name,-34}{best,12:F2}{result,16}");
+            var allocMb = bestAlloc / (1024.0 * 1024.0);
+            Console.WriteLine($"{name,-34}{best,12:F2}{allocMb,12:F1}{result,20}");
         }
 
-        Console.WriteLine(new string('-', 64));
+        Console.WriteLine(new string('-', 78));
         Console.WriteLine($"{"total (best of each)",-34}{total,12:F2}");
 
         CompileOnceDemo();
@@ -104,13 +119,15 @@ internal static class Program
 
     // Times ONLY script execution; engine construction + native registration is
     // outside the stopwatch so the measurement reflects interpretation cost.
-    private static double TimeExecute(string code, out string result)
+    private static double TimeExecute(string code, out string result, out long allocatedBytes)
     {
         var engine = NewEngine();
 
+        var before = GC.GetAllocatedBytesForCurrentThread();
         var sw = Stopwatch.StartNew();
         engine.Execute(code);
         sw.Stop();
+        allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
 
         result = engine.Root.GetParameter("result").String;
         return sw.Elapsed.TotalMilliseconds;
@@ -166,5 +183,51 @@ internal static class Program
             Console.WriteLine($"  -> {a / b:F2}x faster reusing compiled bytecode");
         }
         Console.WriteLine("  (Mode B includes per-call reflection overhead, so the real gain is larger.)");
+
+        CompileThroughputDemo(compile);
+    }
+
+    // Measures raw compile throughput on a large, identifier-heavy script. This
+    // is the path that exercises name interning (Chunk.AddName): a script with
+    // thousands of distinct variables used to make interning O(n^2). Reached via
+    // the same reflected Compile() handle so the file still builds on the old
+    // engine (where it is simply skipped).
+    private static void CompileThroughputDemo(MethodInfo compile)
+    {
+        if (compile == null) return;
+
+        // Build a script with many distinct identifiers: var v0..vN, then a sum.
+        const int vars = 2000;
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < vars; i++)
+        {
+            sb.Append("var v").Append(i).Append(" = ").Append(i).Append("; ");
+        }
+        sb.Append("var total = 0; ");
+        for (var i = 0; i < vars; i++)
+        {
+            sb.Append("total = total + v").Append(i).Append("; ");
+        }
+        sb.Append("result = total;");
+        var bigCode = sb.ToString();
+
+        const int reps = 200;
+
+        compile.Invoke(null, new object[] { bigCode }); // warm (JIT + first compile)
+
+        var best = double.MaxValue;
+        for (var run = 0; run < 5; run++)
+        {
+            var sw = Stopwatch.StartNew();
+            for (var i = 0; i < reps; i++) compile.Invoke(null, new object[] { bigCode });
+            sw.Stop();
+            var ms = sw.Elapsed.TotalMilliseconds;
+            if (ms < best) best = ms;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"compile throughput ({vars} distinct identifiers, x{reps})");
+        Console.WriteLine(new string('-', 64));
+        Console.WriteLine($"  best total: {best,9:F2} ms  ({best / reps,7:F3} ms/compile)");
     }
 }

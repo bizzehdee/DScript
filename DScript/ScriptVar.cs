@@ -35,6 +35,29 @@ namespace DScript
         // Cache compiled regex patterns to avoid recompilation (performance optimization)
         private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
 
+        // Cache of stringified small array indices so element access does not
+        // allocate a name string per get/set. Out-of-range indices fall back.
+        private static readonly string[] IndexNames = CreateIndexNames();
+
+        private static string[] CreateIndexNames()
+        {
+            var names = new string[1024];
+            for (var i = 0; i < names.Length; i++)
+            {
+                names[i] = i.ToString(CultureInfo.InvariantCulture);
+            }
+            return names;
+        }
+
+        // Internal so the VM can reuse the cached index-name strings for integer
+        // [] keys instead of allocating a fresh Int.ToString() on every access.
+        internal static string IndexName(int idx)
+        {
+            return idx >= 0 && idx < IndexNames.Length
+                ? IndexNames[idx]
+                : idx.ToString(CultureInfo.InvariantCulture);
+        }
+
         #region IDisposable
         private bool disposed;
         public void Dispose()
@@ -62,9 +85,34 @@ namespace DScript
         private object scriptData;
         private int intData;
         private double doubleData;
-        private ScriptEngine.ScriptCallbackCB scriptCallback;
-        private object callbackUserData;
         private int cachedArrayLength = -1;  // -1 means not cached
+
+        // Native callbacks are rare (registered once per built-in function) but the
+        // two dedicated fields they needed used to sit on every ScriptVar — including
+        // the millions of short-lived primitives the VM allocates. They are folded
+        // into a small holder stored in scriptData (unused for native functions
+        // otherwise), shrinking every ScriptVar by 16 bytes.
+        private sealed class NativeCallback
+        {
+            public readonly ScriptEngine.ScriptCallbackCB Callback;
+            public readonly object UserData;
+            public NativeCallback(ScriptEngine.ScriptCallbackCB callback, object userData)
+            {
+                Callback = callback;
+                UserData = userData;
+            }
+        }
+
+        // O(1) name -> child lookup, rebuilt lazily from the child linked list.
+        // The linked list remains the source of truth for ordering (for...in,
+        // JSON, array length); this index only accelerates FindChild. It is only
+        // used once a var has more than LinearScanThreshold children, since for
+        // small scopes (e.g. function call frames) a linear scan is faster and
+        // avoids allocating/populating a dictionary per call.
+        private const int LinearScanThreshold = 8;
+        private Dictionary<string, ScriptVarLink> childIndex;
+        private bool childIndexValid;
+        private int childCount;
 
         public const string ReturnVarName = "return";
         public const string PrototypeClassName = "prototype";
@@ -89,50 +137,55 @@ namespace DScript
         public ScriptVarLink FirstChild { get; set; }
         public ScriptVarLink LastChild { get; set; }
 
+        // The CLR zero-initializes every freshly allocated object, so the
+        // constructors only need to set the fields that differ from default
+        // (flags and the relevant value field). They deliberately avoid the old
+        // Init() call, which re-zeroed already-zero fields on every allocation —
+        // a measurable cost given how many short-lived ScriptVars the VM creates.
         public ScriptVar()
         {
-            refs = 0;
-            flags = Flags.Undefined;
-            Init();
+            // Undefined == 0, so a zero-initialized instance is already correct.
+        }
+
+        /// <summary>
+        /// Create a typed but value-less ScriptVar (Object, Array, Function, Null,
+        /// Undefined, ...). Unlike <see cref="ScriptVar(string, Flags)"/> this skips
+        /// the literal-parsing branches and their flag tests, which is worthwhile on
+        /// the hot paths that build call frames and aggregates. Must not be used
+        /// with Integer/Double/Regexp flags, which require a value to parse.
+        /// </summary>
+        public ScriptVar(Flags flags)
+        {
+            this.flags = flags;
         }
 
         public ScriptVar(int val)
         {
-            refs = 0;
             flags = Flags.Integer;
-            Init();
             intData = val;
         }
 
         public ScriptVar(double val)
         {
-            refs = 0;
             flags = Flags.Double;
-            Init();
             doubleData = val;
         }
 
         public ScriptVar(string val)
         {
-            refs = 0;
             flags = Flags.String;
-            Init();
             scriptData = val;
         }
 
         public ScriptVar(bool val)
         {
-            refs = 0;
             flags = Flags.Integer;
-            Init();
             intData = val ? 1 : 0;
         }
 
         public ScriptVar(string val, Flags flags)
         {
-            refs = 0;
             this.flags = flags;
-            Init();
             if (flags.HasFlag(Flags.Integer))
             {
                 if (val.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
@@ -187,17 +240,6 @@ namespace DScript
             {
                 scriptData = val;
             }
-        }
-
-        private void Init()
-        {
-            FirstChild = null;
-            LastChild = null;
-            scriptCallback = null;
-            callbackUserData = null;
-            scriptData = null;
-            intData = 0;
-            doubleData = 0;
         }
 
         public bool IsInt => (flags & Flags.Integer) != 0;
@@ -271,7 +313,7 @@ namespace DScript
         {
             if (IsInt)
             {
-                return $"{Int:D}";
+                return Int.ToString(CultureInfo.InvariantCulture);
             }
             if (IsDouble)
             {
@@ -376,19 +418,48 @@ namespace DScript
 
         public ScriptVarLink FindChild(string childName)
         {
-            var v = FirstChild;
+            if (FirstChild == null) return null;
 
+            // small scopes: a linear scan beats hashing and allocates nothing
+            if (childCount <= LinearScanThreshold)
+            {
+                var v = FirstChild;
+                while (v != null)
+                {
+                    if (v.Name == childName) return v;
+                    v = v.Next;
+                }
+                return null;
+            }
+
+            if (!childIndexValid) RebuildChildIndex();
+
+            return childIndex.TryGetValue(childName, out var link) ? link : null;
+        }
+
+        private void RebuildChildIndex()
+        {
+            childIndex ??= new Dictionary<string, ScriptVarLink>();
+            childIndex.Clear();
+
+            var v = FirstChild;
             while (v != null)
             {
-                if (v.Name == childName)
+                // first occurrence wins, matching the previous linear scan
+                if (!childIndex.ContainsKey(v.Name))
                 {
-                    return v;
+                    childIndex[v.Name] = v;
                 }
-
                 v = v.Next;
             }
 
-            return null;
+            childIndexValid = true;
+        }
+
+        // Marks the lookup index stale; it is rebuilt on the next FindChild.
+        internal void InvalidateChildIndex()
+        {
+            childIndexValid = false;
         }
 
         public ScriptVarLink FindChildOrCreate(string childName, Flags varFlags = Flags.Undefined, bool readOnly = false)
@@ -396,7 +467,7 @@ namespace DScript
             var l = FindChild(childName);
             if (l != null) return l;
 
-            return AddChild(childName, new ScriptVar(null, varFlags), readOnly);
+            return AddChild(childName, new ScriptVar(varFlags), readOnly);
         }
 
         public ScriptVarLink FindChildOrCreateByPath(string path)
@@ -421,7 +492,8 @@ namespace DScript
 
             var link = new ScriptVarLink(c, childName, readOnly)
             {
-                Owned = true
+                Owned = true,
+                Owner = this
             };
 
             if (LastChild != null)
@@ -435,6 +507,13 @@ namespace DScript
             }
 
             LastChild = link;
+            childCount++;
+
+            // keep the lookup index in sync while it is valid (first occurrence wins)
+            if (childIndexValid && !childIndex.ContainsKey(childName))
+            {
+                childIndex[childName] = link;
+            }
 
             // Invalidate array length cache if this is an array, as a numeric
             // child may have been added directly (bypassing SetArrayIndex)
@@ -497,7 +576,12 @@ namespace DScript
             {
                 FirstChild = link.Next;
             }
-            
+
+            childCount--;
+
+            // removing a child may expose a shadowed duplicate name; rebuild lazily
+            childIndexValid = false;
+
             // Invalidate array length cache if this is an array
             if (IsArray)
             {
@@ -518,7 +602,11 @@ namespace DScript
 
             FirstChild = null;
             LastChild = null;
-            
+
+            childIndex?.Clear();
+            childIndexValid = false;
+            childCount = 0;
+
             // Invalidate array length cache
             if (IsArray)
             {
@@ -539,15 +627,16 @@ namespace DScript
 
         public ScriptVar GetArrayIndex(int idx)
         {
-            var link = FindChild($"{idx}");
+            var link = FindChild(IndexName(idx));
             if (link != null) return link.Var;
 
-            return new ScriptVar(null, Flags.Null);
+            return new ScriptVar(Flags.Null);
         }
 
         public void SetArrayIndex(int idx, ScriptVar value)
         {
-            var link = FindChild($"{idx}");
+            var name = IndexName(idx);
+            var link = FindChild(name);
 
             if (link != null)
             {
@@ -565,8 +654,8 @@ namespace DScript
             else
             {
                 if (value.IsUndefined) return;
-                
-                AddChild($"{idx}", value);
+
+                AddChild(name, value);
                 cachedArrayLength = -1;  // Invalidate cache on addition
             }
         }
@@ -802,8 +891,7 @@ namespace DScript
 
         public void SetCallback(ScriptEngine.ScriptCallbackCB callback, object userdata)
         {
-            scriptCallback = callback;
-            callbackUserData = userdata;
+            scriptData = new NativeCallback(callback, userdata);
         }
 
         public void Trace(int indent, string name)
@@ -928,12 +1016,12 @@ namespace DScript
 
         public ScriptEngine.ScriptCallbackCB GetCallback()
         {
-            return scriptCallback;
+            return scriptData is NativeCallback nc ? nc.Callback : null;
         }
 
         public object GetCallbackUserData()
         {
-            return callbackUserData;
+            return scriptData is NativeCallback nc ? nc.UserData : null;
         }
 
         /// <summary>
@@ -948,8 +1036,10 @@ namespace DScript
             writer.Write(intData);
             writer.Write(doubleData);
             
-            // Write string/object data
-            if (scriptData == null)
+            // Write string/object data. A native callback holder is not
+            // serializable data (the delegate is re-attached on restore), so it is
+            // treated exactly like the null case the dedicated field used to give.
+            if (scriptData == null || scriptData is NativeCallback)
             {
                 writer.Write(false); // null marker
             }

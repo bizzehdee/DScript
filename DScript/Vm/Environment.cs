@@ -37,6 +37,14 @@ namespace DScript.Vm
         /// <summary>Enclosing lexical scope, or null for the global scope.</summary>
         public Environment Parent { get; }
 
+        /// <summary>
+        /// Bumped whenever a new binding is added to this scope. The inline cache
+        /// (see <see cref="Chunk.InlineCacheEntry"/>) records the version it
+        /// resolved against and re-resolves if it changes, so a freshly declared
+        /// variable that shadows an outer one is never served stale from the cache.
+        /// </summary>
+        public int Version;
+
         public Environment(ScriptVar vars, Environment parent)
         {
             Vars = vars;
@@ -55,12 +63,13 @@ namespace DScript.Vm
             return null;
         }
 
+        private Environment cachedGlobal;
+
         /// <summary>The outermost (global) environment.</summary>
         public Environment Global()
         {
-            var env = this;
-            while (env.Parent != null) env = env.Parent;
-            return env;
+            if (Parent == null) return this;
+            return cachedGlobal ??= Parent.Global();
         }
     }
 }
