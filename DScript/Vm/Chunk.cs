@@ -165,14 +165,34 @@ namespace DScript.Vm
             return Constants.Count - 1;
         }
 
+        // Accelerates AddName interning: maps an already-seen name to its index in
+        // Names so repeated identifiers don't trigger an O(n) List.IndexOf scan
+        // (which made interning O(n^2) over a name-heavy script's compilation).
+        private Dictionary<string, int> nameToIndex;
+
         /// <summary>Intern an identifier/property name, returning its index.</summary>
         public int AddName(string name)
         {
-            var existing = Names.IndexOf(name);
-            if (existing >= 0) return existing;
+            if (nameToIndex == null)
+            {
+                // Seed from any names already present (e.g. populated directly by
+                // deserialization) so the index stays consistent with Names.
+                nameToIndex = new Dictionary<string, int>(Names.Count);
+                for (var i = 0; i < Names.Count; i++)
+                {
+                    nameToIndex[Names[i]] = i;
+                }
+            }
 
+            if (nameToIndex.TryGetValue(name, out var existing))
+            {
+                return existing;
+            }
+
+            var index = Names.Count;
             Names.Add(name);
-            return Names.Count - 1;
+            nameToIndex[name] = index;
+            return index;
         }
 
         public int AddFunction(Chunk function)
