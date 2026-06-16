@@ -28,14 +28,15 @@ namespace DScript
         {
             var a = Shift(ref execute);
 
-            while (currentLexer.TokenType is 
-                   ScriptLex.LexTypes.Equal or 
-                   ScriptLex.LexTypes.NEqual or 
-                   ScriptLex.LexTypes.TypeEqual or 
-                   ScriptLex.LexTypes.NTypeEqual or 
-                   ScriptLex.LexTypes.LEqual or 
-                   ScriptLex.LexTypes.GEqual or 
-                   (ScriptLex.LexTypes)'>' or 
+            while (currentLexer.TokenType is
+                   ScriptLex.LexTypes.Equal or
+                   ScriptLex.LexTypes.NEqual or
+                   ScriptLex.LexTypes.TypeEqual or
+                   ScriptLex.LexTypes.NTypeEqual or
+                   ScriptLex.LexTypes.LEqual or
+                   ScriptLex.LexTypes.GEqual or
+                   ScriptLex.LexTypes.RInstanceOf or
+                   (ScriptLex.LexTypes)'>' or
                    (ScriptLex.LexTypes)'<'
                 )
             {
@@ -44,7 +45,28 @@ namespace DScript
                 var b = Shift(ref execute);
 
                 if (!execute) continue;
-                
+
+                if (op == ScriptLex.LexTypes.RInstanceOf)
+                {
+                    // `a instanceof B` is true when B appears anywhere on a's
+                    // prototype chain (instances link to their constructor via
+                    // the `prototype` child created by `new`).
+                    var isInstance = false;
+                    var proto = a.Var.FindChild(ScriptVar.PrototypeClassName);
+                    while (proto != null)
+                    {
+                        if (ReferenceEquals(proto.Var, b.Var))
+                        {
+                            isInstance = true;
+                            break;
+                        }
+                        proto = proto.Var.FindChild(ScriptVar.PrototypeClassName);
+                    }
+
+                    CreateLink(ref a, new ScriptVar(isInstance));
+                    continue;
+                }
+
                 var res = a.Var.MathsOp(b.Var, op);
                 CreateLink(ref a, res);
             }

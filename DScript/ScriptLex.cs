@@ -135,7 +135,8 @@ namespace DScript
             RListEnd,
             RSwitch,
             RCase,
-            RDefault
+            RDefault,
+            RInstanceOf
         }
 
         public ScriptLex(string input)
@@ -289,6 +290,7 @@ namespace DScript
                     case "switch": TokenType = LexTypes.RSwitch; break;
                     case "case": TokenType = LexTypes.RCase; break;
                     case "default": TokenType = LexTypes.RDefault; break;
+                    case "instanceof": TokenType = LexTypes.RInstanceOf; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers

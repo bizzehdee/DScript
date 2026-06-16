@@ -26,6 +26,70 @@ namespace DScript
 {
     public sealed partial class ScriptEngine
     {
+        /// <summary>
+        /// Invoke a function with no arguments and no parentheses in the token
+        /// stream (used by <c>new Ctor</c> without a call list). Returns the
+        /// function's return-value link, mirroring <see cref="FunctionCall"/>.
+        /// </summary>
+        private ScriptVarLink InvokeFunction(ref bool execute, ScriptVarLink function, ScriptVar parent)
+        {
+            if (!execute) return function;
+
+            if (!function.Var.IsFunction)
+            {
+                throw new ScriptException($"{function.Name} is not a function");
+            }
+
+            var functionRoot = new ScriptVar(null, ScriptVar.Flags.Function);
+
+            if (parent != null)
+            {
+                functionRoot.AddChildNoDup("this", parent);
+            }
+
+            // No arguments supplied: every declared parameter is undefined.
+            var v = function.Var.FirstChild;
+            while (v != null)
+            {
+                functionRoot.AddChild(v.Name, new ScriptVar(null, ScriptVar.Flags.Undefined));
+                v = v.Next;
+            }
+
+            var returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
+
+            scopes.PushBack(functionRoot);
+            callStack.Push(function);
+
+            if (function.Var.IsNative)
+            {
+                var func = function.Var.GetCallback();
+                func?.Invoke(functionRoot, function.Var.GetCallbackUserData());
+            }
+            else
+            {
+                var oldLex = currentLexer;
+                currentLexer = new ScriptLex(function.Var.String);
+
+                try
+                {
+                    Block(ref execute);
+                    execute = true;
+                }
+                finally
+                {
+                    currentLexer = oldLex;
+                }
+            }
+
+            callStack.Pop();
+            scopes.PopBack();
+
+            var returnVar = new ScriptVarLink(returnVarLink.Var, null);
+            functionRoot.RemoveLink(returnVarLink);
+
+            return returnVar;
+        }
+
         private ScriptVarLink FunctionCall(ref bool execute, ScriptVarLink function, ScriptVar parent)
         {
             if (execute)

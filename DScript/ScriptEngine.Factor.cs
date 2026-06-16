@@ -233,12 +233,52 @@ namespace DScript
 
                         currentLexer.Match(ScriptLex.LexTypes.Id);
 
+                        // Resolve dotted / indexed access so that `new foo.Bar()`
+                        // and `new ns["Widget"]()` locate the actual constructor.
+                        while (currentLexer.TokenType == (ScriptLex.LexTypes)'.' ||
+                               currentLexer.TokenType == (ScriptLex.LexTypes)'[')
+                        {
+                            if (currentLexer.TokenType == (ScriptLex.LexTypes)'.')
+                            {
+                                currentLexer.Match((ScriptLex.LexTypes)'.');
+                                var memberName = currentLexer.TokenString;
+                                var member = classOrFuncObject.Var.FindChild(memberName) ??
+                                             FindInParentClasses(classOrFuncObject.Var, memberName);
+                                classOrFuncObject = member ?? classOrFuncObject.Var.AddChild(memberName, null);
+                                currentLexer.Match(ScriptLex.LexTypes.Id);
+                            }
+                            else
+                            {
+                                currentLexer.Match((ScriptLex.LexTypes)'[');
+                                var indexVar = Base(ref execute);
+                                currentLexer.Match((ScriptLex.LexTypes)']');
+                                classOrFuncObject = classOrFuncObject.Var.FindChildOrCreate(indexVar.Var.String);
+                            }
+                        }
+
                         var obj = new ScriptVar(null, ScriptVar.Flags.Object);
                         var objLink = new ScriptVarLink(obj, null);
 
                         if (classOrFuncObject.Var.IsFunction)
                         {
-                            FunctionCall(ref execute, classOrFuncObject, obj);
+                            // Link the new instance back to its constructor so that
+                            // members defined on the constructor (e.g. Ctor.method =
+                            // function(){}) are shared by every instance via the
+                            // prototype-chain walk in FindInParentClasses.
+                            obj.AddChild(ScriptVar.PrototypeClassName, classOrFuncObject.Var);
+
+                            // Invoke the constructor: with arguments when a call list
+                            // is present, otherwise (`new Ctor`) with no arguments.
+                            var ctorResult = currentLexer.TokenType == (ScriptLex.LexTypes)'('
+                                ? FunctionCall(ref execute, classOrFuncObject, obj)
+                                : InvokeFunction(ref execute, classOrFuncObject, obj);
+
+                            // If the constructor explicitly returns an object, that
+                            // object becomes the result of the `new` expression.
+                            if (ctorResult != null && ctorResult.Var.IsObject)
+                            {
+                                objLink = ctorResult;
+                            }
                         }
                         else
                         {
@@ -254,9 +294,40 @@ namespace DScript
                     }
 
                     currentLexer.Match(ScriptLex.LexTypes.Id);
+
+                    // Skip dotted / indexed member access on the constructor name.
+                    while (currentLexer.TokenType == (ScriptLex.LexTypes)'.' ||
+                           currentLexer.TokenType == (ScriptLex.LexTypes)'[')
+                    {
+                        if (currentLexer.TokenType == (ScriptLex.LexTypes)'.')
+                        {
+                            currentLexer.Match((ScriptLex.LexTypes)'.');
+                            currentLexer.Match(ScriptLex.LexTypes.Id);
+                        }
+                        else
+                        {
+                            currentLexer.Match((ScriptLex.LexTypes)'[');
+                            Base(ref execute);
+                            currentLexer.Match((ScriptLex.LexTypes)']');
+                        }
+                    }
+
                     if (currentLexer.TokenType == (ScriptLex.LexTypes)'(')
                     {
                         currentLexer.Match((ScriptLex.LexTypes)'(');
+
+                        // Parse (and discard) any constructor arguments so that
+                        // `new X(a, b)` inside a not-taken branch does not throw.
+                        while (currentLexer.TokenType != (ScriptLex.LexTypes)')')
+                        {
+                            Base(ref execute);
+
+                            if (currentLexer.TokenType != (ScriptLex.LexTypes)')')
+                            {
+                                currentLexer.Match((ScriptLex.LexTypes)',');
+                            }
+                        }
+
                         currentLexer.Match((ScriptLex.LexTypes)')');
                     }
 
