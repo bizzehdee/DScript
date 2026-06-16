@@ -11,7 +11,7 @@ on:
         default: 'true'
 
 env:
-  DOTNET_VERSION: '8.0.x'
+  DOTNET_VERSION: '10.0.x'
   PROJECT_NAME: DScript
 
 jobs:
@@ -62,18 +62,13 @@ jobs:
     - name: Create release assets with source code
       if: github.event_name == 'release'
       run: |
-        # Create source archives
-        zip -r dscript-source-${{ github.ref_name }}.zip . -x ".git/*" ".*" "bin/*" "obj/*" ".github/*" ".vs/*" ".idea/*"
-        tar -czf dscript-source-${{ github.ref_name }}.tar.gz \
-          --exclude=.git \
-          --exclude=.github \
-          --exclude=.vs \
-          --exclude=.idea \
-          --exclude=bin \
-          --exclude=obj \
-          --exclude=.gitignore \
-          --exclude=.editorconfig \
-          .
+        # Build the source archives from the committed tree with `git archive`.
+        # This reads from the git object store rather than walking the live
+        # working directory, so it avoids "tar: file changed as we read it"
+        # (caused by writing the archive into the directory being archived) and
+        # naturally excludes untracked bin/, obj/ and .git contents.
+        git archive --format=zip --output="dscript-source-${{ github.ref_name }}.zip" HEAD
+        git archive --format=tar HEAD | gzip > "dscript-source-${{ github.ref_name }}.tar.gz"
 
     - name: Upload release assets
       if: github.event_name == 'release'
