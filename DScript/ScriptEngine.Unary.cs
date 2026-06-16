@@ -73,6 +73,34 @@ namespace DScript
 
                     break;
                 }
+                case ScriptLex.LexTypes.RDelete:
+                {
+                    currentLexer.Match(ScriptLex.LexTypes.RDelete);
+                    a = Factor(ref execute);
+                    if (execute)
+                    {
+                        //remove the resolved member from its owner; the parent and
+                        //name were recorded by the member access in Factor.
+                        var deleteParent = memberAccessParent;
+                        var deleteName = memberAccessName;
+                        var deleted = false;
+
+                        if (deleteParent != null && deleteName != null)
+                        {
+                            var child = deleteParent.FindChild(deleteName);
+                            if (child != null)
+                            {
+                                deleteParent.RemoveLink(child);
+                                child.Dispose();
+                            }
+                            deleted = true;
+                        }
+
+                        CreateLink(ref a, new ScriptVar(deleted));
+                    }
+
+                    break;
+                }
                 default:
                     a = Factor(ref execute);
                     break;

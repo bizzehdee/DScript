@@ -133,9 +133,14 @@ namespace DScript
 
                                 if (execute)
                                 {
-                                    var child = a.Var.FindChildOrCreate(index.Var.String);
+                                    var indexName = index.Var.String;
+                                    var child = a.Var.FindChildOrCreate(indexName);
                                     parent = a.Var;
                                     a = child;
+
+                                    //record so `delete obj[key]` can locate the member
+                                    memberAccessParent = parent;
+                                    memberAccessName = indexName;
                                 }
 
                                 // Indexed access already resolves to an own child.

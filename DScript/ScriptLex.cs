@@ -138,7 +138,8 @@ namespace DScript
             RCase,
             RDefault,
             RInstanceOf,
-            RIn
+            RIn,
+            RDelete
         }
 
         public ScriptLex(string input)
@@ -294,6 +295,7 @@ namespace DScript
                     case "default": TokenType = LexTypes.RDefault; break;
                     case "instanceof": TokenType = LexTypes.RInstanceOf; break;
                     case "in": TokenType = LexTypes.RIn; break;
+                    case "delete": TokenType = LexTypes.RDelete; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers
