@@ -455,6 +455,9 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
             chunk = saved;
+            // a try/catch/finally body runs in the enclosing function's
+            // environment, so a closure created there captures that frame too
+            chunk.MakesClosure |= sub.MakesClosure;
             return saved.AddFunction(sub);
         }
 
@@ -469,6 +472,7 @@ namespace DScript.Compiler
 
             chunk.Emit(OpCode.DeclareVar, nameIndex);
             chunk.Emit(OpCode.MakeClosure, idx);  // captures the current environment
+            chunk.MakesClosure = true;
             chunk.Emit(OpCode.SetVar, nameIndex);
             chunk.Emit(OpCode.Pop);
         }

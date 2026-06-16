@@ -614,6 +614,20 @@ namespace DScript
             }
         }
 
+        // Detach all children WITHOUT disposing them, so this var can be reused
+        // as a fresh empty scope. Unlike RemoveAllChildren this does not UnRef the
+        // children: it mirrors how an abandoned call frame is reclaimed today (the
+        // links are simply dropped for the GC), which keeps any value that escaped
+        // the frame (e.g. a returned parameter) alive via its existing references.
+        internal void ResetForReuse()
+        {
+            FirstChild = null;
+            LastChild = null;
+            childIndex?.Clear();
+            childIndexValid = false;
+            childCount = 0;
+        }
+
         public ScriptVar ReturnVar
         {
             get => GetParameter(ReturnVarName);
