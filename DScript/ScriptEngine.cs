@@ -64,6 +64,13 @@ namespace DScript
 
         private ScriptLex currentLexer;
 
+        // Tracks how the most recent `.`-member access resolved, so that an
+        // assignment can shadow an inherited (prototype-chain) member as an own
+        // property on the receiver instead of writing through the chain.
+        private ScriptVar memberAccessParent;
+        private string memberAccessName;
+        private bool memberAccessInherited;
+
         public delegate void ScriptCallbackCB(ScriptVar var, object userdata);
 
         public ScriptVar Root { get; private set; }

@@ -28,7 +28,13 @@ namespace DScript
         {
             var leftHandSide = Ternary(ref execute);
 
-            if (currentLexer.TokenType is not 
+            // Capture how the LHS resolved before evaluating the RHS, which would
+            // overwrite the member-access tracking fields.
+            var lhsInherited = memberAccessInherited;
+            var lhsParent = memberAccessParent;
+            var lhsName = memberAccessName;
+
+            if (currentLexer.TokenType is not
                 ((ScriptLex.LexTypes)'=' or
                 ScriptLex.LexTypes.PlusEqual or
                 ScriptLex.LexTypes.MinusEqual or
@@ -55,43 +61,54 @@ namespace DScript
             var rightHandSide = Base(ref execute);
 
             if (!execute) return leftHandSide;
-                
+
+            // If the LHS resolved to an inherited (prototype-chain) member, the
+            // assignment must create/use an OWN property on the receiver rather
+            // than writing through the chain (which would alias state across all
+            // instances sharing that prototype). The current value for compound
+            // assignment is still read from the inherited member (leftHandSide).
+            var target = leftHandSide;
+            if (lhsInherited && lhsParent != null && lhsName != null)
+            {
+                target = lhsParent.AddChildNoDup(lhsName, new ScriptVar());
+            }
+
             switch (op)
             {
                 case (ScriptLex.LexTypes)'=':
                 {
-                    leftHandSide.ReplaceWith(rightHandSide);
+                    target.ReplaceWith(rightHandSide);
                 }
                     break;
                 case ScriptLex.LexTypes.PlusEqual:
                 {
                     var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'+');
-                    leftHandSide.ReplaceWith(res);
+                    target.ReplaceWith(res);
                 }
                     break;
                 case ScriptLex.LexTypes.MinusEqual:
                 {
                     var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'-');
-                    leftHandSide.ReplaceWith(res);
+                    target.ReplaceWith(res);
                 }
                     break;
                 case ScriptLex.LexTypes.SlashEqual:
                 {
                     var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'/');
-                    leftHandSide.ReplaceWith(res);
+                    target.ReplaceWith(res);
                 }
                     break;
                 case ScriptLex.LexTypes.PercentEqual:
                 {
                     var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'%');
-                    leftHandSide.ReplaceWith(res);
+                    target.ReplaceWith(res);
                 }
                     break;
                 default:
                     throw new ScriptException("Base broke");
             }
 
-            return leftHandSide;
+            return target;
         }
     }
 }

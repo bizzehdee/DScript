@@ -53,6 +53,10 @@ namespace DScript
                 {
                     var a = execute ? FindInScopes(currentLexer.TokenString) : new ScriptVarLink(new ScriptVar(), null);
 
+                    // Reset member-access tracking; a bare identifier is not an
+                    // inherited member, so assignment targets it directly.
+                    memberAccessInherited = false;
+
                     ScriptVar parent = null;
 
                     if (execute && a == null)
@@ -69,6 +73,8 @@ namespace DScript
                             // function call
                             case (ScriptLex.LexTypes)'(':
                                 a = FunctionCall(ref execute, a, parent);
+                                // A call result is not an assignable member.
+                                memberAccessInherited = false;
                                 break;
                             // child access
                             case (ScriptLex.LexTypes)'.':
@@ -77,11 +83,13 @@ namespace DScript
                                 if (execute)
                                 {
                                     var name = currentLexer.TokenString;
+                                    var inherited = false;
                                     var child = a.Var.FindChild(name);
 
                                     if (child == null)
                                     {
                                         child = FindInParentClasses(a.Var, name);
+                                        inherited = child != null;
                                     }
 
                                     if (child == null)
@@ -104,6 +112,13 @@ namespace DScript
 
                                     parent = a.Var;
                                     a = child;
+
+                                    // Remember whether this member was inherited so
+                                    // a following assignment can shadow it as an own
+                                    // property on the receiver (parent).
+                                    memberAccessParent = parent;
+                                    memberAccessName = name;
+                                    memberAccessInherited = inherited;
                                 }
 
                                 currentLexer.Match(ScriptLex.LexTypes.Id);
@@ -123,6 +138,8 @@ namespace DScript
                                     a = child;
                                 }
 
+                                // Indexed access already resolves to an own child.
+                                memberAccessInherited = false;
                                 break;
                             }
                             default:
