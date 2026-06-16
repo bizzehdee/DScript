@@ -85,6 +85,16 @@ namespace DScript.Vm
         /// </summary>
         public string Source { get; set; } = string.Empty;
 
+        /// <summary>
+        /// True if this chunk (or a same-environment sub-block such as a try/catch
+        /// body) creates a closure that captures the current call environment. When
+        /// false, the call frame cannot escape and may be recycled after the call.
+        /// </summary>
+        public bool MakesClosure { get; set; }
+
+        /// <summary>A call frame for this function may be pooled/reused.</summary>
+        public bool RecyclableFrame => !MakesClosure;
+
         public int Count => Code.Count;
 
         // --- emit helpers (distinct by arity to avoid overload ambiguity) ---

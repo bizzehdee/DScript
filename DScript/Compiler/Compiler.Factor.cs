@@ -107,6 +107,7 @@ namespace DScript.Compiler
                     }
                     var idx = CompileFunctionRest(fnName);
                     chunk.Emit(OpCode.MakeClosure, idx);
+                    chunk.MakesClosure = true;
                     return;
                 }
 

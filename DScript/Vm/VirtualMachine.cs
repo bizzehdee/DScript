@@ -46,6 +46,24 @@ namespace DScript.Vm
         // avoids allocating a throwaway zero on every Negate/Not.
         private static readonly ScriptVar Zero = new(0);
 
+        // Pool of call-frame binding containers. A function whose frame cannot
+        // escape (no closure captures it — see Chunk.RecyclableFrame) returns its
+        // bindings var here on exit and the next such call reuses it, avoiding a
+        // ScriptVar allocation per call. Reuse detaches (does not dispose) the old
+        // bindings, preserving the lifetime of any value that escaped the frame.
+        private readonly Stack<ScriptVar> frameVarsPool = new();
+
+        private ScriptVar BorrowFrameVars()
+        {
+            return frameVarsPool.Count > 0 ? frameVarsPool.Pop() : new ScriptVar(ScriptVar.Flags.Object);
+        }
+
+        private void ReturnFrameVars(ScriptVar vars)
+        {
+            vars.ResetForReuse();
+            frameVarsPool.Push(vars);
+        }
+
         public VirtualMachine() { }
 
         public VirtualMachine(ScriptEngine engine)
@@ -262,7 +280,16 @@ namespace DScript.Vm
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var b = Pop();
                         var a = Pop();
-                        Push(a.MathsOp(b, operatorCode));
+                        // int-vs-int fast path (e.g. `s + i` between two variables):
+                        // compute directly, skipping MathsOp's flag checks + dispatch.
+                        if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
+                        {
+                            Push(fast);
+                        }
+                        else
+                        {
+                            Push(a.MathsOp(b, operatorCode));
+                        }
                         break;
                     }
                     case OpCode.BinaryConst:
@@ -427,9 +454,24 @@ namespace DScript.Vm
                     }
                     case OpCode.New:
                     {
-                        var args = PopArgs(ReadOperand(code, ref ip));
-                        var ctor = Pop();
-                        Push(Construct(ctor, args));
+                        var argc = ReadOperand(code, ref ip);
+                        var ctor = stack[sp - argc - 1];
+                        // Fast path: compiled constructor with args on the stack —
+                        // bind them directly into the call frame (no ScriptVar[]).
+                        if (ctor != null && ctor.IsFunction && !ctor.IsNative)
+                        {
+                            var instance = new ScriptVar(ScriptVar.Flags.Object);
+                            instance.AddChild(ScriptVar.PrototypeClassName, ctor);
+                            var result = InvokeVmFunctionFromStack(ctor, instance, argc);
+                            sp--; // discard the constructor left below the (popped) args
+                            // a constructor that returns an object replaces the instance
+                            Push(result != null && result.IsObject ? result : instance);
+                        }
+                        else
+                        {
+                            var args = PopArgs(argc);
+                            Push(Construct(Pop(), args));
+                        }
                         break;
                     }
 
@@ -543,13 +585,21 @@ namespace DScript.Vm
             }
 
             var vmfn = (VmFunction)callee.GetData();
-            var callEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), vmfn.Captured);
-            if (thisArg != null) callEnv.Vars.AddChildNoDup("this", thisArg);
+            var recyclable = vmfn.Body.RecyclableFrame;
+            var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
+            var callEnv = new Environment(vars, vmfn.Captured);
+            if (thisArg != null) vars.AddChildNoDup("this", thisArg);
 
             var parameters = vmfn.Body.Parameters;
             for (var j = 0; j < parameters.Count; j++)
             {
-                callEnv.Vars.AddChild(parameters[j], BindArg(args, j));
+                vars.AddChild(parameters[j], BindArg(args, j));
+            }
+
+            if (recyclable)
+            {
+                try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
+                finally { ReturnFrameVars(vars); }
             }
 
             return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
@@ -566,20 +616,28 @@ namespace DScript.Vm
             var argBase = sp - argc;
 
             var vmfn = (VmFunction)callee.GetData();
-            var callEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), vmfn.Captured);
-            if (thisArg != null) callEnv.Vars.AddChildNoDup("this", thisArg);
+            var recyclable = vmfn.Body.RecyclableFrame;
+            var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
+            var callEnv = new Environment(vars, vmfn.Captured);
+            if (thisArg != null) vars.AddChildNoDup("this", thisArg);
 
             var parameters = vmfn.Body.Parameters;
             for (var j = 0; j < parameters.Count; j++)
             {
                 var arg = j < argc ? stack[argBase + j] : null;
-                callEnv.Vars.AddChild(parameters[j], BindArgValue(arg));
+                vars.AddChild(parameters[j], BindArgValue(arg));
             }
 
             // Pop the arguments now that they are bound; the args' slots are free
             // for the callee's own use of the shared operand stack. Their values
             // stay alive via the call frame's child links.
             sp = argBase;
+
+            if (recyclable)
+            {
+                try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
+                finally { ReturnFrameVars(vars); }
+            }
 
             return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
         }
