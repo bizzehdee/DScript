@@ -78,6 +78,9 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.RSwitch:
                     CompileSwitch();
                     break;
+                case ScriptLex.LexTypes.RFunction:
+                    CompileFunctionDeclaration();
+                    break;
                 default:
                     // expression statement: evaluate and discard the value
                     CompileBase();
@@ -388,6 +391,21 @@ namespace DScript.Compiler
 
             PatchJumps(endJumps, chunk.Count);
             chunk.Emit(OpCode.Pop); // discard the discriminant
+        }
+
+        private void CompileFunctionDeclaration()
+        {
+            lexer.Match(ScriptLex.LexTypes.RFunction);
+            var name = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.Id);
+            var nameIndex = chunk.AddName(name);
+
+            var idx = CompileFunctionRest(name);
+
+            chunk.Emit(OpCode.DeclareVar, nameIndex);
+            chunk.Emit(OpCode.MakeClosure, idx);  // captures the current environment
+            chunk.Emit(OpCode.SetVar, nameIndex);
+            chunk.Emit(OpCode.Pop);
         }
 
         private void PatchJumps(List<int> jumps, int target)

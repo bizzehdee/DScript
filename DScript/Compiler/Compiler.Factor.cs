@@ -96,6 +96,24 @@ namespace DScript.Compiler
                     CompileArrayLiteral();
                     return;
 
+                case ScriptLex.LexTypes.RFunction:
+                {
+                    lexer.Match(ScriptLex.LexTypes.RFunction);
+                    var fnName = string.Empty;
+                    if (lexer.TokenType == ScriptLex.LexTypes.Id)
+                    {
+                        fnName = lexer.TokenString;
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                    }
+                    var idx = CompileFunctionRest(fnName);
+                    chunk.Emit(OpCode.MakeClosure, idx);
+                    return;
+                }
+
+                case ScriptLex.LexTypes.RNew:
+                    CompileNew();
+                    return;
+
                 case ScriptLex.LexTypes.Id:
                     CompileIdentifierChain(canAssign);
                     return;
@@ -153,7 +171,7 @@ namespace DScript.Compiler
 
         private void CompileMemberChain(bool canAssign)
         {
-            while (lexer.TokenType is (ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'[')
+            while (lexer.TokenType is (ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'(')
             {
                 if (lexer.TokenType == (ScriptLex.LexTypes)'.')
                 {
@@ -161,6 +179,16 @@ namespace DScript.Compiler
                     var prop = lexer.TokenString;
                     lexer.Match(ScriptLex.LexTypes.Id);
                     var nameIndex = chunk.AddName(prop);
+
+                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                    {
+                        // method call: receiver becomes `this`
+                        chunk.Emit(OpCode.Dup);
+                        chunk.Emit(OpCode.GetProp, nameIndex);
+                        var argc = CompileArguments();
+                        chunk.Emit(OpCode.CallMethod, argc);
+                        continue;
+                    }
 
                     if (canAssign && lexer.TokenType == (ScriptLex.LexTypes)'=')
                     {
@@ -183,7 +211,7 @@ namespace DScript.Compiler
 
                     chunk.Emit(OpCode.GetProp, nameIndex);
                 }
-                else // '['
+                else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
                 {
                     lexer.Match((ScriptLex.LexTypes)'[');
                     CompileBase();                              // key
@@ -210,7 +238,92 @@ namespace DScript.Compiler
 
                     chunk.Emit(OpCode.GetIndex);
                 }
+                else // '(' : call the value already on the stack (this = undefined)
+                {
+                    var argc = CompileArguments();
+                    chunk.Emit(OpCode.Call, argc);
+                }
             }
+        }
+
+        private int CompileArguments()
+        {
+            lexer.Match((ScriptLex.LexTypes)'(');
+            var count = 0;
+            while (lexer.TokenType != (ScriptLex.LexTypes)')')
+            {
+                CompileBase();
+                count++;
+                if (lexer.TokenType != (ScriptLex.LexTypes)')')
+                {
+                    lexer.Match((ScriptLex.LexTypes)',');
+                }
+            }
+            lexer.Match((ScriptLex.LexTypes)')');
+            return count;
+        }
+
+        private void CompileNew()
+        {
+            lexer.Match(ScriptLex.LexTypes.RNew);
+
+            var name = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.Id);
+            chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+
+            // dotted / indexed constructor reference (without calling)
+            while (lexer.TokenType is (ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'[')
+            {
+                if (lexer.TokenType == (ScriptLex.LexTypes)'.')
+                {
+                    lexer.Match((ScriptLex.LexTypes)'.');
+                    chunk.Emit(OpCode.GetProp, chunk.AddName(lexer.TokenString));
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                }
+                else
+                {
+                    lexer.Match((ScriptLex.LexTypes)'[');
+                    CompileBase();
+                    lexer.Match((ScriptLex.LexTypes)']');
+                    chunk.Emit(OpCode.GetIndex);
+                }
+            }
+
+            var argc = 0;
+            if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+            {
+                argc = CompileArguments();
+            }
+
+            chunk.Emit(OpCode.New, argc);
+        }
+
+        // Compile a function's "(params) { body }" into a nested chunk and
+        // register it; returns its index in the enclosing chunk's function table.
+        private int CompileFunctionRest(string name)
+        {
+            var fnChunk = new Chunk { Name = string.IsNullOrEmpty(name) ? "<anonymous>" : name };
+
+            lexer.Match((ScriptLex.LexTypes)'(');
+            while (lexer.TokenType != (ScriptLex.LexTypes)')')
+            {
+                fnChunk.Parameters.Add(lexer.TokenString);
+                lexer.Match(ScriptLex.LexTypes.Id);
+                if (lexer.TokenType != (ScriptLex.LexTypes)')')
+                {
+                    lexer.Match((ScriptLex.LexTypes)',');
+                }
+            }
+            lexer.Match((ScriptLex.LexTypes)')');
+
+            var saved = chunk;
+            chunk = fnChunk;
+            CompileBlock();
+            chunk.Emit(OpCode.PushUndefined);
+            chunk.Emit(OpCode.Return);
+            chunk = saved;
+
+            return saved.AddFunction(fnChunk);
         }
 
         private void CompileObjectLiteral()

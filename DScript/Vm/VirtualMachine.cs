@@ -333,6 +333,37 @@ namespace DScript.Vm
                         break;
                     }
 
+                    case OpCode.MakeClosure:
+                    {
+                        var fnChunk = chunk.Functions[ReadOperand(chunk, ref ip)];
+                        var fn = new ScriptVar(null, ScriptVar.Flags.Function);
+                        fn.SetData(new VmFunction(fnChunk, env));
+                        Push(fn);
+                        break;
+                    }
+                    case OpCode.Call:
+                    {
+                        var args = PopArgs(ReadOperand(chunk, ref ip));
+                        var callee = Pop();
+                        Push(InvokeCallable(callee, null, args));
+                        break;
+                    }
+                    case OpCode.CallMethod:
+                    {
+                        var args = PopArgs(ReadOperand(chunk, ref ip));
+                        var callee = Pop();
+                        var receiver = Pop();
+                        Push(InvokeCallable(callee, receiver, args));
+                        break;
+                    }
+                    case OpCode.New:
+                    {
+                        var args = PopArgs(ReadOperand(chunk, ref ip));
+                        var ctor = Pop();
+                        Push(Construct(ctor, args));
+                        break;
+                    }
+
                     case OpCode.Return:
                         return Pop();
                     case OpCode.Halt:
@@ -344,6 +375,91 @@ namespace DScript.Vm
             }
 
             return null;
+        }
+
+        private ScriptVar[] PopArgs(int count)
+        {
+            var args = new ScriptVar[count];
+            for (var i = count - 1; i >= 0; i--)
+            {
+                args[i] = Pop();
+            }
+            return args;
+        }
+
+        /// <summary>
+        /// Invoke a function value with the given receiver (<c>this</c>) and
+        /// arguments. Handles both native callbacks (preserving the
+        /// <see cref="ScriptEngine.ScriptCallbackCB"/> ABI) and compiled
+        /// functions (run on this VM with a fresh environment whose lexical
+        /// parent is the function's captured environment).
+        /// </summary>
+        public ScriptVar InvokeCallable(ScriptVar callee, ScriptVar thisArg, ScriptVar[] args)
+        {
+            if (callee == null || !callee.IsFunction)
+            {
+                throw new ScriptException("Value is not a function");
+            }
+
+            if (callee.IsNative)
+            {
+                var scope = new ScriptVar(null, ScriptVar.Flags.Function);
+                if (thisArg != null) scope.AddChildNoDup("this", thisArg);
+
+                var p = callee.FirstChild;
+                var i = 0;
+                while (p != null)
+                {
+                    scope.AddChild(p.Name, BindArg(args, i));
+                    i++;
+                    p = p.Next;
+                }
+
+                var returnLink = scope.AddChild(ScriptVar.ReturnVarName, null);
+                callee.GetCallback()?.Invoke(scope, callee.GetCallbackUserData());
+                return returnLink.Var;
+            }
+
+            var vmfn = (VmFunction)callee.GetData();
+            var callEnv = new Environment(new ScriptVar(null, ScriptVar.Flags.Object), vmfn.Captured);
+            if (thisArg != null) callEnv.Vars.AddChildNoDup("this", thisArg);
+
+            var parameters = vmfn.Body.Parameters;
+            for (var j = 0; j < parameters.Count; j++)
+            {
+                callEnv.Vars.AddChild(parameters[j], BindArg(args, j));
+            }
+
+            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
+        }
+
+        // primitives are passed by value, objects/functions by reference
+        private static ScriptVar BindArg(ScriptVar[] args, int index)
+        {
+            if (args == null || index >= args.Length || args[index] == null)
+            {
+                return new ScriptVar(null, ScriptVar.Flags.Undefined);
+            }
+
+            var value = args[index];
+            return value.IsBasic ? value.DeepCopy() : value;
+        }
+
+        private ScriptVar Construct(ScriptVar ctor, ScriptVar[] args)
+        {
+            var instance = new ScriptVar(null, ScriptVar.Flags.Object);
+
+            // link the instance to its constructor so shared members resolve
+            instance.AddChild(ScriptVar.PrototypeClassName, ctor);
+
+            if (ctor.IsFunction)
+            {
+                var result = InvokeCallable(ctor, instance, args);
+                // a constructor that returns an object replaces the instance
+                if (result != null && result.IsObject) return result;
+            }
+
+            return instance;
         }
 
         private ScriptVar GetMember(ScriptVar obj, string name)
