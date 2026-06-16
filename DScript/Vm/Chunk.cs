@@ -34,6 +34,14 @@ namespace DScript.Vm
         /// <summary>Raw instruction bytes (opcodes interleaved with operands).</summary>
         public List<byte> Code { get; } = [];
 
+        // Contiguous copy of Code for fast indexed access during execution.
+        // Cached lazily and invalidated by any emit/patch, so it is always
+        // rebuilt once after compilation completes and reused across runs.
+        private byte[] codeArray;
+
+        /// <summary>The instruction bytes as a contiguous array (cached).</summary>
+        public byte[] CodeBytes => codeArray ??= Code.ToArray();
+
         /// <summary>Literal value constants referenced by <see cref="OpCode.Constant"/>.</summary>
         public List<ConstantValue> Constants { get; } = [];
 
@@ -65,6 +73,7 @@ namespace DScript.Vm
         {
             var at = Code.Count;
             Code.Add((byte)op);
+            codeArray = null;
             return at;
         }
 
@@ -103,6 +112,7 @@ namespace DScript.Vm
             Code.Add((byte)((value >> 8) & 0xFF));
             Code.Add((byte)((value >> 16) & 0xFF));
             Code.Add((byte)((value >> 24) & 0xFF));
+            codeArray = null;
         }
 
         // --- jump backpatching ----------------------------------------------
@@ -132,6 +142,7 @@ namespace DScript.Vm
             Code[operandOffset + 1] = (byte)((target >> 8) & 0xFF);
             Code[operandOffset + 2] = (byte)((target >> 16) & 0xFF);
             Code[operandOffset + 3] = (byte)((target >> 24) & 0xFF);
+            codeArray = null;
         }
 
         // --- reading (used by the VM and disassembler) ----------------------
@@ -139,10 +150,11 @@ namespace DScript.Vm
         /// <summary>Read a 4-byte little-endian int at <paramref name="offset"/>.</summary>
         public int ReadInt(int offset)
         {
-            return Code[offset]
-                   | (Code[offset + 1] << 8)
-                   | (Code[offset + 2] << 16)
-                   | (Code[offset + 3] << 24);
+            var code = CodeBytes;
+            return code[offset]
+                   | (code[offset + 1] << 8)
+                   | (code[offset + 2] << 16)
+                   | (code[offset + 3] << 24);
         }
 
         // --- pool interning -------------------------------------------------

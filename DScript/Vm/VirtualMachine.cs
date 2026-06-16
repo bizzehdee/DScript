@@ -79,10 +79,10 @@ namespace DScript.Vm
 
         private ScriptVar Execute(Chunk chunk, Environment env)
         {
-            var code = chunk.Code;
+            var code = chunk.CodeBytes;
             var ip = 0;
 
-            while (ip < code.Count)
+            while (ip < code.Length)
             {
                 var op = (OpCode)code[ip];
                 ip++;
