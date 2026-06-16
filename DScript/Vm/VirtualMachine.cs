@@ -262,7 +262,16 @@ namespace DScript.Vm
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var b = Pop();
                         var a = Pop();
-                        Push(a.MathsOp(b, operatorCode));
+                        // int-vs-int fast path (e.g. `s + i` between two variables):
+                        // compute directly, skipping MathsOp's flag checks + dispatch.
+                        if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
+                        {
+                            Push(fast);
+                        }
+                        else
+                        {
+                            Push(a.MathsOp(b, operatorCode));
+                        }
                         break;
                     }
                     case OpCode.BinaryConst:
