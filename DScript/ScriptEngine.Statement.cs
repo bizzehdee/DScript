@@ -235,6 +235,89 @@ namespace DScript
                     currentLexer.Match(ScriptLex.LexTypes.RFor);
                     currentLexer.Match((ScriptLex.LexTypes)'(');
 
+                    //distinguish for...in from a C-style for by scanning the header
+                    //for a top-level `in` that appears before any `;`
+                    var isForIn = false;
+                    {
+                        var lookahead = currentLexer.CloneToEnd(currentLexer.TokenStart);
+                        var depth = 0;
+                        while (lookahead.TokenType != ScriptLex.LexTypes.Eof)
+                        {
+                            var t = lookahead.TokenType;
+                            if (depth == 0)
+                            {
+                                if (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')') break;
+                                if (t == ScriptLex.LexTypes.RIn) { isForIn = true; break; }
+                            }
+
+                            if (t is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{') depth++;
+                            else if (t is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}') depth--;
+
+                            lookahead.GetNextToken();
+                        }
+                    }
+
+                    if (isForIn)
+                    {
+                        //for...in loop over an object's (or array's) member names
+                        if (currentLexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst)
+                        {
+                            currentLexer.Match(currentLexer.TokenType);
+                        }
+
+                        var iteratorName = currentLexer.TokenString;
+                        ScriptVarLink iteratorVar = null;
+                        if (execute)
+                        {
+                            iteratorVar = scopes.Back().FindChildOrCreate(iteratorName);
+                        }
+
+                        currentLexer.Match(ScriptLex.LexTypes.Id);
+                        currentLexer.Match(ScriptLex.LexTypes.RIn);
+
+                        var forInObj = Base(ref execute);
+
+                        currentLexer.Match((ScriptLex.LexTypes)')');
+
+                        var forInNoExecute = false;
+                        var forInBodyStart = currentLexer.TokenStart;
+
+                        //parse the body once (without executing) to capture its extent
+                        Statement(ref forInNoExecute);
+
+                        var forInBody = currentLexer.GetSubLex(forInBodyStart);
+                        var forInOldLex = currentLexer;
+
+                        if (execute && forInObj?.Var != null)
+                        {
+                            //snapshot the member names so the body may mutate the object safely
+                            var names = new System.Collections.Generic.List<string>();
+                            var member = forInObj.Var.FirstChild;
+                            while (member != null)
+                            {
+                                if (member.Name != ScriptVar.PrototypeClassName)
+                                {
+                                    names.Add(member.Name);
+                                }
+                                member = member.Next;
+                            }
+
+                            foreach (var name in names)
+                            {
+                                iteratorVar?.ReplaceWith(new ScriptVar(name));
+
+                                forInBody.Reset();
+                                currentLexer = forInBody;
+                                Statement(ref execute);
+
+                                if (HandleLoopControl(ref execute)) break;
+                            }
+                        }
+
+                        currentLexer = forInOldLex;
+                        break;
+                    }
+
                     Statement(ref execute); //init
 
                     var forConditionStart = currentLexer.TokenStart;
