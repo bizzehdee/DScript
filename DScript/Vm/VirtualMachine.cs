@@ -139,6 +139,33 @@ namespace DScript.Vm
                         Push(CoerceToNumber(a));
                         break;
                     }
+                    case OpCode.Typeof:
+                    {
+                        var a = Pop();
+                        Push(new ScriptVar(a.GetObjectType()));
+                        break;
+                    }
+
+                    case OpCode.NewObject:
+                        Push(new ScriptVar(null, ScriptVar.Flags.Object));
+                        break;
+                    case OpCode.NewArray:
+                        Push(new ScriptVar(null, ScriptVar.Flags.Array));
+                        break;
+                    case OpCode.InitProp:
+                    {
+                        var name = chunk.Names[ReadOperand(chunk, ref ip)];
+                        var value = Pop();
+                        Peek().AddChild(name, value); // object kept on stack
+                        break;
+                    }
+                    case OpCode.InitElem:
+                    {
+                        var index = ReadOperand(chunk, ref ip);
+                        var value = Pop();
+                        Peek().SetArrayIndex(index, value); // array kept on stack
+                        break;
+                    }
 
                     case OpCode.Jump:
                         ip = ReadOperand(chunk, ref ip);
