@@ -178,5 +178,51 @@ internal static class Program
             Console.WriteLine($"  -> {a / b:F2}x faster reusing compiled bytecode");
         }
         Console.WriteLine("  (Mode B includes per-call reflection overhead, so the real gain is larger.)");
+
+        CompileThroughputDemo(compile);
+    }
+
+    // Measures raw compile throughput on a large, identifier-heavy script. This
+    // is the path that exercises name interning (Chunk.AddName): a script with
+    // thousands of distinct variables used to make interning O(n^2). Reached via
+    // the same reflected Compile() handle so the file still builds on the old
+    // engine (where it is simply skipped).
+    private static void CompileThroughputDemo(MethodInfo compile)
+    {
+        if (compile == null) return;
+
+        // Build a script with many distinct identifiers: var v0..vN, then a sum.
+        const int vars = 2000;
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < vars; i++)
+        {
+            sb.Append("var v").Append(i).Append(" = ").Append(i).Append("; ");
+        }
+        sb.Append("var total = 0; ");
+        for (var i = 0; i < vars; i++)
+        {
+            sb.Append("total = total + v").Append(i).Append("; ");
+        }
+        sb.Append("result = total;");
+        var bigCode = sb.ToString();
+
+        const int reps = 200;
+
+        compile.Invoke(null, new object[] { bigCode }); // warm (JIT + first compile)
+
+        var best = double.MaxValue;
+        for (var run = 0; run < 5; run++)
+        {
+            var sw = Stopwatch.StartNew();
+            for (var i = 0; i < reps; i++) compile.Invoke(null, new object[] { bigCode });
+            sw.Stop();
+            var ms = sw.Elapsed.TotalMilliseconds;
+            if (ms < best) best = ms;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"compile throughput ({vars} distinct identifiers, x{reps})");
+        Console.WriteLine(new string('-', 64));
+        Console.WriteLine($"  best total: {best,9:F2} ms  ({best / reps,7:F3} ms/compile)");
     }
 }
