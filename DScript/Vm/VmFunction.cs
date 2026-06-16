@@ -1,4 +1,4 @@
-﻿/*
+/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,32 +20,27 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-namespace DScript
+namespace DScript.Vm
 {
-    public sealed partial class ScriptEngine
+    /// <summary>
+    /// The runtime payload of a compiled (non-native) function value: its
+    /// bytecode body plus the environment it was defined in. Carrying the
+    /// defining environment is what gives DScript true lexical closures — the
+    /// function resolves free variables against where it was created, not the
+    /// call-time stack. Stored in a function <see cref="ScriptVar"/>'s data slot.
+    /// </summary>
+    public sealed class VmFunction
     {
-        private ScriptVarLink Term(ref bool execute)
+        public Chunk Body { get; }
+        public Environment Captured { get; }
+
+        /// <summary>The function's original source text (for stringify / eval).</summary>
+        public string Source => Body.Source;
+
+        public VmFunction(Chunk body, Environment captured)
         {
-            var a = Unary(ref execute);
-
-            while (currentLexer.TokenType is 
-                   (ScriptLex.LexTypes)'*' or 
-                   (ScriptLex.LexTypes)'/' or 
-                   (ScriptLex.LexTypes)'%')
-            {
-                var op = currentLexer.TokenType;
-                currentLexer.Match(currentLexer.TokenType);
-
-                var b = Unary(ref execute);
-                
-                if (!execute) continue;
-                
-                var res = a.Var.MathsOp(b.Var, op);
-
-                CreateLink(ref a, res);
-            }
-
-            return a;
+            Body = body;
+            Captured = captured;
         }
     }
 }

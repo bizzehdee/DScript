@@ -1,4 +1,4 @@
-﻿﻿﻿/*
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -22,8 +22,9 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
-using System.Reflection;
-using System.Text;
+using DScript.Compiler;
+using DScript.Vm;
+using VmEnvironment = DScript.Vm.Environment;
 
 namespace DScript
 {
@@ -40,18 +41,15 @@ namespace DScript
         private void Dispose(bool disposing)
         {
             if (disposed) return;
-            
+
             if (disposing)
             {
                 stringClass.UnRef();
                 arrayClass.UnRef();
                 objectClass.UnRef();
                 Root.UnRef();
-
-                currentLexer?.Dispose();
             }
 
-            // Indicate that the instance has been disposed.
             disposed = true;
         }
         #endregion
@@ -59,53 +57,9 @@ namespace DScript
         private readonly ScriptVar stringClass;
         private readonly ScriptVar objectClass;
         private readonly ScriptVar arrayClass;
-        private List<ScriptVar> scopes;
-        private readonly Stack<ScriptVarLink> callStack;
 
-        private ScriptLex currentLexer;
-
-        // Tracks how the most recent `.`-member access resolved, so that an
-        // assignment can shadow an inherited (prototype-chain) member as an own
-        // property on the receiver instead of writing through the chain.
-        private ScriptVar memberAccessParent;
-        private string memberAccessName;
-        private bool memberAccessInherited;
-
-        // Pending loop control-flow request raised by a `break`/`continue`
-        // statement and consumed by the nearest enclosing loop.
-        private enum LoopControl
-        {
-            None,
-            Break,
-            Continue
-        }
-
-        private LoopControl loopControl = LoopControl.None;
-
-        /// <summary>
-        /// Called by a loop after running its body. Returns true when the loop
-        /// must stop (a pending <c>break</c>, or a <c>return</c> propagating out),
-        /// and false when it should keep iterating (normal flow or <c>continue</c>).
-        /// Resets <paramref name="execute"/> to true when consuming a break/continue.
-        /// </summary>
-        private bool HandleLoopControl(ref bool execute)
-        {
-            switch (loopControl)
-            {
-                case LoopControl.Break:
-                    loopControl = LoopControl.None;
-                    execute = true;
-                    return true;
-                case LoopControl.Continue:
-                    loopControl = LoopControl.None;
-                    execute = true;
-                    return false;
-                default:
-                    // No break/continue pending: a false execute here means a
-                    // return is propagating, which must also stop the loop.
-                    return !execute;
-            }
-        }
+        // The global (outermost) lexical scope; its bindings live on Root.
+        private readonly VmEnvironment globalEnvironment;
 
         public delegate void ScriptCallbackCB(ScriptVar var, object userdata);
 
@@ -113,11 +67,6 @@ namespace DScript
 
         public ScriptEngine()
         {
-            currentLexer = null;
-
-            scopes = new List<ScriptVar>();
-            callStack = new Stack<ScriptVarLink>();
-
             Root = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
 
             objectClass = (new ScriptVar(null, ScriptVar.Flags.Object)).Ref();
@@ -127,118 +76,100 @@ namespace DScript
             Root.AddChild("Object", objectClass);
             Root.AddChild("String", stringClass);
             Root.AddChild("Array", arrayClass);
-         }
+
+            globalEnvironment = new VmEnvironment(Root, null);
+        }
 
         public void Trace()
         {
             Root.Trace(0, null);
         }
 
+        /// <summary>
+        /// Compile <paramref name="code"/> to bytecode and run it. Script and
+        /// runtime errors are reported to stderr (matching prior behaviour);
+        /// other exceptions propagate.
+        /// </summary>
         public void Execute(string code)
         {
-            var oldLex = currentLexer;
-            var oldScopes = scopes;
-            scopes = new List<ScriptVar>();
-            scopes.PushBack(Root);
-
-            var rootLink = new ScriptVarLink(Root, "root");
-
-            callStack.Push(rootLink);
-
-            using (currentLexer = new ScriptLex(code))
-            {
-                var execute = true;
-
-                while (currentLexer.TokenType != 0)
-                {
-                    try
-                    {
-                        Statement(ref execute);
-                    }
-                    catch (Exception ex)
-                    {
-                        if (ex is ScriptException || ex is JITException)
-                        {
-                            var errorMessage = new StringBuilder($"ERROR on line {currentLexer.LineNumber} column {currentLexer.ColumnNumber} [{ex.Message}]");
-
-                            Console.Error.WriteLine(errorMessage.ToString());
-
-                            return;
-                        }
-
-                        throw;
-                    }
-                }
-            }
-
-            callStack.Pop();
-
-            currentLexer = oldLex;
-            scopes = oldScopes;
-        }
-
-        public ScriptVarLink EvalComplex(string code)
-        {
-            var oldLex = currentLexer;
-            var oldScopes = scopes;
-
-            currentLexer = new ScriptLex(code);
-            scopes = new List<ScriptVar>();
-            scopes.PushBack(Root);
-
-            ScriptVarLink v = null;
-
             try
             {
-                var execute = true;
-                do
-                {
-                    v = Base(ref execute);
-                    if (currentLexer.TokenType != ScriptLex.LexTypes.Eof)
-                    {
-                        currentLexer.Match((ScriptLex.LexTypes)';');
-                    }
-                } while (currentLexer.TokenType != ScriptLex.LexTypes.Eof);
+                Run(Compile(code));
             }
-            catch (ScriptException ex)
+            catch (Exception ex) when (ex is ScriptException || ex is JITException)
             {
-                var errorMessage = new StringBuilder($"ERROR on line {currentLexer.LineNumber} column {currentLexer.ColumnNumber} [{ex.Message}]");
+                Console.Error.WriteLine($"ERROR [{ex.Message}]");
+            }
+        }
 
-                var i = 0;
-                foreach (var scriptVar in scopes)
+        /// <summary>
+        /// Evaluate <paramref name="code"/> as an expression and return its value
+        /// (used by eval / JSON.parse).
+        /// </summary>
+        public ScriptVarLink EvalComplex(string code)
+        {
+            try
+            {
+                Chunk chunk;
+                using (var compiler = new DScriptCompiler())
                 {
-                    errorMessage.AppendLine();
-                    errorMessage.Append(i++ + ": " + scriptVar);
+                    chunk = compiler.CompileExpression(code);
                 }
 
-                Console.Error.WriteLine(errorMessage.ToString());
+                var value = new VirtualMachine(this).Run(chunk, globalEnvironment);
+                return new ScriptVarLink(value, null);
             }
-
-            currentLexer = oldLex;
-            scopes = oldScopes;
-
-            if (v != null)
+            catch (Exception ex) when (ex is ScriptException || ex is JITException)
             {
-                return v;
+                Console.Error.WriteLine($"ERROR [{ex.Message}]");
+                return new ScriptVarLink(new ScriptVar(null), null);
             }
+        }
 
-            return new ScriptVarLink(new ScriptVar(null), null);
+        /// <summary>
+        /// Compile source to a bytecode program <see cref="Chunk"/>. The chunk can
+        /// be run with <see cref="Run(Chunk)"/>, or saved with
+        /// <see cref="BytecodeSerializer"/> and re-run later.
+        /// </summary>
+        public static Chunk Compile(string code)
+        {
+            using var compiler = new DScriptCompiler();
+            return compiler.CompileProgram(code);
+        }
+
+        /// <summary>
+        /// Run a previously compiled (or loaded) bytecode program. Script/runtime
+        /// errors propagate; use <see cref="Execute(string)"/> for the
+        /// compile-and-report-errors convenience path.
+        /// </summary>
+        public void Run(Chunk program)
+        {
+            new VirtualMachine(this).Run(program, globalEnvironment);
+        }
+
+        /// <summary>
+        /// Invoke a script (or native) function programmatically. Lets native and
+        /// host code call back into script — e.g. Array map/filter/forEach/reduce
+        /// callbacks and sort comparators.
+        /// </summary>
+        public ScriptVar CallFunction(ScriptVar function, ScriptVar thisArg, params ScriptVar[] args)
+        {
+            return new VirtualMachine(this).InvokeCallable(function, thisArg, args ?? []);
         }
 
         public void AddNative(string funcDesc, ScriptCallbackCB callbackCB, object userData)
         {
-            var oldLex = currentLexer;
-            currentLexer = new ScriptLex(funcDesc);
+            using var lexer = new ScriptLex(funcDesc);
 
             var baseVar = Root;
-            currentLexer.Match(ScriptLex.LexTypes.RFunction);
-            var funcName = currentLexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.RFunction);
+            var funcName = lexer.TokenString;
 
-            currentLexer.Match(ScriptLex.LexTypes.Id);
+            lexer.Match(ScriptLex.LexTypes.Id);
 
-            while (currentLexer.TokenType == (ScriptLex.LexTypes)'.')
+            while (lexer.TokenType == (ScriptLex.LexTypes)'.')
             {
-                currentLexer.Match((ScriptLex.LexTypes)'.');
+                lexer.Match((ScriptLex.LexTypes)'.');
 
                 var link = baseVar.FindChild(funcName);
                 if (link == null)
@@ -246,33 +177,29 @@ namespace DScript
                     link = baseVar.AddChild(funcName, new ScriptVar(null, ScriptVar.Flags.Object));
                 }
                 baseVar = link.Var;
-                funcName = currentLexer.TokenString;
-                currentLexer.Match(ScriptLex.LexTypes.Id);
+                funcName = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
             }
 
             var funcVar = new ScriptVar(null, ScriptVar.Flags.Function | ScriptVar.Flags.Native);
             funcVar.SetCallback(callbackCB, userData);
-            ParseFunctionArguments(funcVar);
-
-            currentLexer = oldLex;
+            ParseFunctionArguments(funcVar, lexer);
 
             baseVar.AddChild(funcName, funcVar);
         }
 
         public void AddNativeProperty(string propertyDesc, ScriptCallbackCB callbackCB, object userData)
         {
-            var oldLex = currentLexer;
-            currentLexer = new ScriptLex(propertyDesc);
+            using var lexer = new ScriptLex(propertyDesc);
 
             var baseVar = Root;
+            var propName = lexer.TokenString;
 
-            var propName = currentLexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.Id);
 
-            currentLexer.Match(ScriptLex.LexTypes.Id);
-
-            while (currentLexer.TokenType == (ScriptLex.LexTypes)'.')
+            while (lexer.TokenType == (ScriptLex.LexTypes)'.')
             {
-                currentLexer.Match((ScriptLex.LexTypes)'.');
+                lexer.Match((ScriptLex.LexTypes)'.');
 
                 var link = baseVar.FindChild(propName);
                 if (link == null)
@@ -280,33 +207,38 @@ namespace DScript
                     link = baseVar.AddChild(propName, new ScriptVar(null, ScriptVar.Flags.Object));
                 }
                 baseVar = link.Var;
-                propName = currentLexer.TokenString;
-                currentLexer.Match(ScriptLex.LexTypes.Id);
+                propName = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
             }
+
             var propVar = new ScriptVar();
             callbackCB.Invoke(propVar, null);
-
-            currentLexer = oldLex;
 
             baseVar.AddChild(propName, propVar);
         }
 
-        private ScriptVarLink FindInScopes(string name)
+        private static void ParseFunctionArguments(ScriptVar funcVar, ScriptLex lexer)
         {
-            for (var x = scopes.Count - 1; x >= 0; x--)
+            lexer.Match((ScriptLex.LexTypes)'(');
+            while (lexer.TokenType != (ScriptLex.LexTypes)')')
             {
-                var scriptVar = scopes[x];
-                var a = scriptVar.FindChild(name);
-                if (a != null)
+                funcVar.AddChildNoDup(lexer.TokenString, null);
+                lexer.Match(ScriptLex.LexTypes.Id);
+
+                if (lexer.TokenType != (ScriptLex.LexTypes)')')
                 {
-                    return a;
+                    lexer.Match((ScriptLex.LexTypes)',');
                 }
             }
 
-            return null;
+            lexer.Match((ScriptLex.LexTypes)')');
         }
 
-        private ScriptVarLink FindInParentClasses(ScriptVar obj, string name)
+        /// <summary>
+        /// Resolve a member through the prototype chain and the built-in
+        /// String/Array/Object classes. Used by the VM for member access.
+        /// </summary>
+        internal ScriptVarLink FindInParentClasses(ScriptVar obj, string name)
         {
             ScriptVarLink implementation;
             var parentClass = obj.FindChild(ScriptVar.PrototypeClassName);
@@ -348,73 +280,10 @@ namespace DScript
             return null;
         }
 
-        private ScriptVarLink ParseFunctionDefinition()
-        {
-            return ParseDefinition(ScriptLex.LexTypes.RFunction);
-        }
-
-        private ScriptVarLink ParseDefinition(ScriptLex.LexTypes lexType)
-        {
-            currentLexer.Match(lexType);
-            var funcName = string.Empty;
-
-            //named function
-            if (currentLexer.TokenType == ScriptLex.LexTypes.Id)
-            {
-                funcName = currentLexer.TokenString;
-                currentLexer.Match(ScriptLex.LexTypes.Id);
-            }
-
-            var funcVar = new ScriptVarLink(new ScriptVar(null, ScriptVar.Flags.Function), funcName);
-
-            if (lexType == ScriptLex.LexTypes.RFunction || lexType == ScriptLex.LexTypes.RCatch)
-            {
-                ParseFunctionArguments(funcVar.Var);
-            }
-
-            var funcBegin = currentLexer.TokenStart;
-            var noExecute = false;
-            Block(ref noExecute);
-            funcVar.Var.SetData(currentLexer.GetSubString(funcBegin));
-
-            return funcVar;
-        }
-
-        private void ParseFunctionArguments(ScriptVar funcVar)
-        {
-            currentLexer.Match((ScriptLex.LexTypes)'(');
-            while (currentLexer.TokenType != (ScriptLex.LexTypes)')')
-            {
-                funcVar.AddChildNoDup(currentLexer.TokenString, null);
-                currentLexer.Match(ScriptLex.LexTypes.Id);
-
-                if (currentLexer.TokenType != (ScriptLex.LexTypes)')')
-                {
-                    currentLexer.Match((ScriptLex.LexTypes)',');
-                }
-            }
-
-            currentLexer.Match((ScriptLex.LexTypes)')');
-        }
-
-        private static void CreateLink(ref ScriptVarLink link, ScriptVar res)
-        {
-            if(link == null || link.Owned)
-            {
-                link = new ScriptVarLink(res, null);
-            }
-            else
-            {
-                link.ReplaceWith(res);
-            }
-        }
-        
         /// <summary>
-        /// Serialize the current VM state (all variables and their values).
-        /// This can be called at any time, even after script execution completes.
-        /// Note: Native functions cannot be serialized - they must be re-registered after deserialization.
+        /// Serialize the current variable state (Root and all values). Native
+        /// functions cannot be serialized and must be re-registered after restore.
         /// </summary>
-        /// <returns>A VMState object containing the serialized state</returns>
         public VMState SerializeState()
         {
             using var ms = new System.IO.MemoryStream();
@@ -422,26 +291,22 @@ namespace DScript
             Root.Serialize(writer);
             writer.Flush();
 
-            // Collect all native function names for reference
             var nativeFunctions = new List<string>();
             CollectNativeFunctionNames(Root, "", nativeFunctions);
 
             return new VMState
             {
                 RootState = ms.ToArray(),
-                NativeFunctionNames = nativeFunctions,  // Already a List, which implements IReadOnlyList
+                NativeFunctionNames = nativeFunctions,
                 Timestamp = DateTime.UtcNow,
                 Version = "1.0"
             };
         }
 
         /// <summary>
-        /// Deserialize and restore a previously saved VM state.
-        /// This replaces all current variables with the saved state.
-        /// Note: All native functions must be re-registered before calling this method.
-        /// After deserialization, you can execute new scripts that will have access to the restored variables.
+        /// Restore a previously saved variable state. Native functions must be
+        /// re-registered before calling this; their callbacks are merged back in.
         /// </summary>
-        /// <param name="state">The VMState to restore</param>
         public void DeserializeState(VMState state)
         {
             if (state == null)
@@ -449,20 +314,12 @@ namespace DScript
                 throw new ArgumentNullException(nameof(state));
             }
 
-            if (currentLexer != null)
-            {
-                throw new InvalidOperationException("Cannot deserialize state while execution is active.");
-            }
-
-            // Deserialize the Root state
             using var ms = new System.IO.MemoryStream(state.RootState);
             using var reader = new System.IO.BinaryReader(ms);
             var deserializedRoot = ScriptVar.Deserialize(reader);
 
-            // Merge native functions from current Root to deserialized Root
             MergeNativeFunctions(Root, deserializedRoot);
 
-            // Replace Root contents while keeping the same instance (to maintain refs)
             Root.RemoveAllChildren();
             var link = deserializedRoot.FirstChild;
             while (link != null)
@@ -472,33 +329,27 @@ namespace DScript
             }
         }
 
-        /// <summary>
-        /// Recursively collect names of all native functions
-        /// </summary>
         private static void CollectNativeFunctionNames(ScriptVar var, string path, List<string> names)
         {
             var link = var.FirstChild;
             while (link != null)
             {
                 var fullPath = string.IsNullOrEmpty(path) ? link.Name : $"{path}.{link.Name}";
-                
+
                 if (link.Var.IsNative && link.Var.IsFunction)
                 {
                     names.Add(fullPath);
                 }
-                
+
                 if (link.Var.IsObject || link.Var.IsFunction)
                 {
                     CollectNativeFunctionNames(link.Var, fullPath, names);
                 }
-                
+
                 link = link.Next;
             }
         }
 
-        /// <summary>
-        /// Merge native functions from current root to deserialized root
-        /// </summary>
         private static void MergeNativeFunctions(ScriptVar current, ScriptVar deserialized)
         {
             var link = current.FirstChild;
@@ -506,24 +357,21 @@ namespace DScript
             {
                 if (link.Var.IsNative && link.Var.IsFunction)
                 {
-                    // Find corresponding link in deserialized
                     var deserializedLink = deserialized.FindChild(link.Name);
                     if (deserializedLink != null && deserializedLink.Var.IsNative)
                     {
-                        // Copy the callback from current to deserialized
                         deserializedLink.Var.SetCallback(link.Var.GetCallback(), link.Var.GetCallbackUserData());
                     }
                 }
                 else if (link.Var.IsObject)
                 {
-                    // Recursively merge nested objects
                     var deserializedLink = deserialized.FindChild(link.Name);
                     if (deserializedLink != null && deserializedLink.Var.IsObject)
                     {
                         MergeNativeFunctions(link.Var, deserializedLink.Var);
                     }
                 }
-                
+
                 link = link.Next;
             }
         }
