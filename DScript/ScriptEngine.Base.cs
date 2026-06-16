@@ -39,7 +39,14 @@ namespace DScript
                 ScriptLex.LexTypes.PlusEqual or
                 ScriptLex.LexTypes.MinusEqual or
                 ScriptLex.LexTypes.SlashEqual or
-                ScriptLex.LexTypes.PercentEqual)) return leftHandSide;
+                ScriptLex.LexTypes.PercentEqual or
+                ScriptLex.LexTypes.TimesEqual or
+                ScriptLex.LexTypes.AndEqual or
+                ScriptLex.LexTypes.OrEqual or
+                ScriptLex.LexTypes.XorEqual or
+                ScriptLex.LexTypes.LShiftEqual or
+                ScriptLex.LexTypes.RShiftEqual or
+                ScriptLex.LexTypes.RShiftUnsignedEqual)) return leftHandSide;
             
             if (execute && !leftHandSide.Owned)
             {
@@ -102,6 +109,46 @@ namespace DScript
                 {
                     var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'%');
                     target.ReplaceWith(res);
+                }
+                    break;
+                case ScriptLex.LexTypes.TimesEqual:
+                {
+                    var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'*');
+                    target.ReplaceWith(res);
+                }
+                    break;
+                case ScriptLex.LexTypes.AndEqual:
+                {
+                    var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'&');
+                    target.ReplaceWith(res);
+                }
+                    break;
+                case ScriptLex.LexTypes.OrEqual:
+                {
+                    var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'|');
+                    target.ReplaceWith(res);
+                }
+                    break;
+                case ScriptLex.LexTypes.XorEqual:
+                {
+                    var res = leftHandSide.Var.MathsOp(rightHandSide.Var, (ScriptLex.LexTypes)'^');
+                    target.ReplaceWith(res);
+                }
+                    break;
+                case ScriptLex.LexTypes.LShiftEqual:
+                {
+                    //shifts are not part of MathsOp, so apply them directly
+                    target.ReplaceWith(new ScriptVar(leftHandSide.Var.Int << rightHandSide.Var.Int));
+                }
+                    break;
+                case ScriptLex.LexTypes.RShiftEqual:
+                {
+                    target.ReplaceWith(new ScriptVar(leftHandSide.Var.Int >> rightHandSide.Var.Int));
+                }
+                    break;
+                case ScriptLex.LexTypes.RShiftUnsignedEqual:
+                {
+                    target.ReplaceWith(new ScriptVar(leftHandSide.Var.Int >>> rightHandSide.Var.Int));
                 }
                     break;
                 default:

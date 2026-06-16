@@ -131,7 +131,7 @@ returns an object uses that object as the result of the `new` expression.
 +, -, *, /, %, ++, --
 
 ***Assignment operators***
-=, +=, -=, /=, %=
+=, +=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=, >>>=
 
 ***Comparison operators***
 <, >, <=, >=, ==, !=, ===, !==

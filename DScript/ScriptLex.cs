@@ -102,6 +102,7 @@ namespace DScript
             MinusEqual,
             SlashEqual,
             PercentEqual,
+            TimesEqual,
             PlusPlus,
             MinusMinus,
             AndEqual,
@@ -604,6 +605,11 @@ namespace DScript
                 else if (TokenType == (LexTypes)'%' && CurrentChar == '=') // %=
                 {
                     TokenType = LexTypes.PercentEqual;
+                    GetNextChar();
+                }
+                else if (TokenType == (LexTypes)'*' && CurrentChar == '=') // *=
+                {
+                    TokenType = LexTypes.TimesEqual;
                     GetNextChar();
                 }
             }
