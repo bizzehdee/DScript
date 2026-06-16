@@ -436,9 +436,24 @@ namespace DScript.Vm
                     }
                     case OpCode.New:
                     {
-                        var args = PopArgs(ReadOperand(code, ref ip));
-                        var ctor = Pop();
-                        Push(Construct(ctor, args));
+                        var argc = ReadOperand(code, ref ip);
+                        var ctor = stack[sp - argc - 1];
+                        // Fast path: compiled constructor with args on the stack —
+                        // bind them directly into the call frame (no ScriptVar[]).
+                        if (ctor != null && ctor.IsFunction && !ctor.IsNative)
+                        {
+                            var instance = new ScriptVar(ScriptVar.Flags.Object);
+                            instance.AddChild(ScriptVar.PrototypeClassName, ctor);
+                            var result = InvokeVmFunctionFromStack(ctor, instance, argc);
+                            sp--; // discard the constructor left below the (popped) args
+                            // a constructor that returns an object replaces the instance
+                            Push(result != null && result.IsObject ? result : instance);
+                        }
+                        else
+                        {
+                            var args = PopArgs(argc);
+                            Push(Construct(Pop(), args));
+                        }
                         break;
                     }
 
