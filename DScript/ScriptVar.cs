@@ -25,6 +25,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -34,6 +35,16 @@ namespace DScript
     {
         // Cache compiled regex patterns to avoid recompilation (performance optimization)
         private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
+
+        // RegexOptions.Compiled emits IL at runtime via Reflection.Emit, which
+        // Native AOT cannot do (the runtime silently ignores it there). Script
+        // regex patterns are supplied at runtime, so the [GeneratedRegex] source
+        // generator — which requires a compile-time-constant pattern — does not
+        // apply. Instead, only request Compiled when dynamic code is actually
+        // supported: under JIT this keeps the fast compiled engine for hot reuse,
+        // and under AOT it avoids requesting a no-op option.
+        private static readonly RegexOptions CompiledIfSupported =
+            RuntimeFeature.IsDynamicCodeCompiled ? RegexOptions.Compiled : RegexOptions.None;
 
         // Cache of stringified small array indices so element access does not
         // allocate a name string per get/set. Out-of-range indices fall back.
@@ -217,7 +228,7 @@ namespace DScript
                 var regexStr = val.Substring(1, lastIndexOf - 1);
                 var opts = val.Substring(lastIndexOf + 1);
 
-                var regexOpts = RegexOptions.Compiled | RegexOptions.ECMAScript;
+                var regexOpts = RegexOptions.ECMAScript | CompiledIfSupported;
 
                 foreach (var c in opts)
                 {
@@ -1134,7 +1145,14 @@ namespace DScript
                 {
                     var pattern = reader.ReadString();
                     var options = (RegexOptions)reader.ReadInt32();
-                    
+
+                    // Drop Compiled when dynamic code is unsupported (Native AOT),
+                    // where it would only be ignored — see CompiledIfSupported.
+                    if (!RuntimeFeature.IsDynamicCodeCompiled)
+                    {
+                        options &= ~RegexOptions.Compiled;
+                    }
+
                     if (!string.IsNullOrEmpty(pattern))
                     {
                         try
