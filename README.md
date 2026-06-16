@@ -6,6 +6,10 @@ Open sourced, object oriented, Javascript based, extendable scripting language i
 DScript is distributed as two NuGet packages: **DScript** (the engine) and **DScript.Extras**
 (an optional JS-style standard library — `console`, `Math`, `String`, `Array`, `JSON`, etc.).
 
+Source is **compiled to bytecode once** and executed on a stack-based virtual machine, so
+loops and function calls don't re-parse on every iteration. Compiled bytecode can also be
+saved and re-run later. Functions are **lexically scoped closures**.
+
 ***Example***
 
     function Animal(name) {
@@ -73,6 +77,26 @@ Using DScript from C#
 `CallFunction(function, thisArg, args...)` invokes any script (or native) function
 programmatically. It is also what powers the higher-order array methods
 (`map` / `filter` / `forEach` / `reduce` and `sort` comparators).
+
+***Compiling to bytecode and re-running it***
+
+    // compile once...
+    var program = engine.Compile("var answer = 6 * 7;");
+
+    // ...run it (repeatedly, cheaply)
+    engine.Run(program);
+
+    // ...or persist the bytecode and run it later on another engine
+    byte[] bytes = DScript.Vm.BytecodeSerializer.Save(program);
+    // (save bytes to disk, send over the wire, etc.)
+
+    var other = new ScriptEngine();
+    var loader2 = new EngineFunctionLoader();
+    loader2.RegisterFunctions(other);                 // register the same natives
+    other.Run(DScript.Vm.BytecodeSerializer.Load(bytes));
+
+Native functions are resolved by name at run time, so compiled bytecode does not embed
+them — a loaded program just needs the host to register the same natives before running.
 
 ***Saving and restoring engine state***
 
