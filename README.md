@@ -80,6 +80,7 @@ Using DScript from C#
 - Functions: named, anonymous, and nested; callable with fewer or more arguments than declared
 - Arithmetic, comparison, bitwise and boolean operators
 - `if` / `else`, `while`, `do` / `while`, `for`, `switch` / `case` / `default`, `return`
+- `break` and `continue` within loops
 - Ternary (`?:`) expressions
 - `typeof`
 - Regular-expression literals (`/pattern/flags`)

@@ -147,12 +147,13 @@ namespace DScript
                     if(loopCondition)
                     {
                         Statement(ref execute);
+                        if (HandleLoopControl(ref execute)) loopCondition = false;
                     }
                     else
                     {
                         Statement(ref noExecute);
                     }
-                
+
                     var whileBody = currentLexer.GetSubLex(whileBodyStart);
                     var oldLex = currentLexer;
 
@@ -172,6 +173,7 @@ namespace DScript
                             whileBody.Reset();
                             currentLexer = whileBody;
                             Statement(ref execute);
+                            if (HandleLoopControl(ref execute)) loopCondition = false;
                         }
                     }
 
@@ -184,9 +186,14 @@ namespace DScript
                     currentLexer.Match(ScriptLex.LexTypes.RDo);
 
                     var doBodyStart = currentLexer.TokenStart;
+                    var doNoExecute = false;
 
                     //run the body once (parses only when not executing)
                     Statement(ref execute);
+
+                    //a break/continue/return from the first pass stops the loop
+                    //(continue still falls through to the condition check below).
+                    var stop = HandleLoopControl(ref execute);
 
                     var doBody = currentLexer.GetSubLex(doBodyStart);
 
@@ -194,8 +201,9 @@ namespace DScript
                     currentLexer.Match((ScriptLex.LexTypes)'(');
 
                     var doConditionStart = currentLexer.TokenStart;
-                    var condition = Base(ref execute);
-                    var loopCondition = execute && condition.Var.Bool;
+                    //when stopping, parse the condition without executing it
+                    var condition = stop ? Base(ref doNoExecute) : Base(ref execute);
+                    var loopCondition = !stop && execute && condition.Var.Bool;
 
                     var doCond = currentLexer.GetSubLex(doConditionStart);
 
@@ -210,6 +218,7 @@ namespace DScript
                         doBody.Reset();
                         currentLexer = doBody;
                         Statement(ref execute);
+                        if (HandleLoopControl(ref execute)) break;
 
                         doCond.Reset();
                         currentLexer = doCond;
@@ -250,6 +259,7 @@ namespace DScript
                     if (loopCondition)
                     {
                         Statement(ref execute);
+                        if (HandleLoopControl(ref execute)) loopCondition = false;
                     }
                     else
                     {
@@ -258,7 +268,7 @@ namespace DScript
 
                     var forBody = currentLexer.GetSubLex(forBodyStart);
                     var oldLex = currentLexer;
-                    if (loopCondition)
+                    if (loopCondition && execute)
                     {
                         forIter.Reset();
                         currentLexer = forIter;
@@ -282,6 +292,10 @@ namespace DScript
                             currentLexer = forBody;
 
                             Statement(ref execute);
+
+                            //consume break/continue: break stops the loop, continue
+                            //falls through to run the iterator then re-test.
+                            if (HandleLoopControl(ref execute)) loopCondition = false;
                         }
 
                         if (execute && loopCondition)
@@ -510,6 +524,31 @@ namespace DScript
                     }
 
                     currentLexer.Match((ScriptLex.LexTypes)'}');
+                    break;
+                }
+                case ScriptLex.LexTypes.RBreak:
+                {
+                    currentLexer.Match(ScriptLex.LexTypes.RBreak);
+                    currentLexer.Match((ScriptLex.LexTypes)';');
+                    if (execute)
+                    {
+                        //signal the enclosing loop to stop; subsequent statements
+                        //are parsed but not executed until the loop consumes this.
+                        loopControl = LoopControl.Break;
+                        execute = false;
+                    }
+                    break;
+                }
+                case ScriptLex.LexTypes.RContinue:
+                {
+                    currentLexer.Match(ScriptLex.LexTypes.RContinue);
+                    currentLexer.Match((ScriptLex.LexTypes)';');
+                    if (execute)
+                    {
+                        //signal the enclosing loop to skip to its next iteration.
+                        loopControl = LoopControl.Continue;
+                        execute = false;
+                    }
                     break;
                 }
                 default:

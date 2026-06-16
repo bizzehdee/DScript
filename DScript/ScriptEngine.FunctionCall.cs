@@ -74,6 +74,8 @@ namespace DScript
                 {
                     Block(ref execute);
                     execute = true;
+                    //a loop construct never spans a function boundary
+                    loopControl = LoopControl.None;
                 }
                 finally
                 {
@@ -172,6 +174,8 @@ namespace DScript
                         Block(ref execute);
 
                         execute = true;
+                        //a loop construct never spans a function boundary
+                        loopControl = LoopControl.None;
                     }
                     catch
                     {
