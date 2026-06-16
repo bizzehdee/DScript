@@ -35,6 +35,27 @@ namespace DScript
         // Cache compiled regex patterns to avoid recompilation (performance optimization)
         private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
 
+        // Cache of stringified small array indices so element access does not
+        // allocate a name string per get/set. Out-of-range indices fall back.
+        private static readonly string[] IndexNames = CreateIndexNames();
+
+        private static string[] CreateIndexNames()
+        {
+            var names = new string[1024];
+            for (var i = 0; i < names.Length; i++)
+            {
+                names[i] = i.ToString(CultureInfo.InvariantCulture);
+            }
+            return names;
+        }
+
+        private static string IndexName(int idx)
+        {
+            return idx >= 0 && idx < IndexNames.Length
+                ? IndexNames[idx]
+                : idx.ToString(CultureInfo.InvariantCulture);
+        }
+
         #region IDisposable
         private bool disposed;
         public void Dispose()
@@ -596,7 +617,7 @@ namespace DScript
 
         public ScriptVar GetArrayIndex(int idx)
         {
-            var link = FindChild($"{idx}");
+            var link = FindChild(IndexName(idx));
             if (link != null) return link.Var;
 
             return new ScriptVar(null, Flags.Null);
@@ -604,7 +625,8 @@ namespace DScript
 
         public void SetArrayIndex(int idx, ScriptVar value)
         {
-            var link = FindChild($"{idx}");
+            var name = IndexName(idx);
+            var link = FindChild(name);
 
             if (link != null)
             {
@@ -622,8 +644,8 @@ namespace DScript
             else
             {
                 if (value.IsUndefined) return;
-                
-                AddChild($"{idx}", value);
+
+                AddChild(name, value);
                 cachedArrayLength = -1;  // Invalidate cache on addition
             }
         }

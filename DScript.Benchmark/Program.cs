@@ -46,6 +46,7 @@ internal static class Program
         var callN = (int)(200_000 * scale);
         var nested = (int)(700 * scale);
         var stringN = (int)(20_000 * scale);
+        var arrayReps = (int)(400 * scale);
         const int fibN = 27; // exponential — kept fixed regardless of scale
 
         var benchmarks = new (string name, string code)[]
@@ -64,6 +65,9 @@ internal static class Program
 
             ("string concat (" + stringN + ")",
                 $"var str = \"\"; for (var i = 0; i < {stringN}; i = i + 1) {{ str = str + \"x\"; }} result = str.length;"),
+
+            ("array build+sum (x" + arrayReps + ")",
+                $"var s = 0; for (var r = 0; r < {arrayReps}; r = r + 1) {{ var a = []; for (var i = 0; i < 500; i = i + 1) {{ a[i] = i; }} for (var i = 0; i < 500; i = i + 1) {{ s = s + a[i]; }} }} result = s;"),
         };
 
         Console.WriteLine($"DScript benchmark  (scale={scale.ToString(CultureInfo.InvariantCulture)}, .NET {System.Environment.Version})");
