@@ -356,17 +356,42 @@ namespace DScript.Vm
                     }
                     case OpCode.Call:
                     {
-                        var args = PopArgs(ReadOperand(code, ref ip));
-                        var callee = Pop();
-                        Push(InvokeCallable(callee, null, args));
+                        var argc = ReadOperand(code, ref ip);
+                        // Fast path: a compiled function called with its args already
+                        // on the operand stack. Bind them directly into the call
+                        // frame instead of materializing a ScriptVar[] per call.
+                        var callee = stack[sp - argc - 1];
+                        if (callee != null && callee.IsFunction && !callee.IsNative)
+                        {
+                            var result = InvokeVmFunctionFromStack(callee, null, argc);
+                            sp--; // discard the callee left below the (already popped) args
+                            Push(result);
+                        }
+                        else
+                        {
+                            var args = PopArgs(argc);
+                            Push(InvokeCallable(Pop(), null, args));
+                        }
                         break;
                     }
                     case OpCode.CallMethod:
                     {
-                        var args = PopArgs(ReadOperand(code, ref ip));
-                        var callee = Pop();
-                        var receiver = Pop();
-                        Push(InvokeCallable(callee, receiver, args));
+                        var argc = ReadOperand(code, ref ip);
+                        var callee = stack[sp - argc - 1];
+                        if (callee != null && callee.IsFunction && !callee.IsNative)
+                        {
+                            var receiver = stack[sp - argc - 2];
+                            var result = InvokeVmFunctionFromStack(callee, receiver, argc);
+                            sp -= 2; // discard callee and receiver below the args
+                            Push(result);
+                        }
+                        else
+                        {
+                            var args = PopArgs(argc);
+                            var c = Pop();
+                            var receiver = Pop();
+                            Push(InvokeCallable(c, receiver, args));
+                        }
                         break;
                     }
                     case OpCode.New:
@@ -499,15 +524,53 @@ namespace DScript.Vm
             return Execute(vmfn.Body, callEnv) ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
         }
 
+        // Invoke a compiled (non-native) function whose arguments are sitting on
+        // the operand stack at [sp-argc .. sp-1]. Binds them straight into the new
+        // call frame and pops them, avoiding the per-call ScriptVar[] that the
+        // general InvokeCallable path needs. The caller is responsible for popping
+        // the callee (and receiver) that remain below the args. Mirrors the
+        // compiled-function branch of InvokeCallable exactly.
+        private ScriptVar InvokeVmFunctionFromStack(ScriptVar callee, ScriptVar thisArg, int argc)
+        {
+            var argBase = sp - argc;
+
+            var vmfn = (VmFunction)callee.GetData();
+            var callEnv = new Environment(new ScriptVar(null, ScriptVar.Flags.Object), vmfn.Captured);
+            if (thisArg != null) callEnv.Vars.AddChildNoDup("this", thisArg);
+
+            var parameters = vmfn.Body.Parameters;
+            for (var j = 0; j < parameters.Count; j++)
+            {
+                var arg = j < argc ? stack[argBase + j] : null;
+                callEnv.Vars.AddChild(parameters[j], BindArgValue(arg));
+            }
+
+            // Pop the arguments now that they are bound; the args' slots are free
+            // for the callee's own use of the shared operand stack. Their values
+            // stay alive via the call frame's child links.
+            sp = argBase;
+
+            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(null, ScriptVar.Flags.Undefined);
+        }
+
         // primitives are passed by value, objects/functions by reference
         private static ScriptVar BindArg(ScriptVar[] args, int index)
         {
-            if (args == null || index >= args.Length || args[index] == null)
+            if (args == null || index >= args.Length)
             {
                 return new ScriptVar(null, ScriptVar.Flags.Undefined);
             }
 
-            var value = args[index];
+            return BindArgValue(args[index]);
+        }
+
+        // Bind a single argument value into a call frame.
+        private static ScriptVar BindArgValue(ScriptVar value)
+        {
+            if (value == null)
+            {
+                return new ScriptVar(null, ScriptVar.Flags.Undefined);
+            }
 
             // Objects/arrays/functions are passed by reference.
             if (!value.IsBasic) return value;
