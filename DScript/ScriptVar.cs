@@ -83,9 +83,23 @@ namespace DScript
         private object scriptData;
         private int intData;
         private double doubleData;
-        private ScriptEngine.ScriptCallbackCB scriptCallback;
-        private object callbackUserData;
         private int cachedArrayLength = -1;  // -1 means not cached
+
+        // Native callbacks are rare (registered once per built-in function) but the
+        // two dedicated fields they needed used to sit on every ScriptVar — including
+        // the millions of short-lived primitives the VM allocates. They are folded
+        // into a small holder stored in scriptData (unused for native functions
+        // otherwise), shrinking every ScriptVar by 16 bytes.
+        private sealed class NativeCallback
+        {
+            public readonly ScriptEngine.ScriptCallbackCB Callback;
+            public readonly object UserData;
+            public NativeCallback(ScriptEngine.ScriptCallbackCB callback, object userData)
+            {
+                Callback = callback;
+                UserData = userData;
+            }
+        }
 
         // O(1) name -> child lookup, rebuilt lazily from the child linked list.
         // The linked list remains the source of truth for ordering (for...in,
@@ -863,8 +877,7 @@ namespace DScript
 
         public void SetCallback(ScriptEngine.ScriptCallbackCB callback, object userdata)
         {
-            scriptCallback = callback;
-            callbackUserData = userdata;
+            scriptData = new NativeCallback(callback, userdata);
         }
 
         public void Trace(int indent, string name)
@@ -989,12 +1002,12 @@ namespace DScript
 
         public ScriptEngine.ScriptCallbackCB GetCallback()
         {
-            return scriptCallback;
+            return scriptData is NativeCallback nc ? nc.Callback : null;
         }
 
         public object GetCallbackUserData()
         {
-            return callbackUserData;
+            return scriptData is NativeCallback nc ? nc.UserData : null;
         }
 
         /// <summary>
@@ -1009,8 +1022,10 @@ namespace DScript
             writer.Write(intData);
             writer.Write(doubleData);
             
-            // Write string/object data
-            if (scriptData == null)
+            // Write string/object data. A native callback holder is not
+            // serializable data (the delegate is re-attached on restore), so it is
+            // treated exactly like the null case the dedicated field used to give.
+            if (scriptData == null || scriptData is NativeCallback)
             {
                 writer.Write(false); // null marker
             }
