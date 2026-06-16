@@ -1,4 +1,4 @@
-﻿/*
+/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -27,6 +27,70 @@ namespace DScript
     public sealed partial class ScriptEngine
     {
         /// <summary>
+        /// Create a fresh call scope, binding <c>this</c> when a receiver is
+        /// supplied. The caller then binds the declared parameters before running
+        /// the function via <see cref="RunFunction"/>.
+        /// </summary>
+        private static ScriptVar CreateCallScope(ScriptVar thisArg)
+        {
+            var functionRoot = new ScriptVar(null, ScriptVar.Flags.Function);
+
+            if (thisArg != null)
+            {
+                functionRoot.AddChildNoDup("this", thisArg);
+            }
+
+            return functionRoot;
+        }
+
+        /// <summary>
+        /// Shared invocation tail used by every call path. Adds the return slot,
+        /// pushes the call scope/stack, runs the native callback or the script body,
+        /// then pops and yields the return value. <paramref name="functionRoot"/>
+        /// must already hold <c>this</c> and the bound parameters.
+        /// </summary>
+        /// <param name="function">The function being invoked (used for the body/callback).</param>
+        /// <param name="functionRoot">The prepared call scope.</param>
+        /// <param name="functionLink">The link pushed onto the call stack.</param>
+        /// <param name="execute">Execution flag, set true once the body completes.</param>
+        /// <returns>The function's return value.</returns>
+        private ScriptVar RunFunction(ScriptVar function, ScriptVar functionRoot, ScriptVarLink functionLink, ref bool execute)
+        {
+            var returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
+
+            scopes.PushBack(functionRoot);
+            callStack.Push(functionLink);
+
+            if (function.IsNative)
+            {
+                var callback = function.GetCallback();
+                callback?.Invoke(functionRoot, function.GetCallbackUserData());
+            }
+            else
+            {
+                var oldLex = currentLexer;
+                currentLexer = new ScriptLex(function.String);
+
+                try
+                {
+                    Block(ref execute);
+                    execute = true;
+                }
+                finally
+                {
+                    currentLexer = oldLex;
+                    //a loop never spans a call boundary
+                    loopControl = LoopControl.None;
+                }
+            }
+
+            callStack.Pop();
+            scopes.PopBack();
+
+            return returnVarLink.Var;
+        }
+
+        /// <summary>
         /// Invoke a script function (user-defined or native) programmatically with
         /// the supplied arguments. This lets native/host code call back into script
         /// functions — e.g. Array.map/filter/forEach callbacks and sort comparators.
@@ -43,12 +107,7 @@ namespace DScript
                 throw new ScriptException("Value is not a function");
             }
 
-            var functionRoot = new ScriptVar(null, ScriptVar.Flags.Function);
-
-            if (thisArg != null)
-            {
-                functionRoot.AddChildNoDup("this", thisArg);
-            }
+            var functionRoot = CreateCallScope(thisArg);
 
             //bind arguments positionally to the declared parameters
             var argIndex = 0;
@@ -66,39 +125,8 @@ namespace DScript
                 param = param.Next;
             }
 
-            var returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
-
-            scopes.PushBack(functionRoot);
-            callStack.Push(new ScriptVarLink(function, null));
-
             var execute = true;
-
-            if (function.IsNative)
-            {
-                var callback = function.GetCallback();
-                callback?.Invoke(functionRoot, function.GetCallbackUserData());
-            }
-            else
-            {
-                var oldLex = currentLexer;
-                currentLexer = new ScriptLex(function.String);
-
-                try
-                {
-                    Block(ref execute);
-                }
-                finally
-                {
-                    currentLexer = oldLex;
-                    //a loop never spans a call boundary
-                    loopControl = LoopControl.None;
-                }
-            }
-
-            callStack.Pop();
-            scopes.PopBack();
-
-            return returnVarLink.Var;
+            return RunFunction(function, functionRoot, new ScriptVarLink(function, null), ref execute);
         }
 
         /// <summary>
@@ -115,14 +143,9 @@ namespace DScript
                 throw new ScriptException($"{function.Name} is not a function");
             }
 
-            var functionRoot = new ScriptVar(null, ScriptVar.Flags.Function);
+            var functionRoot = CreateCallScope(parent);
 
-            if (parent != null)
-            {
-                functionRoot.AddChildNoDup("this", parent);
-            }
-
-            // No arguments supplied: every declared parameter is undefined.
+            //no arguments supplied: every declared parameter is undefined
             var v = function.Var.FirstChild;
             while (v != null)
             {
@@ -130,41 +153,9 @@ namespace DScript
                 v = v.Next;
             }
 
-            var returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
+            var result = RunFunction(function.Var, functionRoot, function, ref execute);
 
-            scopes.PushBack(functionRoot);
-            callStack.Push(function);
-
-            if (function.Var.IsNative)
-            {
-                var func = function.Var.GetCallback();
-                func?.Invoke(functionRoot, function.Var.GetCallbackUserData());
-            }
-            else
-            {
-                var oldLex = currentLexer;
-                currentLexer = new ScriptLex(function.Var.String);
-
-                try
-                {
-                    Block(ref execute);
-                    execute = true;
-                    //a loop construct never spans a function boundary
-                    loopControl = LoopControl.None;
-                }
-                finally
-                {
-                    currentLexer = oldLex;
-                }
-            }
-
-            callStack.Pop();
-            scopes.PopBack();
-
-            var returnVar = new ScriptVarLink(returnVarLink.Var, null);
-            functionRoot.RemoveLink(returnVarLink);
-
-            return returnVar;
+            return new ScriptVarLink(result, null);
         }
 
         private ScriptVarLink FunctionCall(ref bool execute, ScriptVarLink function, ScriptVar parent)
@@ -177,12 +168,8 @@ namespace DScript
                 }
 
                 currentLexer.Match((ScriptLex.LexTypes)'(');
-                var functionRoot = new ScriptVar(null, ScriptVar.Flags.Function);
 
-                if (parent != null)
-                {
-                    functionRoot.AddChildNoDup("this", parent);
-                }
+                var functionRoot = CreateCallScope(parent);
 
                 var v = function.Var.FirstChild;
 
@@ -194,16 +181,8 @@ namespace DScript
                     var value = Base(ref execute);
                     if (execute && v != null)
                     {
-                        if (value.Var.IsBasic)
-                        {
-                            //pass by val
-                            functionRoot.AddChild(v.Name, value.Var.DeepCopy());
-                        }
-                        else
-                        {
-                            //pass by ref
-                            functionRoot.AddChild(v.Name, value.Var);
-                        }
+                        //primitives by value, objects/functions by reference
+                        functionRoot.AddChild(v.Name, value.Var.IsBasic ? value.Var.DeepCopy() : value.Var);
                     }
 
                     if (v != null)
@@ -227,48 +206,9 @@ namespace DScript
 
                 currentLexer.Match((ScriptLex.LexTypes)')');
 
-                var returnVarLink = functionRoot.AddChild(ScriptVar.ReturnVarName, null);
+                var result = RunFunction(function.Var, functionRoot, function, ref execute);
 
-                scopes.PushBack(functionRoot);
-
-                callStack.Push(function);
-
-                if (function.Var.IsNative)
-                {
-                    var func = function.Var.GetCallback();
-                    func?.Invoke(functionRoot, function.Var.GetCallbackUserData());
-                }
-                else
-                {
-                    var oldLex = currentLexer;
-                    var newLex = new ScriptLex(function.Var.String);
-                    currentLexer = newLex;
-
-                    try
-                    {
-                        Block(ref execute);
-
-                        execute = true;
-                        //a loop construct never spans a function boundary
-                        loopControl = LoopControl.None;
-                    }
-                    catch
-                    {
-                        throw;
-                    }
-                    finally
-                    {
-                        currentLexer = oldLex;
-                    }
-                }
-
-                callStack.Pop();
-                scopes.PopBack();
-
-                var returnVar = new ScriptVarLink(returnVarLink.Var, null);
-                functionRoot.RemoveLink(returnVarLink);
-
-                return returnVar;
+                return new ScriptVarLink(result, null);
             }
             else
             {
