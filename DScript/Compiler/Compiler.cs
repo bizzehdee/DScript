@@ -155,6 +155,7 @@ namespace DScript.Compiler
             {
                 var op = lexer.TokenType;
                 lexer.Match(op);
+                var operandStart = chunk.Count;
                 CompileShift(false);
 
                 switch (op)
@@ -166,9 +167,19 @@ namespace DScript.Compiler
                         chunk.Emit(OpCode.In);
                         break;
                     default:
-                        chunk.Emit(OpCode.Binary, (int)op);
+                        EmitBinary((int)op, operandStart);
                         break;
                 }
+            }
+        }
+
+        // Emit a Binary op, fusing a single-literal right operand into BinaryConst
+        // when possible (see Chunk.TryFuseConstantBinary).
+        private void EmitBinary(int op, int operandStart)
+        {
+            if (!chunk.TryFuseConstantBinary(operandStart, op))
+            {
+                chunk.Emit(OpCode.Binary, op);
             }
         }
 
@@ -196,8 +207,9 @@ namespace DScript.Compiler
             {
                 var op = lexer.TokenType;
                 lexer.Match(op);
+                var operandStart = chunk.Count;
                 CompileTerm(false);
-                chunk.Emit(OpCode.Binary, (int)op);
+                EmitBinary((int)op, operandStart);
             }
         }
 
@@ -212,8 +224,9 @@ namespace DScript.Compiler
             {
                 var op = lexer.TokenType;
                 lexer.Match(op);
+                var operandStart = chunk.Count;
                 CompileUnary(false);
-                chunk.Emit(OpCode.Binary, (int)op);
+                EmitBinary((int)op, operandStart);
             }
         }
 

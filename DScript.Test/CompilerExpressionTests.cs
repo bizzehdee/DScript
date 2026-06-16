@@ -62,6 +62,48 @@ namespace DScript.Test
             Assert.That(Eval("0 ? 100 : 200").Int, Is.EqualTo(200));
         }
 
+        // --- Constant;Binary -> BinaryConst fusion correctness ------------------
+
+        // A ternary whose arms are literals must NOT be mis-fused with a
+        // surrounding binary op: the right operand is the whole ternary (control
+        // flow), not the literal it happens to end on.
+        [TestCase("1 + (1 ? 10 : 20)", 11)]
+        [TestCase("1 + (0 ? 10 : 20)", 21)]
+        [TestCase("100 - (0 ? 1 : 2)", 98)]
+        public void Eval_BinaryWithTernaryOperandNotMisfused(string src, int expected)
+        {
+            Assert.That(Eval(src).Int, Is.EqualTo(expected));
+        }
+
+        // The int fast path in BinaryConst must reproduce MathsOp's int semantics
+        // exactly, including JS-style division/modulo by zero.
+        [TestCase("10 / 3", 3)]
+        [TestCase("10 % 3", 1)]
+        [TestCase("7 * 6", 42)]
+        [TestCase("8 - 100", -92)]
+        public void Eval_BinaryConstIntSemantics(string src, int expected)
+        {
+            Assert.That(Eval(src).Int, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void Eval_BinaryConstDivAndModByZeroMatchMathsOp()
+        {
+            // int / 0 -> +/-Infinity (double), int % 0 -> NaN — same as the
+            // unfused path, just reached through BinaryConst.
+            Assert.That(double.IsPositiveInfinity(Eval("5 / 0").Float), Is.True);
+            Assert.That(double.IsNaN(Eval("5 % 0").Float), Is.True);
+        }
+
+        [Test]
+        public void Eval_BinaryConstFallsBackForNonIntOperand()
+        {
+            // double op int-literal and string op string-literal take the
+            // MathsOp fallback (constant.Kind != Int or a not int).
+            Assert.That(Eval("2.5 + 1").Float, Is.EqualTo(3.5).Within(1e-9));
+            Assert.That(Eval("\"x\" + 1").String, Is.EqualTo("x1"));
+        }
+
         [Test]
         public void Eval_StringConcatAndTypeof()
         {

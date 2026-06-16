@@ -265,6 +265,26 @@ namespace DScript.Vm
                         Push(a.MathsOp(b, operatorCode));
                         break;
                     }
+                    case OpCode.BinaryConst:
+                    {
+                        // Fused Constant + Binary: the right operand is a literal,
+                        // read from the constant pool instead of the stack.
+                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
+                        var constant = chunk.Constants[ReadOperand(code, ref ip)];
+                        var a = Pop();
+                        // Int-vs-int-literal fast path: compute directly, skipping
+                        // both the constant ScriptVar materialization and MathsOp.
+                        if (constant.Kind == ConstantKind.Int && a.IsInt &&
+                            IntBinary(a.Int, constant.IntValue, operatorCode, out var fast))
+                        {
+                            Push(fast);
+                        }
+                        else
+                        {
+                            Push(a.MathsOp(constant.Materialize(), operatorCode));
+                        }
+                        break;
+                    }
                     case OpCode.Shift:
                     {
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
@@ -692,6 +712,31 @@ namespace DScript.Vm
                 entry.Link = link;
             }
             return link;
+        }
+
+        // Direct int-op-int result for the BinaryConst fast path. Mirrors the int
+        // branch of ScriptVar.MathsOp exactly. Returns false for operators handled
+        // only by the general path (e.g. ===), so the caller falls back.
+        private static bool IntBinary(int a, int b, ScriptLex.LexTypes op, out ScriptVar result)
+        {
+            switch ((char)op)
+            {
+                case '+': result = new ScriptVar(a + b); return true;
+                case '-': result = new ScriptVar(a - b); return true;
+                case '*': result = new ScriptVar(a * b); return true;
+                case '/': result = b == 0 ? new ScriptVar((double)a / b) : new ScriptVar(a / b); return true;
+                case '&': result = new ScriptVar(a & b); return true;
+                case '|': result = new ScriptVar(a | b); return true;
+                case '^': result = new ScriptVar(a ^ b); return true;
+                case '%': result = b == 0 ? new ScriptVar(double.NaN) : new ScriptVar(a % b); return true;
+                case (char)ScriptLex.LexTypes.Equal: result = new ScriptVar(a == b); return true;
+                case (char)ScriptLex.LexTypes.NEqual: result = new ScriptVar(a != b); return true;
+                case '<': result = new ScriptVar(a < b); return true;
+                case (char)ScriptLex.LexTypes.LEqual: result = new ScriptVar(a <= b); return true;
+                case '>': result = new ScriptVar(a > b); return true;
+                case (char)ScriptLex.LexTypes.GEqual: result = new ScriptVar(a >= b); return true;
+                default: result = null; return false;
+            }
         }
 
         private static int ReadOperand(byte[] code, ref int ip)

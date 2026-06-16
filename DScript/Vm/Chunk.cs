@@ -221,5 +221,36 @@ namespace DScript.Vm
             Functions.Add(function);
             return Functions.Count - 1;
         }
+
+        // --- peephole fusion -------------------------------------------------
+
+        /// <summary>
+        /// If the just-compiled binary right operand (everything emitted since
+        /// <paramref name="operandStart"/>) is exactly one <see cref="OpCode.Constant"/>
+        /// instruction, replace the pending <c>Constant; Binary</c> pair with a
+        /// single fused <see cref="OpCode.BinaryConst"/>, and return true.
+        ///
+        /// Fusing is only attempted for a lone Constant: a larger operand (e.g. a
+        /// ternary whose arm happens to end in a literal) emits more than one
+        /// instruction and contains internal jumps, so it is left alone. Because a
+        /// single-literal operand contains no control flow and is never the target
+        /// of a jump, rewriting it here cannot invalidate any jump offset.
+        /// </summary>
+        public bool TryFuseConstantBinary(int operandStart, int op)
+        {
+            // operand must be exactly one Constant instruction: opcode + 4-byte index
+            if (Code.Count - operandStart != 5) return false;
+            if (Code[operandStart] != (byte)OpCode.Constant) return false;
+
+            var constIndex = Code[operandStart + 1]
+                             | (Code[operandStart + 2] << 8)
+                             | (Code[operandStart + 3] << 16)
+                             | (Code[operandStart + 4] << 24);
+
+            Code.RemoveRange(operandStart, 5);
+            codeArray = null;
+            Emit(OpCode.BinaryConst, op, constIndex);
+            return true;
+        }
     }
 }

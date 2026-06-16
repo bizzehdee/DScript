@@ -96,6 +96,13 @@ namespace DScript.Vm
         Throw,           //                 throw top of stack
 
         // --- termination ----------------------------------------------------
-        Halt             //                 stop execution of the top-level chunk
+        Halt,            //                 stop execution of the top-level chunk
+
+        // --- fused forms (appended to preserve existing opcode byte values) --
+        BinaryConst      // [i op][i constIndex]  a -> (a op constants[i])
+                         //                 fuses a Constant push with the Binary
+                         //                 that consumes it, when the right operand
+                         //                 is a single literal (saves an opcode
+                         //                 dispatch + a push/pop per use)
     }
 }
