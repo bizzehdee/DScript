@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 
@@ -28,7 +29,26 @@ namespace DScript.Extras
 {
     public class EngineFunctionLoader
     {
+        /// <summary>
+        /// Registers all built-in DScript.Extras providers with the engine using
+        /// the compile-time <see cref="GeneratedFunctionRegistrar"/>. This path is
+        /// reflection-free and therefore trim- and Native-AOT-safe.
+        /// </summary>
         public void RegisterFunctions(ScriptEngine engine)
+        {
+            GeneratedFunctionRegistrar.RegisterAll(engine, engine);
+        }
+
+        /// <summary>
+        /// Legacy registration that scans every loaded assembly for
+        /// <see cref="ScriptClassAttribute"/> providers via reflection. Use this only
+        /// when providers live in assemblies the source generator does not run over
+        /// (e.g. third-party plugin DLLs discovered at runtime). Not trim/AOT-safe.
+        /// </summary>
+        [RequiresUnreferencedCode(
+            "Scans all loaded assemblies via reflection; provider types may be trimmed. " +
+            "Prefer RegisterFunctions, which uses the source-generated registrar.")]
+        public void RegisterFunctionsViaReflection(ScriptEngine engine)
         {
             var typesWithMyAttribute =
             // Note the AsParallel here, this will parallelize everything after.
@@ -46,6 +66,7 @@ namespace DScript.Extras
             }
         }
 
+        [RequiresUnreferencedCode("Uses reflection and Delegate.CreateDelegate over discovered types.")]
         private void ProcessTypes(Type t, ScriptClassAttribute attribute, ScriptEngine engine)
         {
             var publicStaticMethods = t.GetMethods(BindingFlags.Public | BindingFlags.Static)

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
 	<PackageLicenseFile>LICENSE</PackageLicenseFile>
 	<PackageProjectUrl>https://github.com/bizzehdee/DScript</PackageProjectUrl>
 	<RepositoryUrl>https://github.com/bizzehdee/DScript</RepositoryUrl>
@@ -23,6 +23,11 @@
 	
   <ItemGroup>
     <ProjectReference Include="..\DScript\DScript.csproj" />
+    <!-- Compile-time source generator that emits GeneratedFunctionRegistrar
+         from the [ScriptClass]/[ScriptMethod]/[ScriptProperty] providers below.
+         Referenced as an analyzer; its assembly is not a runtime dependency. -->
+    <ProjectReference Include="..\DScript.Generators\DScript.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
