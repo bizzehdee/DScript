@@ -149,6 +149,7 @@ namespace DScript
             RLet,
             QuestionDot,    // ?.
             NullCoalesce,   // ??
+            Ellipsis,       // ...
         }
 
         public ScriptLex(string input)
@@ -606,6 +607,12 @@ namespace DScript
                 {
                     TokenType = LexTypes.QuestionDot;
                     GetNextChar();
+                }
+                else if (TokenType == (LexTypes)'.' && CurrentChar == '.' && NextChar == '.') // ...
+                {
+                    TokenType = LexTypes.Ellipsis;
+                    GetNextChar(); // consume second '.'
+                    GetNextChar(); // consume third '.'
                 }
                 else if (TokenType == (LexTypes)'/')
                 {

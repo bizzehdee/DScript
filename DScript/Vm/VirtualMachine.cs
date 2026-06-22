@@ -664,6 +664,76 @@ namespace DScript.Vm
                         break;
                     }
 
+                    case OpCode.PushSpread:
+                    {
+                        var spreadArr = Pop();
+                        var arr = Peek(); // the array being built stays on stack
+                        var len = spreadArr.IsArray ? spreadArr.GetArrayLength() : 0;
+                        var existingLen = arr.IsArray ? arr.GetArrayLength() : 0;
+                        for (var si = 0; si < len; si++)
+                        {
+                            var elem = spreadArr.FindChild(ScriptVar.IndexName(si));
+                            arr.SetArrayIndex(existingLen + si, elem?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        }
+                        break;
+                    }
+                    case OpCode.MergeObject:
+                    {
+                        var source = Pop();
+                        var target = Peek(); // stays on stack
+                        var member = source.FirstChild;
+                        while (member != null)
+                        {
+                            if (member.Name != ScriptVar.PrototypeClassName)
+                                SetMember(target, member.Name, member.Var);
+                            member = member.Next;
+                        }
+                        break;
+                    }
+                    case OpCode.CallSpread:
+                    {
+                        var argsArr = Pop();
+                        var callee = Pop();
+                        var len = argsArr.IsArray ? argsArr.GetArrayLength() : 0;
+                        var args = new ScriptVar[len];
+                        for (var ai = 0; ai < len; ai++)
+                        {
+                            var link = argsArr.FindChild(ScriptVar.IndexName(ai));
+                            args[ai] = link?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        Push(InvokeCallable(callee, null, args));
+                        break;
+                    }
+                    case OpCode.CallMethodSpread:
+                    {
+                        var argsArr = Pop();
+                        var callee = Pop();
+                        var receiver = Pop();
+                        var len = argsArr.IsArray ? argsArr.GetArrayLength() : 0;
+                        var args = new ScriptVar[len];
+                        for (var ai = 0; ai < len; ai++)
+                        {
+                            var link = argsArr.FindChild(ScriptVar.IndexName(ai));
+                            args[ai] = link?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        Push(InvokeCallable(callee, receiver, args));
+                        break;
+                    }
+                    case OpCode.NewSpread:
+                    {
+                        var argsArr = Pop();
+                        var ctor = Pop();
+                        var len = argsArr.IsArray ? argsArr.GetArrayLength() : 0;
+                        var args = new ScriptVar[len];
+                        for (var ai = 0; ai < len; ai++)
+                        {
+                            var link = argsArr.FindChild(ScriptVar.IndexName(ai));
+                            args[ai] = link?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        Push(Construct(ctor, args));
+                        break;
+                    }
+
                     case OpCode.Throw:
                     {
                         var ex = new JITException(Pop());
@@ -897,9 +967,23 @@ namespace DScript.Vm
             if (thisArg != null) vars.AddChildNoDup("this", thisArg);
 
             var parameters = vmfn.Body.Parameters;
-            for (var j = 0; j < parameters.Count; j++)
+            var restIdx2 = vmfn.Body.RestParamIndex;
+            var paramLimit2 = restIdx2 >= 0 ? restIdx2 : parameters.Count;
+            for (var j = 0; j < paramLimit2; j++)
             {
                 vars.AddChild(parameters[j], BindArg(args, j));
+            }
+
+            // Handle rest parameter
+            if (restIdx2 >= 0)
+            {
+                var restArr = new ScriptVar(ScriptVar.Flags.Array);
+                var restLen = 0;
+                for (var j = restIdx2; j < (args?.Length ?? 0); j++)
+                {
+                    restArr.SetArrayIndex(restLen++, BindArg(args, j));
+                }
+                vars.AddChild(parameters[restIdx2], restArr);
             }
 
             if (recyclable)
@@ -928,10 +1012,24 @@ namespace DScript.Vm
             if (thisArg != null) vars.AddChildNoDup("this", thisArg);
 
             var parameters = vmfn.Body.Parameters;
-            for (var j = 0; j < parameters.Count; j++)
+            var restIdx = vmfn.Body.RestParamIndex;
+            var paramLimit = restIdx >= 0 ? restIdx : parameters.Count;
+            for (var j = 0; j < paramLimit; j++)
             {
                 var arg = j < argc ? stack[argBase + j] : null;
                 vars.AddChild(parameters[j], BindArgValue(arg));
+            }
+
+            // Handle rest parameter
+            if (restIdx >= 0)
+            {
+                var restArr = new ScriptVar(ScriptVar.Flags.Array);
+                var restLen = 0;
+                for (var j = restIdx; j < argc; j++)
+                {
+                    restArr.SetArrayIndex(restLen++, BindArgValue(stack[argBase + j]));
+                }
+                vars.AddChild(parameters[restIdx], restArr);
             }
 
             // Pop the arguments now that they are bound; the args' slots are free

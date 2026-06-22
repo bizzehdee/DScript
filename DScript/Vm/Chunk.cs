@@ -98,6 +98,12 @@ namespace DScript.Vm
         /// <summary>Declared parameter names, when this chunk is a function body.</summary>
         public List<string> Parameters { get; } = [];
 
+        /// <summary>
+        /// Index of the rest parameter in <see cref="Parameters"/>, or -1 if none.
+        /// When >= 0, the parameter at that index collects all remaining arguments into an array.
+        /// </summary>
+        public int RestParamIndex { get; set; } = -1;
+
         /// <summary>Optional name (function name or "&lt;main&gt;") for diagnostics.</summary>
         public string Name { get; set; } = "<main>";
 

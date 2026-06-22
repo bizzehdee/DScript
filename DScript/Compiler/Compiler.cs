@@ -38,6 +38,7 @@ namespace DScript.Compiler
     {
         private ScriptLex lexer;
         private Chunk chunk;
+        private int _destructureCounter;
 
         /// <summary>
         /// When false, skips the new peephole passes (constant folding,

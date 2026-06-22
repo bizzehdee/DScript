@@ -149,6 +149,18 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)'(');
             while (lexer.TokenType != (ScriptLex.LexTypes)')')
             {
+                // Rest parameter: ...name (must be last)
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    var restName = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    fnChunk.RestParamIndex = fnChunk.Parameters.Count;
+                    fnChunk.Parameters.Add(restName);
+                    paramDefaults.Add((restName, null));
+                    break; // rest param must be last
+                }
+
                 var paramName = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Id);
                 fnChunk.Parameters.Add(paramName);

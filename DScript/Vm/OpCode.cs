@@ -139,5 +139,12 @@ namespace DScript.Vm
         LeaveBlock,      //                 pop the innermost scope frame (restore parent)
         DeclareLocal,    // [i nameIndex]   declare a block-local variable in the innermost
                          //                 scope (used for `let`; does NOT hoist past blocks)
+
+        // --- Phase 4: spread / rest / destructuring --------------------------------
+        PushSpread,      //  arr, spreadArr → arr  (appends all elements of spreadArr to arr)
+        MergeObject,     //  obj, sourceObj → obj  (copies all own properties of sourceObj to obj)
+        CallSpread,      //  fn, argsArr → result
+        CallMethodSpread,//  obj, fn, argsArr → result  (this = obj)
+        NewSpread,       //  ctor, argsArr → instance
     }
 }

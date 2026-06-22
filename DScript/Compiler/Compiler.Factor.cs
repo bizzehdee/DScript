@@ -206,7 +206,8 @@ namespace DScript.Compiler
                     {
                         // a?.() — call only if a is not null/undefined
                         var argc = CompileArguments();
-                        chunk.Emit(OpCode.Call, argc);
+                        if (argc < 0) chunk.Emit(OpCode.CallSpread);
+                        else chunk.Emit(OpCode.Call, argc);
                     }
                     else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
                     {
@@ -229,7 +230,8 @@ namespace DScript.Compiler
                             chunk.Emit(OpCode.Dup);
                             chunk.Emit(OpCode.GetProp, nameIndex);
                             var argc = CompileArguments();
-                            chunk.Emit(OpCode.CallMethod, argc);
+                            if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
+                            else chunk.Emit(OpCode.CallMethod, argc);
                         }
                         else
                         {
@@ -254,7 +256,8 @@ namespace DScript.Compiler
                         chunk.Emit(OpCode.Dup);
                         chunk.Emit(OpCode.GetProp, nameIndex);
                         var argc = CompileArguments();
-                        chunk.Emit(OpCode.CallMethod, argc);
+                        if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
+                        else chunk.Emit(OpCode.CallMethod, argc);
                         continue;
                     }
 
@@ -333,26 +336,77 @@ namespace DScript.Compiler
                 else // '(' : call the value already on the stack (this = undefined)
                 {
                     var argc = CompileArguments();
-                    chunk.Emit(OpCode.Call, argc);
+                    if (argc < 0) chunk.Emit(OpCode.CallSpread);
+                    else chunk.Emit(OpCode.Call, argc);
                 }
             }
         }
 
+        // Returns the argument count (>= 0) for normal calls, or -1 when any
+        // spread argument is present (in which case a NewArray + elements are
+        // on the stack instead of individual args, and the caller must emit
+        // CallSpread / CallMethodSpread / NewSpread instead of Call/CallMethod/New).
         private int CompileArguments()
         {
             lexer.Match((ScriptLex.LexTypes)'(');
-            var count = 0;
-            while (lexer.TokenType != (ScriptLex.LexTypes)')')
+
+            // Fast-scan to see whether any spread is present at top-level depth.
+            bool hasSpread;
             {
-                CompileBase();
-                count++;
-                if (lexer.TokenType != (ScriptLex.LexTypes)')')
+                var clone = lexer.CloneToEnd(lexer.TokenStart);
+                int depth = 0;
+                hasSpread = false;
+                while (clone.TokenType != (ScriptLex.LexTypes)')' || depth > 0)
                 {
-                    lexer.Match((ScriptLex.LexTypes)',');
+                    if (clone.TokenType == ScriptLex.LexTypes.Eof) break;
+                    if (clone.TokenType == ScriptLex.LexTypes.Ellipsis && depth == 0)
+                    { hasSpread = true; break; }
+                    if (clone.TokenType == (ScriptLex.LexTypes)'(' ||
+                        clone.TokenType == (ScriptLex.LexTypes)'[' ||
+                        clone.TokenType == (ScriptLex.LexTypes)'{') depth++;
+                    else if (clone.TokenType == (ScriptLex.LexTypes)')' ||
+                             clone.TokenType == (ScriptLex.LexTypes)']' ||
+                             clone.TokenType == (ScriptLex.LexTypes)'}') depth--;
+                    clone.GetNextToken();
                 }
             }
+
+            if (!hasSpread)
+            {
+                // No spread — original fast path: push args individually
+                var count = 0;
+                while (lexer.TokenType != (ScriptLex.LexTypes)')')
+                {
+                    CompileBase();
+                    count++;
+                    if (lexer.TokenType != (ScriptLex.LexTypes)')') lexer.Match((ScriptLex.LexTypes)',');
+                }
+                lexer.Match((ScriptLex.LexTypes)')');
+                return count;
+            }
+
+            // Spread path: build a NewArray and append each arg
+            chunk.Emit(OpCode.NewArray);
+            while (lexer.TokenType != (ScriptLex.LexTypes)')')
+            {
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    CompileBase();          // spreadArr on stack; array below
+                    chunk.Emit(OpCode.PushSpread);
+                }
+                else
+                {
+                    // Non-spread arg: dynamic append via GetProp("length") + SetPropDynamic
+                    chunk.Emit(OpCode.Dup);
+                    chunk.Emit(OpCode.GetProp, chunk.AddName("length"));
+                    CompileBase();
+                    chunk.Emit(OpCode.SetPropDynamic);
+                }
+                if (lexer.TokenType != (ScriptLex.LexTypes)')') lexer.Match((ScriptLex.LexTypes)',');
+            }
             lexer.Match((ScriptLex.LexTypes)')');
-            return count;
+            return -1; // sentinel: caller must emit *Spread opcode
         }
 
         private void CompileNew()
@@ -381,13 +435,16 @@ namespace DScript.Compiler
                 }
             }
 
-            var argc = 0;
             if (lexer.TokenType == (ScriptLex.LexTypes)'(')
             {
-                argc = CompileArguments();
+                var argc = CompileArguments();
+                if (argc < 0) chunk.Emit(OpCode.NewSpread);
+                else chunk.Emit(OpCode.New, argc);
             }
-
-            chunk.Emit(OpCode.New, argc);
+            else
+            {
+                chunk.Emit(OpCode.New, 0);
+            }
         }
 
         // Compile a function's "(params) { body }" into a nested chunk and
@@ -406,6 +463,18 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)'(');
             while (lexer.TokenType != (ScriptLex.LexTypes)')')
             {
+                // Rest parameter: ...name (must be last)
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    var restName = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    fnChunk.RestParamIndex = fnChunk.Parameters.Count;
+                    fnChunk.Parameters.Add(restName);
+                    paramDefaults.Add((restName, null));
+                    break; // rest param must be last
+                }
+
                 var paramName = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Id);
                 fnChunk.Parameters.Add(paramName);
@@ -474,7 +543,8 @@ namespace DScript.Compiler
             while (lexer.TokenType != ScriptLex.LexTypes.Eof)
             {
                 var t = lexer.TokenType;
-                if (depth == 0 && (t == (ScriptLex.LexTypes)',' || t == (ScriptLex.LexTypes)')'))
+                if (depth == 0 && (t == (ScriptLex.LexTypes)',' || t == (ScriptLex.LexTypes)')' ||
+                                   t == (ScriptLex.LexTypes)']' || t == (ScriptLex.LexTypes)'}'))
                     break;
                 if (t == (ScriptLex.LexTypes)'(' || t == (ScriptLex.LexTypes)'[' || t == (ScriptLex.LexTypes)'{')
                     depth++;
@@ -539,6 +609,20 @@ namespace DScript.Compiler
                 lexer.Match((ScriptLex.LexTypes)'(');
                 while (lexer.TokenType != (ScriptLex.LexTypes)')')
                 {
+                    // Rest parameter: ...name (must be last)
+                    if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                    {
+                        lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                        var restName = lexer.TokenString;
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                        fnChunk.RestParamIndex = fnChunk.Parameters.Count;
+                        fnChunk.Parameters.Add(restName);
+                        paramDefaults.Add((restName, null));
+                        if (lexer.TokenType != (ScriptLex.LexTypes)')')
+                            lexer.Match((ScriptLex.LexTypes)',');
+                        break;
+                    }
+
                     var paramName = lexer.TokenString;
                     lexer.Match(ScriptLex.LexTypes.Id);
                     fnChunk.Parameters.Add(paramName);
@@ -700,8 +784,15 @@ namespace DScript.Compiler
 
             while (lexer.TokenType != (ScriptLex.LexTypes)'}')
             {
+                // Spread property: { ...expr }
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    CompileBase();              // source object on stack, target below
+                    chunk.Emit(OpCode.MergeObject);
+                }
                 // Computed property: { [expr]: value }
-                if (lexer.TokenType == (ScriptLex.LexTypes)'[')
+                else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
                 {
                     lexer.Match((ScriptLex.LexTypes)'[');
                     CompileBase();                  // key expression → stack: [obj, key]
@@ -745,18 +836,60 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)'[');
             chunk.Emit(OpCode.NewArray);
 
-            var index = 0;
-            while (lexer.TokenType != (ScriptLex.LexTypes)']')
+            // Fast-scan to detect any spread element at depth 0
+            bool hasSpread;
             {
-                CompileBase();
-                chunk.Emit(OpCode.InitElem, index);
-
-                if (lexer.TokenType != (ScriptLex.LexTypes)']')
+                var clone = lexer.CloneToEnd(lexer.TokenStart);
+                int depth = 0;
+                hasSpread = false;
+                while (clone.TokenType != (ScriptLex.LexTypes)']' || depth > 0)
                 {
-                    lexer.Match((ScriptLex.LexTypes)',');
+                    if (clone.TokenType == ScriptLex.LexTypes.Eof) break;
+                    if (clone.TokenType == ScriptLex.LexTypes.Ellipsis && depth == 0)
+                    { hasSpread = true; break; }
+                    if (clone.TokenType == (ScriptLex.LexTypes)'[' ||
+                        clone.TokenType == (ScriptLex.LexTypes)'(' ||
+                        clone.TokenType == (ScriptLex.LexTypes)'{') depth++;
+                    else if (clone.TokenType == (ScriptLex.LexTypes)']' ||
+                             clone.TokenType == (ScriptLex.LexTypes)')' ||
+                             clone.TokenType == (ScriptLex.LexTypes)'}') depth--;
+                    clone.GetNextToken();
                 }
+            }
 
-                index++;
+            if (!hasSpread)
+            {
+                // No spread — original static-index path
+                var index = 0;
+                while (lexer.TokenType != (ScriptLex.LexTypes)']')
+                {
+                    CompileBase();
+                    chunk.Emit(OpCode.InitElem, index);
+                    if (lexer.TokenType != (ScriptLex.LexTypes)']') lexer.Match((ScriptLex.LexTypes)',');
+                    index++;
+                }
+            }
+            else
+            {
+                // Spread present: use dynamic-append for all elements
+                while (lexer.TokenType != (ScriptLex.LexTypes)']')
+                {
+                    if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                    {
+                        lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                        CompileBase();          // spreadArr on stack, array below
+                        chunk.Emit(OpCode.PushSpread);
+                    }
+                    else
+                    {
+                        // Dynamic append: arr.Dup + GetProp("length") + value + SetPropDynamic
+                        chunk.Emit(OpCode.Dup);
+                        chunk.Emit(OpCode.GetProp, chunk.AddName("length"));
+                        CompileBase();
+                        chunk.Emit(OpCode.SetPropDynamic);
+                    }
+                    if (lexer.TokenType != (ScriptLex.LexTypes)']') lexer.Match((ScriptLex.LexTypes)',');
+                }
             }
 
             lexer.Match((ScriptLex.LexTypes)']');

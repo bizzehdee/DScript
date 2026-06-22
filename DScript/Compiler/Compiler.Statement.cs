@@ -163,24 +163,37 @@ namespace DScript.Compiler
 
             while (lexer.TokenType != (ScriptLex.LexTypes)';')
             {
-                var name = lexer.TokenString;
-                lexer.Match(ScriptLex.LexTypes.Id);
-                var nameIndex = chunk.AddName(name);
-
-                // `const` → DeclareConst (read-only binding in innermost scope)
-                // `let`   → DeclareLocal (mutable binding in innermost scope, no hoisting)
-                // `var`   → DeclareVar   (mutable binding hoisted past block scopes)
-                OpCode declOp = readOnly ? OpCode.DeclareConst
-                                         : isLet ? OpCode.DeclareLocal
-                                                 : OpCode.DeclareVar;
-                chunk.Emit(declOp, nameIndex);
-
-                if (lexer.TokenType == (ScriptLex.LexTypes)'=')
+                if (lexer.TokenType == (ScriptLex.LexTypes)'[')
                 {
-                    lexer.Match((ScriptLex.LexTypes)'=');
-                    CompileBase();
-                    chunk.Emit(OpCode.SetVar, nameIndex);
-                    chunk.Emit(OpCode.Pop);
+                    // Array destructuring: const [a, b, c] = expr
+                    CompileArrayDestructuring(readOnly, isLet);
+                }
+                else if (lexer.TokenType == (ScriptLex.LexTypes)'{')
+                {
+                    // Object destructuring: const { x, y } = expr
+                    CompileObjectDestructuring(readOnly, isLet);
+                }
+                else
+                {
+                    var name = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    var nameIndex = chunk.AddName(name);
+
+                    // `const` → DeclareConst (read-only binding in innermost scope)
+                    // `let`   → DeclareLocal (mutable binding in innermost scope, no hoisting)
+                    // `var`   → DeclareVar   (mutable binding hoisted past block scopes)
+                    OpCode declOp = readOnly ? OpCode.DeclareConst
+                                             : isLet ? OpCode.DeclareLocal
+                                                     : OpCode.DeclareVar;
+                    chunk.Emit(declOp, nameIndex);
+
+                    if (lexer.TokenType == (ScriptLex.LexTypes)'=')
+                    {
+                        lexer.Match((ScriptLex.LexTypes)'=');
+                        CompileBase();
+                        chunk.Emit(OpCode.SetVar, nameIndex);
+                        chunk.Emit(OpCode.Pop);
+                    }
                 }
 
                 if (lexer.TokenType != (ScriptLex.LexTypes)';')
@@ -190,6 +203,210 @@ namespace DScript.Compiler
             }
 
             lexer.Match((ScriptLex.LexTypes)';');
+        }
+
+        // Array destructuring: [a, b, ...rest] = expr
+        // Compiles the RHS, then for each binding emits a GetIndex + declare + assign
+        private void CompileArrayDestructuring(bool readOnly, bool isLet)
+        {
+            // Collect bindings
+            var bindings = new System.Collections.Generic.List<(string Name, bool IsRest, string DefaultSrc)>();
+
+            lexer.Match((ScriptLex.LexTypes)'[');
+            while (lexer.TokenType != (ScriptLex.LexTypes)']')
+            {
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    var restName = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    bindings.Add((restName, true, null));
+                    break; // rest must be last
+                }
+
+                var name = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
+
+                string defaultSrc = null;
+                if (lexer.TokenType == (ScriptLex.LexTypes)'=')
+                {
+                    lexer.Match((ScriptLex.LexTypes)'=');
+                    defaultSrc = ReadDefaultExpression();
+                }
+
+                bindings.Add((name, false, defaultSrc));
+                if (lexer.TokenType != (ScriptLex.LexTypes)']') lexer.Match((ScriptLex.LexTypes)',');
+            }
+            lexer.Match((ScriptLex.LexTypes)']');
+            lexer.Match((ScriptLex.LexTypes)'=');
+
+            // Use a temporary variable to hold the RHS array
+            var tmpName = "$destr" + _destructureCounter++;
+            var tmpIdx  = chunk.AddName(tmpName);
+            chunk.Emit(OpCode.DeclareVar, tmpIdx);
+            CompileBase();  // RHS value
+            chunk.Emit(OpCode.SetVar, tmpIdx);
+            chunk.Emit(OpCode.Pop);
+
+            OpCode declOp = readOnly ? OpCode.DeclareConst : isLet ? OpCode.DeclareLocal : OpCode.DeclareVar;
+
+            for (var i = 0; i < bindings.Count; i++)
+            {
+                var (name, isRest, defaultSrc) = bindings[i];
+                var nameIdx = chunk.AddName(name);
+                chunk.Emit(declOp, nameIdx);
+
+                if (isRest)
+                {
+                    // Collect tmp[i], tmp[i+1], ... into a new array
+                    var restArrName = "$restArr" + _destructureCounter++;
+                    var counterName = "$rc" + _destructureCounter++;
+                    var restArrIdx  = chunk.AddName(restArrName);
+                    var counterIdx  = chunk.AddName(counterName);
+
+                    // restArr = []
+                    chunk.Emit(OpCode.DeclareVar, restArrIdx);
+                    chunk.Emit(OpCode.NewArray);
+                    chunk.Emit(OpCode.SetVar, restArrIdx);
+                    chunk.Emit(OpCode.Pop);
+
+                    // counter = i (the index to start from)
+                    chunk.Emit(OpCode.DeclareVar, counterIdx);
+                    EmitConstantInt(i);
+                    chunk.Emit(OpCode.SetVar, counterIdx);
+                    chunk.Emit(OpCode.Pop);
+
+                    // while (counter < tmp.length):
+                    var loopTop = chunk.Count;
+                    chunk.Emit(OpCode.GetVar, counterIdx);
+                    chunk.Emit(OpCode.GetVar, tmpIdx);
+                    chunk.Emit(OpCode.GetProp, chunk.AddName("length"));
+                    chunk.Emit(OpCode.Binary, (int)(ScriptLex.LexTypes)'<');
+                    var loopExit = chunk.EmitJump(OpCode.JumpIfFalse);
+
+                    //   restArr[restArr.length] = tmp[counter]
+                    chunk.Emit(OpCode.GetVar, restArrIdx);   // restArr
+                    chunk.Emit(OpCode.Dup);                   // restArr, restArr
+                    chunk.Emit(OpCode.GetProp, chunk.AddName("length")); // restArr, len
+                    chunk.Emit(OpCode.GetVar, tmpIdx);        // restArr, len, tmp
+                    chunk.Emit(OpCode.GetVar, counterIdx);    // restArr, len, tmp, counter
+                    chunk.Emit(OpCode.GetIndex);              // restArr, len, tmp[counter]
+                    chunk.Emit(OpCode.SetPropDynamic);        // restArr (restArr[len] = tmp[counter])
+                    chunk.Emit(OpCode.Pop);                   // (discard restArr)
+
+                    //   counter++
+                    chunk.Emit(OpCode.GetVar, counterIdx);
+                    EmitConstantInt(1);
+                    chunk.Emit(OpCode.Binary, (int)(ScriptLex.LexTypes)'+');
+                    chunk.Emit(OpCode.SetVar, counterIdx);
+                    chunk.Emit(OpCode.Pop);
+
+                    chunk.Emit(OpCode.Jump, loopTop);
+                    chunk.PatchJump(loopExit);
+
+                    // name = restArr
+                    chunk.Emit(OpCode.GetVar, restArrIdx);
+                    chunk.Emit(OpCode.SetVar, nameIdx);
+                    chunk.Emit(OpCode.Pop);
+                }
+                else
+                {
+                    // Regular binding: name = tmp[i]
+                    chunk.Emit(OpCode.GetVar, tmpIdx);
+                    EmitConstantInt(i);
+                    chunk.Emit(OpCode.GetIndex);
+                    chunk.Emit(OpCode.SetVar, nameIdx);
+                    chunk.Emit(OpCode.Pop);
+
+                    if (defaultSrc != null)
+                    {
+                        // If the element was undefined, apply default (same pattern as EmitDefaultParamGuards)
+                        chunk.Emit(OpCode.GetVar, nameIdx);
+                        var skipDefault = chunk.EmitJump(OpCode.JumpIfDefined);
+                        var savedLexer = lexer;
+                        using var defLexer = new ScriptLex(defaultSrc);
+                        lexer = defLexer;
+                        CompileBase();
+                        lexer = savedLexer;
+                        chunk.Emit(OpCode.SetVar, nameIdx);
+                        chunk.Emit(OpCode.Pop);
+                        chunk.PatchJump(skipDefault);
+                    }
+                }
+            }
+        }
+
+        // Object destructuring: { x, y: z, w = 5 } = expr
+        private void CompileObjectDestructuring(bool readOnly, bool isLet)
+        {
+            var bindings = new System.Collections.Generic.List<(string Key, string Name, string DefaultSrc)>();
+
+            lexer.Match((ScriptLex.LexTypes)'{');
+            while (lexer.TokenType != (ScriptLex.LexTypes)'}')
+            {
+                var key = lexer.TokenString;
+                if (lexer.TokenType == ScriptLex.LexTypes.Str)
+                    lexer.Match(ScriptLex.LexTypes.Str);
+                else
+                    lexer.Match(ScriptLex.LexTypes.Id);
+
+                var bindName = key; // default: same name as key
+                if (lexer.TokenType == (ScriptLex.LexTypes)':')
+                {
+                    lexer.Match((ScriptLex.LexTypes)':');
+                    bindName = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                }
+
+                string defaultSrc = null;
+                if (lexer.TokenType == (ScriptLex.LexTypes)'=')
+                {
+                    lexer.Match((ScriptLex.LexTypes)'=');
+                    defaultSrc = ReadDefaultExpression();
+                }
+
+                bindings.Add((key, bindName, defaultSrc));
+                if (lexer.TokenType != (ScriptLex.LexTypes)'}') lexer.Match((ScriptLex.LexTypes)',');
+            }
+            lexer.Match((ScriptLex.LexTypes)'}');
+            lexer.Match((ScriptLex.LexTypes)'=');
+
+            // Temp var to hold the RHS
+            var tmpName = "$destr" + _destructureCounter++;
+            var tmpIdx  = chunk.AddName(tmpName);
+            chunk.Emit(OpCode.DeclareVar, tmpIdx);
+            CompileBase();
+            chunk.Emit(OpCode.SetVar, tmpIdx);
+            chunk.Emit(OpCode.Pop);
+
+            OpCode declOp = readOnly ? OpCode.DeclareConst : isLet ? OpCode.DeclareLocal : OpCode.DeclareVar;
+
+            foreach (var (key, name, defaultSrc) in bindings)
+            {
+                var nameIdx = chunk.AddName(name);
+                chunk.Emit(declOp, nameIdx);
+
+                // Assign tmp.key to name (may be undefined)
+                chunk.Emit(OpCode.GetVar, tmpIdx);
+                chunk.Emit(OpCode.GetProp, chunk.AddName(key));
+                chunk.Emit(OpCode.SetVar, nameIdx);
+                chunk.Emit(OpCode.Pop);
+
+                if (defaultSrc != null)
+                {
+                    // If the property was undefined, apply default (same pattern as EmitDefaultParamGuards)
+                    chunk.Emit(OpCode.GetVar, nameIdx);
+                    var skipDefault = chunk.EmitJump(OpCode.JumpIfDefined);
+                    var savedLexer = lexer;
+                    using var defLexer = new ScriptLex(defaultSrc);
+                    lexer = defLexer;
+                    CompileBase();
+                    lexer = savedLexer;
+                    chunk.Emit(OpCode.SetVar, nameIdx);
+                    chunk.Emit(OpCode.Pop);
+                    chunk.PatchJump(skipDefault);
+                }
+            }
         }
 
         private void CompileIf()
