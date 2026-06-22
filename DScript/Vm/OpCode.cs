@@ -110,6 +110,16 @@ namespace DScript.Vm
                          //                 index, eliminating the pool lookup on the
                          //                 hot path (e.g. i < n; i + 1 in tight loops)
 
+        // --- optional chaining / nullish coalescing -------------------------
+        JumpIfNullOrUndefined,
+                         // [i target]      pop TOS; if null or undefined: push undefined
+                         //                 and jump to target; else push the value back.
+                         //                 Used for `?.` member/index/call chains.
+
+        SetPropDynamic,  //                 obj, key, value → obj
+                         //                 pops value and key, peeks obj, sets obj[key]=value
+                         //                 (computed object-literal property init).
+
         // --- structured exception handling (inline bytecode) ----------------
         EnterTry,        // [i catchPC][i finallyPC][i catchVarIdx]
                          //                 push a handler frame; catchPC/finallyPC are

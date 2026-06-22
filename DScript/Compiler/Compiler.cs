@@ -127,7 +127,8 @@ namespace DScript.Compiler
                    (ScriptLex.LexTypes)'|' or
                    (ScriptLex.LexTypes)'^' or
                    ScriptLex.LexTypes.AndAnd or
-                   ScriptLex.LexTypes.OrOr)
+                   ScriptLex.LexTypes.OrOr or
+                   ScriptLex.LexTypes.NullCoalesce)
             {
                 var op = lexer.TokenType;
                 lexer.Match(op);
@@ -146,6 +147,20 @@ namespace DScript.Compiler
                         var end = chunk.EmitJump(OpCode.JumpIfTrueOrPop);
                         CompileCondition(false);
                         chunk.PatchJump(end);
+                        break;
+                    }
+                    case ScriptLex.LexTypes.NullCoalesce:
+                    {
+                        // a ?? b — return a if a is not null/undefined, else return b.
+                        // JumpIfNullOrUndefined: pop; if null/undef push undefined + jump; else push back.
+                        // Non-null path: push a back, Jump → end.
+                        // Null path (at rhs): discard the pushed undefined, compile b.
+                        var toRhs = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
+                        var toEnd = chunk.EmitJump(OpCode.Jump);
+                        chunk.PatchJump(toRhs);
+                        chunk.Emit(OpCode.Pop); // discard the undefined JumpIfNullOrUndefined pushed
+                        CompileCondition(false);
+                        chunk.PatchJump(toEnd);
                         break;
                     }
                     default:

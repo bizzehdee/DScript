@@ -191,8 +191,56 @@ namespace DScript.Compiler
 
         private void CompileMemberChain(bool canAssign)
         {
-            while (lexer.TokenType is (ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'(')
+            while (lexer.TokenType is (ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'('
+                                   or ScriptLex.LexTypes.QuestionDot)
             {
+                // Optional chaining: `?.` — skip the access if the base is null/undefined.
+                // JumpIfNullOrUndefined: pop; if null/undef push undefined + jump to end; else push back.
+                // We collect all the optional-chain jumps so they share a single end label.
+                if (lexer.TokenType == ScriptLex.LexTypes.QuestionDot)
+                {
+                    lexer.Match(ScriptLex.LexTypes.QuestionDot);
+                    var optEnd = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
+
+                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                    {
+                        // a?.() — call only if a is not null/undefined
+                        var argc = CompileArguments();
+                        chunk.Emit(OpCode.Call, argc);
+                    }
+                    else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
+                    {
+                        // a?.[expr]
+                        lexer.Match((ScriptLex.LexTypes)'[');
+                        CompileBase();
+                        lexer.Match((ScriptLex.LexTypes)']');
+                        chunk.Emit(OpCode.GetIndex);
+                    }
+                    else
+                    {
+                        // a?.b  or  a?.b(args)
+                        var prop = lexer.TokenString;
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                        var nameIndex = chunk.AddName(prop);
+
+                        if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                        {
+                            // a?.b(args) — method call with null-guard on a
+                            chunk.Emit(OpCode.Dup);
+                            chunk.Emit(OpCode.GetProp, nameIndex);
+                            var argc = CompileArguments();
+                            chunk.Emit(OpCode.CallMethod, argc);
+                        }
+                        else
+                        {
+                            chunk.Emit(OpCode.GetProp, nameIndex);
+                        }
+                    }
+
+                    chunk.PatchJump(optEnd);
+                    continue;
+                }
+
                 if (lexer.TokenType == (ScriptLex.LexTypes)'.')
                 {
                     lexer.Match((ScriptLex.LexTypes)'.');
@@ -652,29 +700,36 @@ namespace DScript.Compiler
 
             while (lexer.TokenType != (ScriptLex.LexTypes)'}')
             {
-                var name = lexer.TokenString;
-
-                if (lexer.TokenType == ScriptLex.LexTypes.Str)
+                // Computed property: { [expr]: value }
+                if (lexer.TokenType == (ScriptLex.LexTypes)'[')
                 {
-                    lexer.Match(ScriptLex.LexTypes.Str);
-                }
-                else
-                {
-                    lexer.Match(ScriptLex.LexTypes.Id);
-                }
-
-                // Shorthand property: `{ x, y }` — no colon, use var with same name as key
-                if (lexer.TokenType == (ScriptLex.LexTypes)',' || lexer.TokenType == (ScriptLex.LexTypes)'}')
-                {
-                    chunk.Emit(OpCode.GetVar, chunk.AddName(name));
-                }
-                else
-                {
+                    lexer.Match((ScriptLex.LexTypes)'[');
+                    CompileBase();                  // key expression → stack: [obj, key]
+                    lexer.Match((ScriptLex.LexTypes)']');
                     lexer.Match((ScriptLex.LexTypes)':');
-                    CompileBase();
+                    CompileBase();                  // value → stack: [obj, key, value]
+                    chunk.Emit(OpCode.SetPropDynamic); // obj[key] = value; stack: [obj]
                 }
+                else
+                {
+                    var name = lexer.TokenString;
 
-                chunk.Emit(OpCode.InitProp, chunk.AddName(name));
+                    if (lexer.TokenType == ScriptLex.LexTypes.Str)
+                        lexer.Match(ScriptLex.LexTypes.Str);
+                    else
+                        lexer.Match(ScriptLex.LexTypes.Id);
+
+                    // Shorthand property: `{ x, y }` — no colon, use var with same name as key
+                    if (lexer.TokenType == (ScriptLex.LexTypes)',' || lexer.TokenType == (ScriptLex.LexTypes)'}')
+                        chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+                    else
+                    {
+                        lexer.Match((ScriptLex.LexTypes)':');
+                        CompileBase();
+                    }
+
+                    chunk.Emit(OpCode.InitProp, chunk.AddName(name));
+                }
 
                 if (lexer.TokenType != (ScriptLex.LexTypes)'}')
                 {

@@ -518,6 +518,13 @@ namespace DScript.Vm
                         Peek().SetArrayIndex(index, value); // array kept on stack
                         break;
                     }
+                    case OpCode.SetPropDynamic:
+                    {
+                        var value = Pop();
+                        var key = Pop();
+                        Peek().AddChild(key.String, value); // object kept on stack
+                        break;
+                    }
 
                     case OpCode.Jump:
                         ip = ReadOperand(code, ref ip);
@@ -551,6 +558,21 @@ namespace DScript.Vm
                         var target = ReadOperand(code, ref ip);
                         var val = Pop();
                         if (!val.IsUndefined) ip = target;
+                        break;
+                    }
+                    case OpCode.JumpIfNullOrUndefined:
+                    {
+                        var target = ReadOperand(code, ref ip);
+                        var val = Pop();
+                        if (val.IsNull || val.IsUndefined)
+                        {
+                            Push(new ScriptVar(ScriptVar.Flags.Undefined));
+                            ip = target;
+                        }
+                        else
+                        {
+                            Push(val);
+                        }
                         break;
                     }
 

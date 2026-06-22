@@ -147,6 +147,8 @@ namespace DScript
             RSuper,
             RStatic,
             RLet,
+            QuestionDot,    // ?.
+            NullCoalesce,   // ??
         }
 
         public ScriptLex(string input)
@@ -593,6 +595,16 @@ namespace DScript
                 else if (TokenType == (LexTypes)'^' && CurrentChar == '=') // ^=
                 {
                     TokenType = LexTypes.XorEqual;
+                    GetNextChar();
+                }
+                else if (TokenType == (LexTypes)'?' && CurrentChar == '?') // ??
+                {
+                    TokenType = LexTypes.NullCoalesce;
+                    GetNextChar();
+                }
+                else if (TokenType == (LexTypes)'?' && CurrentChar == '.') // ?.
+                {
+                    TokenType = LexTypes.QuestionDot;
                     GetNextChar();
                 }
                 else if (TokenType == (LexTypes)'/')
