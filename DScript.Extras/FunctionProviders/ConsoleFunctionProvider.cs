@@ -21,6 +21,9 @@ SOFTWARE.
 */
 
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Text;
 
 namespace DScript.Extras.FunctionProviders
 {
@@ -28,18 +31,178 @@ namespace DScript.Extras.FunctionProviders
     [ScriptClass("console")]
     public static class ConsoleFunctionProvider
     {
+        private static readonly Dictionary<string, Stopwatch> _timers = new Dictionary<string, Stopwatch>();
+        private static readonly Dictionary<string, int> _counters = new Dictionary<string, int>();
+        private static int _indentLevel = 0;
+
+        private static string Indent() => new string(' ', _indentLevel * 2);
+
         [ScriptMethod("log", "val")]
         public static void ConsoleLogImpl(ScriptVar var, object userData)
         {
             var val = var.GetParameter("val").GetParsableString();
-            Console.WriteLine(val);
+            Console.WriteLine(Indent() + val);
         }
 
         [ScriptMethod("error", "val")]
         public static void ConsoleErrorImpl(ScriptVar var, object userData)
         {
             var val = var.GetParameter("val").GetParsableString();
-            Console.Error.WriteLine(val);
+            Console.Error.WriteLine(Indent() + val);
+        }
+
+        [ScriptMethod("warn", "val")]
+        public static void ConsoleWarnImpl(ScriptVar var, object userData)
+        {
+            var val = var.GetParameter("val").GetParsableString();
+            Console.Error.WriteLine(Indent() + "[WARN] " + val);
+        }
+
+        [ScriptMethod("info", "val")]
+        public static void ConsoleInfoImpl(ScriptVar var, object userData)
+        {
+            var val = var.GetParameter("val").GetParsableString();
+            Console.WriteLine(Indent() + "[INFO] " + val);
+        }
+
+        [ScriptMethod("debug", "val")]
+        public static void ConsoleDebugImpl(ScriptVar var, object userData)
+        {
+            var val = var.GetParameter("val").GetParsableString();
+            Console.WriteLine(Indent() + "[DEBUG] " + val);
+        }
+
+        [ScriptMethod("assert", "cond", "msg")]
+        public static void ConsoleAssertImpl(ScriptVar var, object userData)
+        {
+            var cond = var.GetParameter("cond");
+            if (!cond.Bool)
+            {
+                var msgVar = var.GetParameter("msg");
+                var msg = msgVar.IsUndefined ? "Assertion failed" : msgVar.GetParsableString();
+                Console.Error.WriteLine(Indent() + "[ASSERT] " + msg);
+            }
+        }
+
+        [ScriptMethod("time", "label")]
+        public static void ConsoleTimeImpl(ScriptVar var, object userData)
+        {
+            var labelVar = var.GetParameter("label");
+            var label = labelVar.IsUndefined ? "default" : labelVar.String;
+            _timers[label] = Stopwatch.StartNew();
+        }
+
+        [ScriptMethod("timeEnd", "label")]
+        public static void ConsoleTimeEndImpl(ScriptVar var, object userData)
+        {
+            var labelVar = var.GetParameter("label");
+            var label = labelVar.IsUndefined ? "default" : labelVar.String;
+            if (_timers.TryGetValue(label, out var sw))
+            {
+                sw.Stop();
+                _timers.Remove(label);
+                Console.WriteLine(Indent() + $"{label}: {sw.Elapsed.TotalMilliseconds:0.###}ms");
+            }
+        }
+
+        [ScriptMethod("count", "label")]
+        public static void ConsoleCountImpl(ScriptVar var, object userData)
+        {
+            var labelVar = var.GetParameter("label");
+            var label = labelVar.IsUndefined ? "default" : labelVar.String;
+            _counters.TryGetValue(label, out var n);
+            _counters[label] = ++n;
+            Console.WriteLine(Indent() + $"{label}: {n}");
+        }
+
+        [ScriptMethod("countReset", "label")]
+        public static void ConsoleCountResetImpl(ScriptVar var, object userData)
+        {
+            var labelVar = var.GetParameter("label");
+            var label = labelVar.IsUndefined ? "default" : labelVar.String;
+            _counters[label] = 0;
+        }
+
+        [ScriptMethod("group", "label")]
+        public static void ConsoleGroupImpl(ScriptVar var, object userData)
+        {
+            var labelVar = var.GetParameter("label");
+            if (!labelVar.IsUndefined)
+                Console.WriteLine(Indent() + labelVar.String);
+            _indentLevel++;
+        }
+
+        [ScriptMethod("groupEnd")]
+        public static void ConsoleGroupEndImpl(ScriptVar var, object userData)
+        {
+            if (_indentLevel > 0) _indentLevel--;
+        }
+
+        [ScriptMethod("dir", "obj")]
+        public static void ConsoleDirImpl(ScriptVar var, object userData)
+        {
+            var.GetParameter("obj").Trace(0, null);
+        }
+
+        [ScriptMethod("table", "arr")]
+        public static void ConsoleTableImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("arr");
+            var len = arr.GetArrayLength();
+            if (len == 0) return;
+
+            // Collect all column names from the first row
+            var cols = new List<string>();
+            var first = arr.GetArrayIndex(0);
+            var link = first.FirstChild;
+            while (link != null)
+            {
+                if (link.Name != ScriptVar.PrototypeClassName)
+                    cols.Add(link.Name);
+                link = link.Next;
+            }
+
+            // Measure column widths
+            var widths = new int[cols.Count];
+            for (var c = 0; c < cols.Count; c++)
+                widths[c] = cols[c].Length;
+            for (var r = 0; r < len; r++)
+            {
+                var row = arr.GetArrayIndex(r);
+                for (var c = 0; c < cols.Count; c++)
+                {
+                    var cell = row.FindChild(cols[c])?.Var.String ?? "";
+                    if (cell.Length > widths[c]) widths[c] = cell.Length;
+                }
+            }
+
+            // Print header
+            var sb = new StringBuilder(Indent());
+            for (var c = 0; c < cols.Count; c++)
+                sb.Append("| ").Append(cols[c].PadRight(widths[c])).Append(' ');
+            sb.Append('|');
+            Console.WriteLine(sb.ToString());
+
+            // Separator
+            sb.Clear().Append(Indent());
+            for (var c = 0; c < cols.Count; c++)
+                sb.Append("+-").Append(new string('-', widths[c])).Append('-');
+            sb.Append('+');
+            Console.WriteLine(sb.ToString());
+
+            // Rows
+            for (var r = 0; r < len; r++)
+            {
+                var row = arr.GetArrayIndex(r);
+                sb.Clear().Append(Indent());
+                for (var c = 0; c < cols.Count; c++)
+                {
+                    var cell = row.FindChild(cols[c])?.Var.String ?? "";
+                    sb.Append("| ").Append(cell.PadRight(widths[c])).Append(' ');
+                }
+                sb.Append('|');
+                Console.WriteLine(sb.ToString());
+            }
         }
 
         [ScriptMethod("clear")]
