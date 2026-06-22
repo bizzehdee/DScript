@@ -73,6 +73,8 @@ namespace DScript.Vm
         // bindings var here on exit and the next such call reuses it, avoiding a
         // ScriptVar allocation per call. Reuse detaches (does not dispose) the old
         // bindings, preserving the lifetime of any value that escaped the frame.
+        // Bounded to prevent unbounded memory growth in recursive workloads.
+        private const int FramePoolMaxSize = 64;
         private readonly Stack<ScriptVar> frameVarsPool = new();
 
         private ScriptVar BorrowFrameVars()
@@ -82,9 +84,27 @@ namespace DScript.Vm
 
         private void ReturnFrameVars(ScriptVar vars)
         {
+            if (frameVarsPool.Count >= FramePoolMaxSize) return; // drop to GC instead of growing pool
             vars.ResetForReuse();
             frameVarsPool.Push(vars);
         }
+
+        // Per-VM inline property cache: a direct-mapped array of 256 slots, indexed
+        // by (nameIndex & 0xFF). Each slot stores the last object seen at that site,
+        // its shape version at cache-fill time, the interned property name, and the
+        // cached link. A hit requires both reference equality of the object and a
+        // matching shape version (ensuring no structural changes since fill time).
+        // The link is stored rather than the value so that subsequent mutations via
+        // ReplaceWith (e.g. assignment to an existing property) are always visible
+        // through ce.Link.Var without requiring a cache invalidation.
+        private struct PropCacheEntry
+        {
+            public ScriptVar Object;         // reference equality
+            public int ShapeVersion;
+            public string Name;              // interned string — ReferenceEquals is valid
+            public ScriptVarLink Link;       // points into the object's child list
+        }
+        private readonly PropCacheEntry[] _propCache = new PropCacheEntry[256];
 
         // --- step debugger --------------------------------------------------
 
@@ -359,9 +379,58 @@ namespace DScript.Vm
 
                     case OpCode.GetProp:
                     {
-                        var name = chunk.Names[ReadOperand(code, ref ip)];
+                        var nameIdx = ReadOperand(code, ref ip);
+                        var name = chunk.Names[nameIdx];
                         var obj = Pop();
-                        Push(GetMember(obj, name));
+
+                        // Inline property cache: direct-mapped by (nameIdx & 0xFF).
+                        // Valid when the cached object is the same instance and the
+                        // shape has not changed (no adds/removes since cache fill).
+                        // We cache the ScriptVarLink rather than the value so that
+                        // mutations via ReplaceWith on existing properties are always
+                        // visible through ce.Link.Var without requiring invalidation.
+                        var cacheSlot = nameIdx & 0xFF;
+                        ref var ce = ref _propCache[cacheSlot];
+                        if (ReferenceEquals(ce.Object, obj) &&
+                            ce.ShapeVersion == obj.ShapeVersion &&
+                            ReferenceEquals(ce.Name, name) &&
+                            ce.Link != null)
+                        {
+                            Push(ce.Link.Var);
+                            break;
+                        }
+
+                        // Cache miss: full lookup via GetMember.
+                        var link = obj.FindChild(name);
+                        if (link == null && engine != null)
+                            link = engine.FindInParentClasses(obj, name);
+
+                        ScriptVar propResult;
+                        if (link != null)
+                        {
+                            propResult = link.Var;
+                            // Cache the link for objects/arrays (not for primitives or
+                            // values that fall back to built-ins like .length).
+                            if (obj.IsObject || obj.IsArray)
+                            {
+                                ce.Object = obj;
+                                ce.ShapeVersion = obj.ShapeVersion;
+                                ce.Name = name;
+                                ce.Link = link;
+                            }
+                        }
+                        else
+                        {
+                            // Built-in virtual properties: not cached (rare fast path).
+                            if (obj.IsArray && name == "length")
+                                propResult = new ScriptVar(obj.GetArrayLength());
+                            else if (obj.IsString && name == "length")
+                                propResult = new ScriptVar(obj.String.Length);
+                            else
+                                propResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+
+                        Push(propResult);
                         break;
                     }
                     case OpCode.SetProp:
@@ -640,6 +709,46 @@ namespace DScript.Vm
                             Push(InvokeCallable(c, receiver, args));
                         }
                         break;
+                    }
+                    case OpCode.TailCall:
+                    {
+                        // Tail-position direct call: execute the callee and return
+                        // its result immediately, so no further opcodes run in this
+                        // frame. This keeps the bytecode clean (no dead Return after
+                        // the call) and limits C# frame depth by one level.
+                        var argc = ReadOperand(code, ref ip);
+                        var callee = stack[sp - argc - 1];
+                        if (callee != null && callee.IsFunction && !callee.IsNative)
+                        {
+                            var result = InvokeVmFunctionFromStack(callee, null, argc);
+                            sp--; // discard the callee slot
+                            return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        else
+                        {
+                            var args = PopArgs(argc);
+                            return InvokeCallable(Pop(), null, args) ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                    }
+                    case OpCode.TailCallMethod:
+                    {
+                        // Tail-position method call: same as TailCall but with a receiver.
+                        var argc = ReadOperand(code, ref ip);
+                        var callee = stack[sp - argc - 1];
+                        if (callee != null && callee.IsFunction && !callee.IsNative)
+                        {
+                            var receiver = stack[sp - argc - 2];
+                            var result = InvokeVmFunctionFromStack(callee, receiver, argc);
+                            sp -= 2; // discard callee and receiver slots
+                            return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        else
+                        {
+                            var args = PopArgs(argc);
+                            var c = Pop();
+                            var receiver = Pop();
+                            return InvokeCallable(c, receiver, args) ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
                     }
                     case OpCode.New:
                     {

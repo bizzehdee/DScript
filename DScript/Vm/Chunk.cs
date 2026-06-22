@@ -390,6 +390,39 @@ namespace DScript.Vm
             return null;
         }
 
+        // --- tail-call peephole -----------------------------------------------
+
+        /// <summary>
+        /// If the last emitted instruction is <see cref="OpCode.Call"/> or
+        /// <see cref="OpCode.CallMethod"/>, rewrite it in place to
+        /// <see cref="OpCode.TailCall"/> or <see cref="OpCode.TailCallMethod"/>
+        /// respectively. Called from <c>CompileReturn</c> so that a call in
+        /// direct return position uses the tail variant, which in the VM returns
+        /// the result without pushing a follow-up Return.
+        ///
+        /// Returns true when a rewrite happened (the caller should still emit
+        /// <see cref="OpCode.Return"/> — the dead-code pass will remove it).
+        /// </summary>
+        public bool TryUpgradeLastCallToTailCall()
+        {
+            if (Code.Count < 5) return false;
+            var at = Code.Count - 5;
+            var op = (OpCode)Code[at];
+            if (op == OpCode.Call)
+            {
+                Code[at] = (byte)OpCode.TailCall;
+                codeArray = null;
+                return true;
+            }
+            if (op == OpCode.CallMethod)
+            {
+                Code[at] = (byte)OpCode.TailCallMethod;
+                codeArray = null;
+                return true;
+            }
+            return false;
+        }
+
         // --- post-compilation passes ----------------------------------------
 
         // Total byte size of an instruction (opcode byte + 4 bytes per operand).
@@ -406,6 +439,7 @@ namespace DScript.Vm
             OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop              or
             OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined            or
             OpCode.MakeClosure  or OpCode.Call         or OpCode.CallMethod or
+            OpCode.TailCall     or OpCode.TailCallMethod                    or
             OpCode.New          or OpCode.InitProp      or OpCode.InitElem  or
             OpCode.LeaveTry     or OpCode.LeaveCatch                        =>  5, // 1 + 4*1
             _                   =>  1, // no operands
@@ -557,7 +591,8 @@ namespace DScript.Vm
                         for (var k = ip; k < ip + size; k++) dead[k] = true;
                     }
                     else if (op is OpCode.Jump or OpCode.Return or OpCode.Halt or OpCode.Throw
-                                  or OpCode.LeaveTry or OpCode.LeaveCatch)
+                                  or OpCode.LeaveTry or OpCode.LeaveCatch
+                                  or OpCode.TailCall or OpCode.TailCallMethod)
                     {
                         inDead = true;
                     }

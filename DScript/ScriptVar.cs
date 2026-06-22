@@ -125,6 +125,17 @@ namespace DScript
         private bool childIndexValid;
         private int childCount;
 
+        // Incremented whenever the object's property set changes (child added or
+        // removed). Used by the VM's inline property cache to validate cached lookups.
+        private int shapeVersion;
+
+        /// <summary>
+        /// Monotonically increasing version counter that increments whenever a
+        /// property is added to or removed from this object. A cached property
+        /// lookup is valid only while this matches the version at cache-fill time.
+        /// </summary>
+        public int ShapeVersion => shapeVersion;
+
         public const string ReturnVarName = "return";
         public const string PrototypeClassName = "prototype";
 
@@ -519,6 +530,7 @@ namespace DScript
 
             LastChild = link;
             childCount++;
+            shapeVersion++;
 
             // keep the lookup index in sync while it is valid (first occurrence wins)
             if (childIndexValid && !childIndex.ContainsKey(childName))
@@ -589,6 +601,7 @@ namespace DScript
             }
 
             childCount--;
+            shapeVersion++;
 
             // removing a child may expose a shadowed duplicate name; rebuild lazily
             childIndexValid = false;

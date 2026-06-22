@@ -497,6 +497,12 @@ namespace DScript.Compiler
             }
             else
             {
+                // Tail-call peephole: if the just-compiled return expression ended with
+                // a Call or CallMethod, upgrade it to TailCall / TailCallMethod in place.
+                // The VM then returns the result immediately without re-entering the
+                // dispatch loop, saving one frame of overhead. The Return emitted below
+                // becomes dead code and is eliminated by EliminateDeadCode.
+                chunk.TryUpgradeLastCallToTailCall();
                 chunk.Emit(OpCode.Return);
             }
 

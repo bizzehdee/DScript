@@ -146,5 +146,9 @@ namespace DScript.Vm
         CallSpread,      //  fn, argsArr → result
         CallMethodSpread,//  obj, fn, argsArr → result  (this = obj)
         NewSpread,       //  ctor, argsArr → instance
+
+        // --- Phase 5: tail-call elimination ------------------------------------
+        TailCall,        // [i argc]        fn, a1..aN -> result  (tail-position direct call)
+        TailCallMethod,  // [i argc]        obj, fn, a1..aN -> result  (tail-position method call)
     }
 }
