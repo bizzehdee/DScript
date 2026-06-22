@@ -22,6 +22,7 @@ SOFTWARE.
 
 using System.Collections.Generic;
 using System.Globalization;
+using DScript.Debugger;
 
 namespace DScript.Vm
 {
@@ -85,6 +86,86 @@ namespace DScript.Vm
             frameVarsPool.Push(vars);
         }
 
+        // --- step debugger --------------------------------------------------
+
+        // Lightweight mutable record for one active call frame.
+        private sealed class CallFrame
+        {
+            public readonly Chunk Chunk;
+            public readonly Environment Env;
+            public int Ip; // updated before each instruction when a debugger is attached
+
+            public CallFrame(Chunk chunk, Environment env) { Chunk = chunk; Env = env; }
+        }
+
+        private IDebugger _debugger;
+        private readonly HashSet<(string Source, int Line)> _breakpoints = [];
+        private readonly List<CallFrame> _callFrames = [];
+
+        // Step state — shared across all recursive Execute() calls on this VM.
+        private DebugAction _stepAction = DebugAction.Continue;
+        private int _stepTargetDepth;   // depth at which the last step action was issued
+        private Chunk _lastPausedChunk;
+        private int _lastPausedLine;
+
+        internal void AttachDebugger(IDebugger debugger, DebugAction initialAction = DebugAction.Continue)
+        {
+            _debugger = debugger;
+            _stepAction = initialAction;
+        }
+
+        internal void DetachDebugger() => _debugger = null;
+
+        internal void AddBreakpoint(string source, int line) => _breakpoints.Add((source, line));
+        internal void RemoveBreakpoint(string source, int line) => _breakpoints.Remove((source, line));
+
+        private bool ShouldPauseAtLine(Chunk chunk, int line)
+        {
+            var sameLocation = chunk == _lastPausedChunk && line == _lastPausedLine;
+            var depth = _callFrames.Count;
+            return _stepAction switch
+            {
+                DebugAction.StepIn   => !sameLocation,
+                DebugAction.StepOver => depth <= _stepTargetDepth && !sameLocation,
+                DebugAction.StepOut  => depth < _stepTargetDepth,
+                // Breakpoints fire at most once per line visit, same as steps.
+                DebugAction.Continue => !sameLocation && _breakpoints.Contains((chunk.Name, line)),
+                _                    => false,
+            };
+        }
+
+        private void FireDebugPause(Chunk chunk, int ip, int line, Environment env)
+        {
+            _lastPausedChunk = chunk;
+            _lastPausedLine = line;
+            _stepTargetDepth = _callFrames.Count;
+
+            var location = new DebugLocation(chunk.Name, line, ip);
+            var frames = BuildCallStack(chunk, ip, line, env);
+            _stepAction = _debugger.OnPause(new DebugEvent(location, frames));
+        }
+
+        private List<DebugFrame> BuildCallStack(Chunk topChunk, int topIp, int topLine, Environment topEnv)
+        {
+            var frames = new List<DebugFrame>(_callFrames.Count + 1);
+            frames.Add(MakeFrame(topChunk, topIp, topLine, topEnv));
+            for (var i = _callFrames.Count - 1; i >= 0; i--)
+            {
+                var f = _callFrames[i];
+                frames.Add(MakeFrame(f.Chunk, f.Ip, f.Chunk.GetLineForOffset(f.Ip), f.Env));
+            }
+            return frames;
+        }
+
+        private static DebugFrame MakeFrame(Chunk chunk, int ip, int line, Environment env)
+        {
+            var loc = new DebugLocation(chunk.Name, line, ip);
+            var locals = new List<(string, ScriptVar)>();
+            var link = env.Vars.FirstChild;
+            while (link != null) { locals.Add((link.Name, link.Var)); link = link.Next; }
+            return new DebugFrame(chunk.Name, loc, locals);
+        }
+
         public VirtualMachine() { }
 
         public VirtualMachine(ScriptEngine engine)
@@ -137,6 +218,14 @@ namespace DScript.Vm
             // (e.g. `return` mid-try without finally) are cleaned up on all exit paths.
             var savedTryDepth = tryStack.Count;
 
+            // Track this frame for the debugger's call-stack view.
+            CallFrame callFrame = null;
+            if (_debugger != null)
+            {
+                callFrame = new CallFrame(chunk, env);
+                _callFrames.Add(callFrame);
+            }
+
             try
             {
 
@@ -145,6 +234,15 @@ namespace DScript.Vm
                 var instrIp = ip; // capture before advancing — used for line lookup on error
                 var op = (OpCode)code[ip];
                 ip++;
+
+                // Step debugger hook — fired at every new source line.
+                if (_debugger != null)
+                {
+                    callFrame.Ip = instrIp;
+                    var line = chunk.GetLineForOffset(instrIp);
+                    if (line > 0 && ShouldPauseAtLine(chunk, line))
+                        FireDebugPause(chunk, instrIp, line, env);
+                }
 
                 try
                 {
@@ -631,6 +729,8 @@ namespace DScript.Vm
                 // Clear pending-return state if this frame is unwinding due to an exception
                 // so it does not bleed into an enclosing Execute() invocation.
                 hasPendingReturn = false;
+                // Pop the debugger call frame.
+                if (callFrame != null) _callFrames.RemoveAt(_callFrames.Count - 1);
             }
         }
 

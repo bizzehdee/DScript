@@ -23,6 +23,7 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using DScript.Compiler;
+using DScript.Debugger;
 using DScript.Vm;
 using VmEnvironment = DScript.Vm.Environment;
 
@@ -60,6 +61,11 @@ namespace DScript
 
         // The global (outermost) lexical scope; its bindings live on Root.
         private readonly VmEnvironment globalEnvironment;
+
+        // --- debugger -------------------------------------------------------
+        private IDebugger _debugger;
+        private DebugAction _debugInitialAction = DebugAction.StepIn;
+        private readonly HashSet<(string Source, int Line)> _breakpoints = [];
 
         public delegate void ScriptCallbackCB(ScriptVar var, object userdata);
 
@@ -144,8 +150,39 @@ namespace DScript
         /// </summary>
         public void Run(Chunk program)
         {
-            new VirtualMachine(this).Run(program, globalEnvironment);
+            var vm = new VirtualMachine(this);
+            if (_debugger != null)
+            {
+                vm.AttachDebugger(_debugger, _debugInitialAction);
+                foreach (var (src, line) in _breakpoints)
+                    vm.AddBreakpoint(src, line);
+            }
+            vm.Run(program, globalEnvironment);
         }
+
+        /// <summary>
+        /// Attach a debugger that will receive step and breakpoint events during
+        /// subsequent <see cref="Run"/> calls. Pass <see cref="DebugAction.StepIn"/>
+        /// as <paramref name="initialAction"/> to pause at the very first source line;
+        /// use <see cref="DebugAction.Continue"/> to run freely until a breakpoint.
+        /// </summary>
+        public void AttachDebugger(IDebugger debugger, DebugAction initialAction = DebugAction.StepIn)
+        {
+            _debugger = debugger;
+            _debugInitialAction = initialAction;
+        }
+
+        /// <summary>Detach the current debugger. Subsequent runs execute at full speed.</summary>
+        public void DetachDebugger() => _debugger = null;
+
+        /// <summary>Register a source-line breakpoint (triggers when <see cref="DebugAction.Continue"/> is active).</summary>
+        public void AddBreakpoint(string source, int line) => _breakpoints.Add((source, line));
+
+        /// <summary>Remove a previously registered breakpoint.</summary>
+        public void RemoveBreakpoint(string source, int line) => _breakpoints.Remove((source, line));
+
+        /// <summary>Remove all registered breakpoints.</summary>
+        public void ClearBreakpoints() => _breakpoints.Clear();
 
         /// <summary>
         /// Invoke a script (or native) function programmatically. Lets native and
