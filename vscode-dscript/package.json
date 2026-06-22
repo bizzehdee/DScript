@@ -1,0 +1,48 @@
+{
+  "name": "dscript",
+  "displayName": "DScript Language Support",
+  "description": "Syntax highlighting, diagnostics, hover, go-to-definition, completion, and signature help for DScript (.ds files).",
+  "version": "0.1.0",
+  "publisher": "bizzehdee",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:dscript"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "dscript",
+        "aliases": ["DScript", "dscript"],
+        "extensions": [".ds"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dscript",
+        "scopeName": "source.ds",
+        "path": "./syntaxes/dscript.tmLanguage.json"
+      }
+    ]
+  },
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "DScript",
+  "scopeName": "source.ds",
+  "fileTypes": [".ds"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#template-literals" },
+    { "include": "#keywords" },
+    { "include": "#numbers" },
+    { "include": "#regex" },
+    { "include": "#functions" },
+    { "include": "#identifiers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ds",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.ds",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.ds" } },
+          "endCaptures":   { "0": { "name": "punctuation.definition.comment.end.ds" } }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.ds",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.ds", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.single.ds",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "name": "constant.character.escape.ds", "match": "\\\\." }]
+        }
+      ]
+    },
+    "template-literals": {
+      "name": "string.template.ds",
+      "begin": "`",
+      "end": "`",
+      "patterns": [
+        { "name": "constant.character.escape.ds", "match": "\\\\." },
+        {
+          "name": "meta.template.expression.ds",
+          "begin": "\\$\\{",
+          "end": "\\}",
+          "beginCaptures": { "0": { "name": "punctuation.definition.template-expression.begin.ds" } },
+          "endCaptures":   { "0": { "name": "punctuation.definition.template-expression.end.ds" } },
+          "patterns": [{ "include": "$self" }]
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.ds",
+          "match": "\\b(if|else|while|do|for|break|continue|return|switch|case|default|try|catch|finally|throw|in|of|instanceof)\\b"
+        },
+        {
+          "name": "keyword.declaration.ds",
+          "match": "\\b(var|let|const|function|class|extends|new|delete|typeof|void|import|export|from|async|await|yield)\\b"
+        },
+        {
+          "name": "constant.language.ds",
+          "match": "\\b(true|false|null|undefined)\\b"
+        },
+        {
+          "name": "variable.language.ds",
+          "match": "\\b(this|super|__exports__)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.ds",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.ds",
+          "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
+        }
+      ]
+    },
+    "regex": {
+      "name": "string.regexp.ds",
+      "match": "(?<=[=(\\[{!&|,;:?+\\-*/%^~<>]|^|\\breturn\\b)\\s*/(?![/*])(?:[^/\\\\\\n]|\\\\.)+/[gimsuy]*"
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.ds",
+          "match": "\\b([a-zA-Z_$][\\w$]*)\\s*(?=\\()"
+        },
+        {
+          "name": "entity.name.function.definition.ds",
+          "match": "\\bfunction\\s+([a-zA-Z_$][\\w$]*)",
+          "captures": {
+            "1": { "name": "entity.name.function.ds" }
+          }
+        }
+      ]
+    },
+    "identifiers": {
+      "name": "variable.other.ds",
+      "match": "\\b[a-zA-Z_$][\\w$]*\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.ds",
+      "match": "=>|[+\\-*/%&|^~!<>=?:.]+"
+    }
+  }
+}
