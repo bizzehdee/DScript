@@ -54,6 +54,7 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.Return);
 
             chunk.CollapseJumpChains();
+            chunk.EliminateDeadCode();
             return chunk;
         }
 
@@ -72,6 +73,7 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.Return);
 
             chunk.CollapseJumpChains();
+            chunk.EliminateDeadCode();
             return chunk;
         }
 

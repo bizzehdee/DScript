@@ -382,5 +382,125 @@ namespace DScript.Vm
             }
             return target;
         }
+
+        /// <summary>
+        /// Remove bytecode that can never be reached: instructions that follow an
+        /// unconditional exit (<see cref="OpCode.Jump"/>, <see cref="OpCode.Return"/>,
+        /// <see cref="OpCode.Halt"/>, <see cref="OpCode.Throw"/>) and are not the
+        /// target of any jump elsewhere in the same chunk.
+        ///
+        /// Operates in one linear pass: dead bytes are identified, an old→new offset
+        /// remap table is built, and the live bytes are copied to a new stream with
+        /// all jump targets adjusted. Recurses into nested function chunks.
+        /// </summary>
+        public void EliminateDeadCode()
+        {
+            // Pass 1: collect all jump targets (always reachable entry points).
+            var jumpTargets = new HashSet<int>();
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op = (OpCode)Code[ip];
+                    if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                             or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop)
+                    {
+                        jumpTargets.Add(ReadIntFromCode(ip + 1));
+                    }
+                    ip += InstructionSize(op);
+                }
+            }
+
+            // Pass 2: mark dead bytes — those after a terminator that are not a
+            // jump target (landing points end the dead region).
+            var dead = new bool[Code.Count];
+            {
+                var ip = 0;
+                var inDead = false;
+                while (ip < Code.Count)
+                {
+                    if (jumpTargets.Contains(ip)) inDead = false;
+
+                    var op = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+
+                    if (inDead)
+                    {
+                        for (var k = ip; k < ip + size; k++) dead[k] = true;
+                    }
+                    else if (op is OpCode.Jump or OpCode.Return or OpCode.Halt or OpCode.Throw)
+                    {
+                        inDead = true;
+                    }
+
+                    ip += size;
+                }
+            }
+
+            var deadCount = 0;
+            foreach (var d in dead) if (d) deadCount++;
+
+            if (deadCount == 0)
+            {
+                foreach (var fn in Functions) fn.EliminateDeadCode();
+                return;
+            }
+
+            // Build an old-byte-offset → new-byte-offset remap. For a live byte at
+            // old position i, remap[i] is its position in the rebuilt stream.
+            var remap = new int[Code.Count + 1];
+            {
+                var newOff = 0;
+                for (var i = 0; i <= Code.Count; i++)
+                {
+                    remap[i] = newOff;
+                    if (i < Code.Count && !dead[i]) newOff++;
+                }
+            }
+
+            // Rebuild the code stream: copy live instructions, remapping jump targets.
+            var newCode = new List<byte>(Code.Count - deadCount);
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    if (dead[ip]) { ip++; continue; }
+
+                    var op = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+                    var isJump = op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                                        or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop;
+
+                    newCode.Add(Code[ip]); // opcode byte
+
+                    var src = ip + 1;
+                    if (isJump)
+                    {
+                        AppendInt(newCode, remap[ReadIntFromCode(src)]); // remapped target
+                        src += 4;
+                    }
+
+                    while (src < ip + size) // remaining operands verbatim
+                        newCode.Add(Code[src++]);
+
+                    ip += size;
+                }
+            }
+
+            Code.Clear();
+            Code.AddRange(newCode);
+            codeArray = null;
+            inlineCache = null; // offsets have shifted
+
+            foreach (var fn in Functions) fn.EliminateDeadCode();
+        }
+
+        private static void AppendInt(List<byte> list, int value)
+        {
+            list.Add((byte)(value & 0xFF));
+            list.Add((byte)((value >> 8) & 0xFF));
+            list.Add((byte)((value >> 16) & 0xFF));
+            list.Add((byte)((value >> 24) & 0xFF));
+        }
     }
 }
