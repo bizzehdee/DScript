@@ -20,6 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System.Collections.Generic;
 using DScript.Vm;
 
 namespace DScript.Compiler
@@ -28,6 +29,16 @@ namespace DScript.Compiler
     {
         private void CompileFactor(bool canAssign)
         {
+            // Arrow function: `x => body` or `(params) => body` — must be
+            // checked before the '(' and Id cases so the disambiguation runs
+            // before any tokens are consumed.
+            if ((lexer.TokenType == (ScriptLex.LexTypes)'(' ||
+                 lexer.TokenType == ScriptLex.LexTypes.Id) && IsArrowFunction())
+            {
+                CompileArrowFunction();
+                return;
+            }
+
             switch (lexer.TokenType)
             {
                 case (ScriptLex.LexTypes)'(':
@@ -347,14 +358,125 @@ namespace DScript.Compiler
 
             var saved = chunk;
             chunk = fnChunk;
+            EnterFunctionBody(out var savedLoops, out var savedFinally);
             CompileBlock();
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
+            ExitFunctionBody(savedLoops, savedFinally);
             chunk = saved;
 
             fnChunk.Source = "function " + name + lexer.GetSubString(sourceStart);
 
             return saved.AddFunction(fnChunk);
+        }
+
+        // Returns true if the current token sequence starts an arrow function
+        // (`identifier =>` or `( params ) =>`). Uses a lexer clone so the
+        // main lexer position is not disturbed.
+        private bool IsArrowFunction()
+        {
+            if (lexer.TokenType == ScriptLex.LexTypes.Id)
+            {
+                var clone = lexer.CloneToEnd(lexer.TokenStart);
+                clone.GetNextToken();
+                return clone.TokenType == ScriptLex.LexTypes.Arrow;
+            }
+
+            if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+            {
+                var clone = lexer.CloneToEnd(lexer.TokenStart);
+                clone.GetNextToken(); // skip '('
+                var depth = 1;
+                while (clone.TokenType != ScriptLex.LexTypes.Eof)
+                {
+                    if (clone.TokenType == (ScriptLex.LexTypes)'(') depth++;
+                    else if (clone.TokenType == (ScriptLex.LexTypes)')')
+                    {
+                        depth--;
+                        if (depth == 0) break;
+                    }
+                    clone.GetNextToken();
+                }
+                clone.GetNextToken(); // skip ')'
+                return clone.TokenType == ScriptLex.LexTypes.Arrow;
+            }
+
+            return false;
+        }
+
+        // Compile `x => expr`, `(x, y) => expr`, or `(params) => { block }`.
+        private void CompileArrowFunction()
+        {
+            var fnChunk = new Chunk { Name = "<arrow>" };
+            var sourceStart = lexer.TokenStart;
+
+            if (lexer.TokenType == ScriptLex.LexTypes.Id)
+            {
+                // Single unparenthesised param: x => body
+                fnChunk.Parameters.Add(lexer.TokenString);
+                lexer.Match(ScriptLex.LexTypes.Id);
+            }
+            else
+            {
+                // Parenthesised param list: () => body  or  (x, y) => body
+                lexer.Match((ScriptLex.LexTypes)'(');
+                while (lexer.TokenType != (ScriptLex.LexTypes)')')
+                {
+                    fnChunk.Parameters.Add(lexer.TokenString);
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    if (lexer.TokenType != (ScriptLex.LexTypes)')')
+                        lexer.Match((ScriptLex.LexTypes)',');
+                }
+                lexer.Match((ScriptLex.LexTypes)')');
+            }
+
+            lexer.Match(ScriptLex.LexTypes.Arrow);
+
+            var saved = chunk;
+            chunk = fnChunk;
+            EnterFunctionBody(out var savedLoops, out var savedFinally);
+
+            if (lexer.TokenType == (ScriptLex.LexTypes)'{')
+            {
+                // Block body: (x) => { statements; }
+                CompileBlock();
+                chunk.Emit(OpCode.PushUndefined);
+                chunk.Emit(OpCode.Return);
+            }
+            else
+            {
+                // Expression body: (x) => expr  — implicit return
+                CompileBase();
+                chunk.Emit(OpCode.Return);
+            }
+
+            ExitFunctionBody(savedLoops, savedFinally);
+            chunk = saved;
+
+            fnChunk.Source = lexer.GetSubString(sourceStart);
+
+            var idx = chunk.AddFunction(fnChunk);
+            chunk.Emit(OpCode.MakeClosure, idx);
+            chunk.MakesClosure = true;
+        }
+
+        // Isolate the new function body from the enclosing function's loop and
+        // finally contexts so that break/continue/return inside the body don't
+        // accidentally target the outer function's control structures.
+        private void EnterFunctionBody(out Stack<LoopContext> savedLoops,
+                                       out Stack<FinallyContext> savedFinally)
+        {
+            savedLoops   = loops;
+            savedFinally = finallyStack;
+            loops        = new Stack<LoopContext>();
+            finallyStack = new Stack<FinallyContext>();
+        }
+
+        private void ExitFunctionBody(Stack<LoopContext> savedLoops,
+                                      Stack<FinallyContext> savedFinally)
+        {
+            loops        = savedLoops;
+            finallyStack = savedFinally;
         }
 
         private void CompileObjectLiteral()

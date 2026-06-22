@@ -36,7 +36,7 @@ namespace DScript.Compiler
             public LoopContext(bool isSwitch = false) => IsSwitch = isSwitch;
         }
 
-        private readonly Stack<LoopContext> loops = new();
+        private Stack<LoopContext> loops = new();
         private int forInCounter;
 
         // One entry per enclosing try-with-finally block. Tracks pending return/goto
@@ -46,7 +46,7 @@ namespace DScript.Compiler
         {
             public readonly List<int> ReturnJumps = []; // LeaveTry operand offsets for `return`
         }
-        private readonly Stack<FinallyContext> finallyStack = new();
+        private Stack<FinallyContext> finallyStack = new();
 
         private void CompileStatement()
         {

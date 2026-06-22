@@ -139,7 +139,9 @@ namespace DScript
             RDefault,
             RInstanceOf,
             RIn,
-            RDelete
+            RDelete,
+            Arrow,          // =>
+
         }
 
         public ScriptLex(string input)
@@ -440,7 +442,12 @@ namespace DScript
                     GetNextChar();
                 }
 
-                if (TokenType == (LexTypes)'=' && CurrentChar == '=') // ==
+                if (TokenType == (LexTypes)'=' && CurrentChar == '>') // =>
+                {
+                    TokenType = LexTypes.Arrow;
+                    GetNextChar();
+                }
+                else if (TokenType == (LexTypes)'=' && CurrentChar == '=') // ==
                 {
                     TokenType = LexTypes.Equal;
                     GetNextChar();
