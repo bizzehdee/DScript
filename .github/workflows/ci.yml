@@ -34,12 +34,18 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      - name: Test
+      - name: Test with coverage
         run: >
           dotnet test --no-build --configuration Release
           --framework ${{ matrix.tfm }}
           --logger "trx;LogFileName=results.trx"
           --results-directory ./test-results
+          /p:CollectCoverage=true
+          /p:CoverletOutputFormat=opencover
+          /p:Threshold=90
+          /p:ThresholdType=line
+          /p:ThresholdStat=Total
+          /p:Exclude="[DScript.Benchmark]*%2C[DScript.Demo]*%2C[DScript.Repl]*%2C[DScript.LanguageServer]*"
 
       - name: Upload test results
         if: always()
