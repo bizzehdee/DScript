@@ -194,6 +194,11 @@ namespace DScript.Vm
             this.engine = engine;
         }
 
+        /// <summary>
+        /// Drain all pending micro-tasks. Call after running async code.
+        /// </summary>
+        public static void DrainMicroTasks() => MicroTaskQueue.DrainAll();
+
         private void Push(ScriptVar value)
         {
             if (sp == stack.Length)
@@ -1142,6 +1147,13 @@ namespace DScript.Vm
                 return CreateGeneratorIterator(vmfn, genCallEnv);
             }
 
+            // Async function: return a Promise that resolves with the function's return value
+            if (vmfn.Body.IsAsync)
+            {
+                var asyncCallEnv = BuildCallEnvironment(vmfn, thisArg, args);
+                return CreateAsyncPromise(vmfn, asyncCallEnv);
+            }
+
             var recyclable = vmfn.Body.RecyclableFrame;
             var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
             var callEnv = new Environment(vars, vmfn.Captured);
@@ -1197,6 +1209,17 @@ namespace DScript.Vm
                 sp = argBase;
                 var genCallEnv = BuildCallEnvironment(vmfn, thisArg, genArgs);
                 return CreateGeneratorIterator(vmfn, genCallEnv);
+            }
+
+            // Async function: materialise args from stack, then return a Promise
+            if (vmfn.Body.IsAsync)
+            {
+                var asyncArgs = new ScriptVar[argc];
+                for (var j = 0; j < argc; j++)
+                    asyncArgs[j] = stack[argBase + j];
+                sp = argBase;
+                var asyncCallEnv = BuildCallEnvironment(vmfn, thisArg, asyncArgs);
+                return CreateAsyncPromise(vmfn, asyncCallEnv);
             }
 
             var recyclable = vmfn.Body.RecyclableFrame;
@@ -1296,6 +1319,62 @@ namespace DScript.Vm
 
             iterObj.AddChild("next", nextFn);
             return iterObj;
+        }
+
+        // Create a Promise that runs an async function body using the generator
+        // thread. The async function body compiles `await expr` as `yield expr`,
+        // so we drive it like a generator: each yielded value is treated as a
+        // Promise to await; when it resolves we resume the generator.
+        private ScriptVar CreateAsyncPromise(VmFunction vmfn, Environment callEnv)
+        {
+            var outerPromise = new PromiseObject();
+            var genObj = new GeneratorObject();
+
+            // Drive the async body: start it, then for each yielded value
+            // treat it as a Promise and chain resumption through Then().
+            void DriveNext(ScriptVar resumeValue)
+            {
+                try
+                {
+                    var (yielded, done) = genObj.Next(resumeValue, g =>
+                    {
+                        var result = Execute(vmfn.Body, callEnv, g);
+                        g.Complete(result ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                    });
+
+                    if (done)
+                    {
+                        outerPromise.Resolve(yielded);
+                        return;
+                    }
+
+                    // The generator yielded a value (from `await expr`).
+                    // Wrap it as a Promise and chain resumption.
+                    var awaitedPromise = PromiseObject.Wrap(yielded);
+                    awaitedPromise.Then(
+                        resolved => MicroTaskQueue.Enqueue(() => DriveNext(resolved)),
+                        rejected => MicroTaskQueue.Enqueue(() => DriveError(rejected))
+                    );
+                }
+                catch (Exception ex)
+                {
+                    var msg = ex is JITException jit
+                        ? (jit.VarObj ?? new ScriptVar(ex.Message))
+                        : new ScriptVar(ex.Message);
+                    outerPromise.Reject(msg);
+                }
+            }
+
+            void DriveError(ScriptVar reason)
+            {
+                // For now: reject the outer promise on any error during resume
+                outerPromise.Reject(reason);
+            }
+
+            // Start the async function immediately (first .Next call starts the thread).
+            MicroTaskQueue.Enqueue(() => DriveNext(new ScriptVar(ScriptVar.Flags.Undefined)));
+
+            return outerPromise.ToScriptVar(this);
         }
 
         // primitives are passed by value, objects/functions by reference

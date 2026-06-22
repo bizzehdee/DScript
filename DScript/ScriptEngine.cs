@@ -83,7 +83,84 @@ namespace DScript
             Root.AddChild("String", stringClass);
             Root.AddChild("Array", arrayClass);
 
+            RegisterPromiseBuiltin();
+
             globalEnvironment = new VmEnvironment(Root, null);
+        }
+
+        private void RegisterPromiseBuiltin()
+        {
+            // Promise constructor: new Promise(function(resolve, reject) { ... })
+            var promiseCtorVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            promiseCtorVar.AddChild("executor", new ScriptVar(ScriptVar.Flags.Undefined));
+            promiseCtorVar.SetCallback((scope, _) =>
+            {
+                var executor = scope.FindChild("executor")?.Var;
+                var promiseObj = new Vm.PromiseObject();
+                var vm = new VirtualMachine(this);
+
+                // resolve callback
+                var resolveFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                resolveFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+                resolveFn.SetCallback((s, __) =>
+                {
+                    var v = s.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                    promiseObj.Resolve(v);
+                }, null);
+
+                // reject callback
+                var rejectFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                rejectFn.AddChild("reason", new ScriptVar(ScriptVar.Flags.Undefined));
+                rejectFn.SetCallback((s, __) =>
+                {
+                    var r = s.FindChild("reason")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                    promiseObj.Reject(r);
+                }, null);
+
+                if (executor != null && executor.IsFunction)
+                {
+                    try { vm.InvokeCallable(executor, null, [resolveFn, rejectFn]); }
+                    catch (Exception ex) { promiseObj.Reject(new ScriptVar(ex.Message)); }
+                }
+
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(promiseObj.ToScriptVar(vm));
+            }, null);
+
+            // Promise.resolve(value) static method
+            var promiseClass = new ScriptVar(ScriptVar.Flags.Object);
+            promiseClass.SetData(promiseCtorVar); // store ctor reference
+
+            // Copy the constructor callback to the class var so `new Promise(fn)` works
+            // We make promiseClass a function so the VM's `new` opcode can call it
+            var promiseVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            promiseVar.AddChild("executor", new ScriptVar(ScriptVar.Flags.Undefined));
+            promiseVar.SetCallback(promiseCtorVar.GetCallback(), null);
+
+            // Promise.resolve
+            var resolveFnStatic = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            resolveFnStatic.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+            resolveFnStatic.SetCallback((scope, _) =>
+            {
+                var v = scope.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var vm = new VirtualMachine(this);
+                var p = Vm.PromiseObject.Resolved(v);
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(p.ToScriptVar(vm));
+            }, null);
+            promiseVar.AddChild("resolve", resolveFnStatic);
+
+            // Promise.reject
+            var rejectFnStatic = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            rejectFnStatic.AddChild("reason", new ScriptVar(ScriptVar.Flags.Undefined));
+            rejectFnStatic.SetCallback((scope, _) =>
+            {
+                var r = scope.FindChild("reason")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var vm = new VirtualMachine(this);
+                var p = Vm.PromiseObject.Rejected(r);
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(p.ToScriptVar(vm));
+            }, null);
+            promiseVar.AddChild("reject", rejectFnStatic);
+
+            Root.AddChild("Promise", promiseVar);
         }
 
         public void Trace()
@@ -183,6 +260,12 @@ namespace DScript
 
         /// <summary>Remove all registered breakpoints.</summary>
         public void ClearBreakpoints() => _breakpoints.Clear();
+
+        /// <summary>
+        /// Drain the micro-task queue, running all pending Promise callbacks.
+        /// Call this after running async code to ensure all awaited work completes.
+        /// </summary>
+        public void DrainMicroTasks() => Vm.MicroTaskQueue.DrainAll();
 
         /// <summary>
         /// Invoke a script (or native) function programmatically. Lets native and

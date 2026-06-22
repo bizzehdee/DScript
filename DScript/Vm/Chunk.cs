@@ -152,6 +152,9 @@ namespace DScript.Vm
         /// <summary>True when this function chunk was compiled as a generator (function*).</summary>
         public bool IsGenerator { get; set; }
 
+        /// <summary>True when this function chunk was compiled as an async function.</summary>
+        public bool IsAsync { get; set; }
+
         public int Count => Code.Count;
 
         // --- emit helpers (distinct by arity to avoid overload ambiguity) ---

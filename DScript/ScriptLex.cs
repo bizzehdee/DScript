@@ -152,6 +152,8 @@ namespace DScript
             Ellipsis,       // ...
             ROf,            // of (contextual keyword in for...of)
             RYield,         // yield keyword
+            RAsync,         // async keyword
+            RAwait,         // await keyword
         }
 
         public ScriptLex(string input)
@@ -315,6 +317,8 @@ namespace DScript
                     case "let": TokenType = LexTypes.RLet; break;
                     case "of": TokenType = LexTypes.ROf; break;
                     case "yield": TokenType = LexTypes.RYield; break;
+                    case "async": TokenType = LexTypes.RAsync; break;
+                    case "await": TokenType = LexTypes.RAwait; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers
@@ -758,6 +762,23 @@ namespace DScript
             }
 
             GetNextToken();
+        }
+
+        /// <summary>
+        /// Accept an identifier OR any reserved keyword used as a property name
+        /// (e.g. <c>obj.catch</c>, <c>obj.then</c>, <c>obj.delete</c>).
+        /// Advances the lexer and returns true. Throws on non-identifier tokens.
+        /// </summary>
+        public void MatchPropertyName()
+        {
+            // Accept Id or any reserved word (>= RListStart) that starts an alpha char
+            // (i.e. it was lexed as a keyword but is used here as a property name).
+            if (TokenType == LexTypes.Id || (int)TokenType >= (int)LexTypes.RListStart)
+            {
+                GetNextToken();
+                return;
+            }
+            throw new ScriptException($"Expected property name, found {Enum.GetName<LexTypes>(TokenType) ?? ((char)TokenType).ToString()}. Line: {LineNumber}, Col: {ColumnNumber}");
         }
 
         public static string LexTypesToString(LexTypes lexTypes)

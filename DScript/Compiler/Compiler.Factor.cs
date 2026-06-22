@@ -44,6 +44,22 @@ namespace DScript.Compiler
                 return;
             }
 
+            // await expression — compiles identically to yield; the async driver
+            // intercepts the yielded Promise and resumes with the resolved value.
+            if (lexer.TokenType == ScriptLex.LexTypes.RAwait)
+            {
+                lexer.Match(ScriptLex.LexTypes.RAwait);
+                // await expr — evaluate the expression (should be a Promise)
+                if (lexer.TokenType != (ScriptLex.LexTypes)';' &&
+                    lexer.TokenType != (ScriptLex.LexTypes)'}' &&
+                    lexer.TokenType != ScriptLex.LexTypes.Eof)
+                    CompileBase();
+                else
+                    chunk.Emit(OpCode.PushUndefined);
+                chunk.Emit(OpCode.Yield); // reuse Yield — the async driver handles resumption
+                return;
+            }
+
             // Arrow function: `x => body` or `(params) => body` — must be
             // checked before the '(' and Id cases so the disambiguation runs
             // before any tokens are consumed.
@@ -125,6 +141,23 @@ namespace DScript.Compiler
                 case (ScriptLex.LexTypes)'[':
                     CompileArrayLiteral();
                     return;
+
+                case ScriptLex.LexTypes.RAsync:
+                {
+                    // async function expression: async function [name](params) { body }
+                    lexer.Match(ScriptLex.LexTypes.RAsync);
+                    lexer.Match(ScriptLex.LexTypes.RFunction);
+                    var fnName = string.Empty;
+                    if (lexer.TokenType == ScriptLex.LexTypes.Id)
+                    {
+                        fnName = lexer.TokenString;
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                    }
+                    var idx = CompileFunctionRest(fnName, isGenerator: false, isAsync: true);
+                    chunk.Emit(OpCode.MakeClosure, idx);
+                    chunk.MakesClosure = true;
+                    return;
+                }
 
                 case ScriptLex.LexTypes.RFunction:
                 {
@@ -236,9 +269,9 @@ namespace DScript.Compiler
                     }
                     else
                     {
-                        // a?.b  or  a?.b(args)
+                        // a?.b  or  a?.b(args) — property name may be a keyword (e.g. catch)
                         var prop = lexer.TokenString;
-                        lexer.Match(ScriptLex.LexTypes.Id);
+                        lexer.MatchPropertyName();
                         var nameIndex = chunk.AddName(prop);
 
                         if (lexer.TokenType == (ScriptLex.LexTypes)'(')
@@ -263,8 +296,9 @@ namespace DScript.Compiler
                 if (lexer.TokenType == (ScriptLex.LexTypes)'.')
                 {
                     lexer.Match((ScriptLex.LexTypes)'.');
+                    // Property name may be a keyword (e.g. obj.catch, obj.then, obj.delete)
                     var prop = lexer.TokenString;
-                    lexer.Match(ScriptLex.LexTypes.Id);
+                    lexer.MatchPropertyName();
                     var nameIndex = chunk.AddName(prop);
 
                     if (lexer.TokenType == (ScriptLex.LexTypes)'(')
@@ -440,8 +474,9 @@ namespace DScript.Compiler
                 if (lexer.TokenType == (ScriptLex.LexTypes)'.')
                 {
                     lexer.Match((ScriptLex.LexTypes)'.');
-                    chunk.Emit(OpCode.GetProp, chunk.AddName(lexer.TokenString));
-                    lexer.Match(ScriptLex.LexTypes.Id);
+                    var propName = lexer.TokenString;
+                    lexer.MatchPropertyName();
+                    chunk.Emit(OpCode.GetProp, chunk.AddName(propName));
                 }
                 else
                 {
@@ -466,9 +501,9 @@ namespace DScript.Compiler
 
         // Compile a function's "(params) { body }" into a nested chunk and
         // register it; returns its index in the enclosing chunk's function table.
-        private int CompileFunctionRest(string name, bool isGenerator = false)
+        private int CompileFunctionRest(string name, bool isGenerator = false, bool isAsync = false)
         {
-            var fnChunk = new Chunk { Name = string.IsNullOrEmpty(name) ? "<anonymous>" : name, IsGenerator = isGenerator };
+            var fnChunk = new Chunk { Name = string.IsNullOrEmpty(name) ? "<anonymous>" : name, IsGenerator = isGenerator, IsAsync = isAsync };
 
             // capture the source span so the function can be rendered back to
             // text by JSON.stringify / GetParsableString and re-parsed by eval

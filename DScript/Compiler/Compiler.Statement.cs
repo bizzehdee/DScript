@@ -102,6 +102,9 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.RFunction:
                     CompileFunctionDeclaration();
                     break;
+                case ScriptLex.LexTypes.RAsync:
+                    CompileAsyncFunctionDeclaration();
+                    break;
                 case ScriptLex.LexTypes.RThrow:
                     CompileThrow();
                     break;
@@ -862,6 +865,23 @@ namespace DScript.Compiler
 
             chunk.Emit(OpCode.DeclareVar, nameIndex);
             chunk.Emit(OpCode.MakeClosure, idx);  // captures the current environment
+            chunk.MakesClosure = true;
+            chunk.Emit(OpCode.SetVar, nameIndex);
+            chunk.Emit(OpCode.Pop);
+        }
+
+        private void CompileAsyncFunctionDeclaration()
+        {
+            lexer.Match(ScriptLex.LexTypes.RAsync);
+            lexer.Match(ScriptLex.LexTypes.RFunction);
+            var name = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.Id);
+            var nameIndex = chunk.AddName(name);
+
+            var idx = CompileFunctionRest(name, isGenerator: false, isAsync: true);
+
+            chunk.Emit(OpCode.DeclareVar, nameIndex);
+            chunk.Emit(OpCode.MakeClosure, idx);
             chunk.MakesClosure = true;
             chunk.Emit(OpCode.SetVar, nameIndex);
             chunk.Emit(OpCode.Pop);
