@@ -1,22 +1,26 @@
 DScript
 =======
 
-Open sourced, object oriented, Javascript based, extendable scripting language implemented in C#.
+Open-source, object-oriented, JavaScript-like scripting language implemented in C#.
 
 DScript is distributed as two NuGet packages: **DScript** (the engine) and **DScript.Extras**
 (an optional JS-style standard library — `console`, `Math`, `String`, `Array`, `JSON`, etc.).
 
 Source is **compiled to bytecode once** and executed on a stack-based virtual machine, so
-loops and function calls don't re-parse on every iteration. Compiled bytecode can also be
-saved and re-run later. Functions are **lexically scoped closures**.
+loops and function calls don't re-parse on every iteration. A peephole optimiser folds
+constants, fuses binary operations with inline integers, collapses jump chains, and upgrades
+eligible tail calls automatically. Compiled bytecode can be saved to disk with an embedded
+source map and reloaded later. Functions are **lexically scoped closures**.
 
-***Example***
+---
+
+Quick example
+-------------
 
     function Animal(name) {
         this.name = name;
     }
 
-    // methods placed on the constructor are shared by every instance
     Animal.speak = function () {
         return `${this.name} makes a sound`;
     };
@@ -25,15 +29,6 @@ saved and re-run later. Functions are **lexically scoped closures**.
 
     console.log(dog.speak());           // dog makes a sound
     console.log(dog instanceof Animal); // 1
-
-    var MyClass = {
-        doSomethingComplicated: function (x, y) {
-            return x * y / 10.0;
-        }
-    };
-
-    var inst = new MyClass();
-    console.log(inst.doSomethingComplicated(1.0, 2.0));
 
 Installation
 ------------
@@ -55,215 +50,218 @@ Using DScript from C#
 
     engine.Execute("var result = 6 * 7;");
 
-    // Read a value back out of the script's root scope
     var result = engine.Root.GetParameter("result").Int; // 42
 
-***Exposing your own native functions***
+**Exposing your own native functions**
 
-    engine.AddNative("function add(a, b)", (var, userData) =>
+    engine.AddNative("function add(a, b)", (scope, userData) =>
     {
-        var.ReturnVar.Int = var.GetParameter("a").Int + var.GetParameter("b").Int;
+        scope.ReturnVar.Int = scope.GetParameter("a").Int + scope.GetParameter("b").Int;
     }, null);
 
     engine.Execute("console.log(add(2, 3));"); // 5
 
-***Calling script functions from C#***
+**Calling script functions from C#**
 
     engine.Execute("function square(n) { return n * n; }");
 
     var square = engine.Root.GetParameter("square");
     var result = engine.CallFunction(square, null, new ScriptVar(9)).Int; // 81
 
-`CallFunction(function, thisArg, args...)` invokes any script (or native) function
+`CallFunction(function, thisArg, args...)` invokes any script or native function
 programmatically. It is also what powers the higher-order array methods
-(`map` / `filter` / `forEach` / `reduce` and `sort` comparators).
+(`map`, `filter`, `forEach`, `reduce`, and `sort` comparators).
 
-***Compiling to bytecode and re-running it***
+**Compiling once and running many times**
 
-    // compile once... (compilation is engine-independent)
+    // Compile is engine-independent — share chunks across engine instances.
     var program = ScriptEngine.Compile("var answer = 6 * 7;");
 
-    // ...run it (repeatedly, cheaply)
-    engine.Run(program);
+    engine.Run(program); // cheap
 
-    // ...or persist the bytecode and run it later on another engine
-    byte[] bytes = DScript.Vm.BytecodeSerializer.Save(program);
-    // (save bytes to disk, send over the wire, etc.)
+    // Persist bytecode to disk (includes source map).
+    DScript.Vm.BytecodeSerializer.SaveWithSourceMap(program, "program.dsc");
 
+    // Reload and run on a fresh engine.
     var other = new ScriptEngine();
-    var loader2 = new EngineFunctionLoader();
-    loader2.RegisterFunctions(other);                 // register the same natives
-    other.Run(DScript.Vm.BytecodeSerializer.Load(bytes));
+    loader.RegisterFunctions(other);
+    other.Run(DScript.Vm.BytecodeSerializer.LoadWithSourceMap("program.dsc"));
 
-Native functions are resolved by name at run time, so compiled bytecode does not embed
+Native functions are resolved by name at run time, so serialised bytecode does not embed
 them — a loaded program just needs the host to register the same natives before running.
 
-***Saving and restoring engine state***
+**Saving and restoring engine state**
 
-    var state = engine.SerializeState();   // capture all variables/values
-    // ... later, on a fresh engine with the same native functions registered ...
-    engine.DeserializeState(state);         // restore them
+    var state = engine.SerializeState();
+    // ... later, on a fresh engine with the same natives registered ...
+    engine.DeserializeState(state);
 
-(Native functions cannot be serialized; re-register them before restoring.)
+---
 
-***Supports***
-- Variables (`var`) and constants (`const`)
-- Classes / objects and object literals
-- Constructor functions (`new`), prototype chains and `instanceof`
-- Class methods and instance methods
-- Global, class, and method scope
-- Functions: named, anonymous, nested, and arrow functions (`=>`)
-- Arithmetic, comparison, bitwise and boolean operators
-- `if` / `else`, `while`, `do` / `while`, `for`, `for...in`, `switch` / `case` / `default`, `return`
-- `break` and `continue` within loops
-- Ternary (`?:`) expressions
-- `typeof`, `instanceof`, `in`, `delete`
-- Regular-expression literals (`/pattern/flags`)
-- Template literals (`` `Hello, ${name}!` ``)
-- Eval / Exec
-- Exception handling (`try` / `catch` / `finally` / `throw`) with rich script stack traces
-- Engine state serialization (save / restore)
-- Step debugger with breakpoints (`IDebugger`)
-- ...more
+Language features
+-----------------
 
-Classes and objects
---------------------
+**Variables and scoping**
+
+    var x = 10;       // function-scoped
+    let y = 20;       // block-scoped
+    const PI = 3.14;  // block-scoped, immutable binding
+
+`let` and `const` are block-scoped and do not hoist.
+
+**Classes and objects**
 
 Objects can be created with an object literal, with a constructor function via `new`,
-or by explicitly linking a `prototype`.
+or by linking a `prototype` explicitly.
 
-    // constructor function
     function Dog(name) {
         this.name = name;
     }
 
-    // shared method defined on the constructor
     Dog.bark = function () {
-        return this.name + " says woof";
+        return `${this.name} says woof`;
     };
 
     var d1 = new Dog("rex");
-    var d2 = new Dog("fido");
-
     d1.bark();   // "rex says woof"
-    d2.bark();   // "fido says woof"  (each instance keeps its own fields)
 
-***Inheritance***
+*Shorthand and computed property names:*
+
+    var key = "score";
+    var name = "alice";
+
+    var obj = {
+        name,           // shorthand: { name: name }
+        [key]: 100,     // computed:  { score: 100 }
+    };
+
+*Inheritance via prototype chain:*
 
     function Animal() { this.alive = 1; }
     function Dog()    { this.barks = 1; }
 
-    Dog.prototype = new Animal();   // link the prototype chain
+    Dog.prototype = new Animal();
 
     var d = new Dog();
     d instanceof Dog;     // 1
-    d instanceof Animal;  // 1  (the chain is walked)
+    d instanceof Animal;  // 1
 
-Property reads fall back to the prototype chain, while assignments always create or
-update an *own* property on the target object, so instances never share each other's
-state. `new Ctor` may be written with or without parentheses, and a constructor that
-returns an object uses that object as the result of the `new` expression.
+**Arrow functions**
 
-Arrow functions
----------------
+All three forms are supported for both expression bodies (implicit return) and
+block bodies.
 
-Arrow functions provide a concise syntax for function expressions. All three forms
-are supported — no-parameter, single-parameter (no parentheses needed), and
-multi-parameter — for both expression bodies (implicit return) and block bodies.
-
-    // expression body — value is returned implicitly
     var double  = x => x * 2;
     var add     = (a, b) => a + b;
     var getZero = () => 0;
 
-    double(5);    // 10
-    add(3, 4);    // 7
-
-    // block body — requires an explicit return
     var clamp = (val, lo, hi) => {
         if (val < lo) return lo;
         if (val > hi) return hi;
         return val;
     };
 
-Arrow functions are closures and capture variables from the enclosing scope:
-
-    var factor = 3;
-    var triple = x => x * factor;
-    triple(7);    // 21
-
-They are particularly useful as callbacks to higher-order array methods:
+Arrow functions close over the enclosing scope and are particularly useful as
+callbacks:
 
     var nums    = [1, 2, 3, 4, 5];
-    var doubled = nums.map(n => n * 2);         // [2, 4, 6, 8, 10]
-    var evens   = nums.filter(n => n % 2 == 0); // [2, 4]
+    var doubled = nums.map(n => n * 2);          // [2, 4, 6, 8, 10]
+    var evens   = nums.filter(n => n % 2 == 0);  // [2, 4]
     var sum     = nums.reduce((acc, n) => acc + n, 0); // 15
 
-Template literals
------------------
+**Default parameters**
 
-Template literals are backtick-delimited strings that support multi-character escape
-sequences and `${expression}` interpolation. Any expression — variable read, arithmetic,
-function call — may appear inside `${}`.
+    function greet(name, greeting = "Hello") {
+        return `${greeting}, ${name}!`;
+    }
+
+    greet("Alice");          // "Hello, Alice!"
+    greet("Bob", "Hi");      // "Hi, Bob!"
+
+**Destructuring**
+
+*Array destructuring:*
+
+    var [a, b, c] = [1, 2, 3];
+    var [first, ...rest] = [10, 20, 30];  // rest = [20, 30]
+
+*Object destructuring:*
+
+    var { x, y } = { x: 1, y: 2 };
+    var { name: alias, score = 0 } = { name: "alice" };  // alias="alice", score=0
+
+**Spread and rest**
+
+    // spread in function calls
+    function sum(a, b, c) { return a + b + c; }
+    var args = [1, 2, 3];
+    sum(...args);   // 6
+
+    // spread in array literals
+    var a = [1, 2];
+    var b = [3, 4];
+    var c = [...a, ...b, 5];  // [1, 2, 3, 4, 5]
+
+    // rest parameters
+    function first(head, ...tail) { return head; }
+    first(1, 2, 3);   // 1, tail = [2, 3]
+
+**Template literals**
 
     var name = "Alice";
     var age  = 30;
 
-    console.log(`Hello, ${name}!`);             // Hello, Alice!
+    console.log(`Hello, ${name}!`);
     console.log(`In 10 years you'll be ${age + 10}.`);
 
-    function greet(n) { return `Hi, ${n}!`; }
-    greet("Bob");   // "Hi, Bob!"
+Any expression may appear inside `${}`. Use `\$` for a literal dollar sign.
 
-Escape sequences follow the same rules as regular strings (`\n`, `\t`, `\\`, etc.).
-Use `\$` to include a literal `$` without triggering interpolation.
+**Nullish coalescing and optional chaining**
 
-Iteration
----------
+    var x = null;
+    var y = x ?? "default";       // "default"
 
-C-style and `for...in` loops are both supported; `for...in` walks an object's
-member names (and an array's index keys).
+    var obj = { a: { b: 42 } };
+    var val = obj?.a?.b;           // 42
+    var missing = obj?.z?.w;       // undefined (no throw)
+    var result = obj?.fn?.(1, 2);  // undefined if fn is absent
 
-    var obj = { a: 1, b: 2, c: 3 };
+**Iteration**
+
+    // for...of works with arrays, generators, and any object with a .next() method
+    for (var x of [1, 2, 3]) {
+        console.log(x);
+    }
+
+    // for...in walks enumerable property names
+    var obj = { a: 1, b: 2 };
     for (var key in obj) {
         console.log(`${key} = ${obj[key]}`);
     }
 
-    var nums = [1, 2, 3, 4];
-    var doubled = nums.map(n => n * 2);
-    var evens   = nums.filter(n => n % 2 == 0);
+**Switch**
 
-Switch statements
------------------
-
-`switch` matches a discriminant against `case` values with strict equality. `default`
-may appear anywhere in the block. Unlike C, there is no fallthrough — each `case` body
-is independent. `break` is accepted (and does nothing extra) for compatibility. `continue`
-inside a `switch` that is itself inside a loop targets the enclosing loop, not the switch.
+`default` may appear anywhere in the block. There is no fallthrough — each `case`
+body is independent. `continue` inside a `switch` within a loop targets the
+enclosing loop, not the switch.
 
     switch (status) {
-        case "ok":    return "all good";
-        case "warn":  return "check logs";
-        default:      return "unknown";
+        case "ok":   return "all good";
+        case "warn": return "check logs";
+        default:     return "unknown";
     }
 
-Exception handling
-------------------
-
-`try` / `catch` / `finally` / `throw` work as in standard JavaScript. When an exception
-propagates out of a script call, the thrown `JITException` or `ScriptException` carries
-a `ScriptStackTrace` property — a list of `(Source, Line)` pairs — and its `ToString()`
-includes those frames for easy diagnostics.
+**Exception handling**
 
     try {
-        throw "something went wrong";
+        throw { code: 404, message: "not found" };
     } catch (e) {
-        console.log(e);
+        console.log(e.message);
     } finally {
         // always runs
     }
 
-From C#:
+From C#, caught exceptions carry a script stack trace:
 
     try
     {
@@ -272,16 +270,97 @@ From C#:
     catch (JITException ex)
     {
         // ex.ScriptStackTrace — IReadOnlyList<(string Source, int Line)>
-        // ex.ToString()       — formatted with "at <fn> (line N)" frames
         Console.Error.WriteLine(ex.ToString());
     }
+
+---
+
+Generators
+----------
+
+`function*` declarations and `yield` expressions are fully supported.
+Generators that contain no `try`/`catch` blocks use a stackless state-machine
+execution path — no OS thread is created per invocation.
+
+    function* range(start, end) {
+        var i = start;
+        while (i < end) {
+            yield i;
+            i++;
+        }
+    }
+
+    for (var n of range(0, 5)) {
+        console.log(n);   // 0 1 2 3 4
+    }
+
+    // .next() protocol
+    var gen = range(0, 3);
+    gen.next();  // { value: 0, done: false }
+    gen.next();  // { value: 1, done: false }
+    gen.next();  // { value: 2, done: false }
+    gen.next();  // { value: undefined, done: true }
+
+---
+
+Async / await
+-------------
+
+`async function` declarations return a `Promise` that resolves with the function's
+return value. `await` suspends the function until the awaited `Promise` settles.
+Call `engine.DrainMicroTasks()` after `Run()` to flush the microtask queue.
+
+    async function fetchData() {
+        var raw = await Promise.resolve(42);
+        return raw * 2;
+    }
+
+    var r = 0;
+    fetchData().then(function(v) { r = v; });
+    // engine.DrainMicroTasks() from C# to settle the chain
+
+`Promise.resolve(value)` and `Promise.reject(reason)` are available as static
+constructors. `.then(fn)` and `.catch(fn)` are chainable.
+
+---
+
+Modules
+-------
+
+DScript supports CommonJS-style `require` / `export` and ES-module `import` syntax.
+Supply a module loader callback to resolve module paths:
+
+    engine.ModuleLoader = (path, fromPath) =>
+        File.ReadAllText(Path.Combine(baseDir, path + ".ds"));
+
+**CommonJS (require / export)**
+
+    // math.ds
+    export function add(a, b) { return a + b; }
+    export const PI = 3.14159;
+
+    // main.ds
+    var math = require("math");
+    console.log(math.add(2, 3));  // 5
+    console.log(math.PI);         // 3.14159
+
+**ES module import**
+
+    import { add, PI } from "math";
+    import * as math from "math";
+    import defaultExport from "utils";
+
+Module exports are cached — re-requiring the same path returns the cached
+object without re-executing the module body. Circular `require()` is handled
+gracefully via pre-seeding the cache before execution.
+
+---
 
 Step debugger
 -------------
 
-Attach an `IDebugger` to pause execution at each source line, step over/into/out of
-calls, and inspect locals. The debugger fires before each new source line is executed
-and receives the current call stack with local variable snapshots.
+Attach an `IDebugger` to pause execution at each new source line, step over or
+into calls, inspect locals, and set breakpoints.
 
     using DScript.Debugger;
 
@@ -290,7 +369,7 @@ and receives the current call stack with local variable snapshots.
         public DebugAction OnPause(DebugEvent ev)
         {
             var loc = ev.Location;
-            Console.WriteLine($"Paused at {loc.Source}:{loc.Line}");
+            Console.WriteLine($"Paused at {loc.Source}:{loc.Line}:{loc.Col}");
 
             foreach (var frame in ev.CallStack)
             {
@@ -299,78 +378,122 @@ and receives the current call stack with local variable snapshots.
                     Console.WriteLine($"    {name} = {val}");
             }
 
-            return DebugAction.StepIn;   // Continue / StepIn / StepOver / StepOut
+            return DebugAction.StepIn;
         }
     }
 
     engine.AttachDebugger(new MyDebugger(), initialAction: DebugAction.StepIn);
-    engine.AddBreakpoint("<main>", 5);   // break at line 5 of the main chunk
+    engine.AddBreakpoint("<main>", 5);
     engine.Run(program);
     engine.DetachDebugger();
 
-***Arithmetic operators***
-+, -, *, /, %, ++, --  (and unary +, -)
+---
 
-***Assignment operators***
-=, +=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=, >>>=
+Language Server (DScript.LanguageServer)
+----------------------------------------
 
-***Comparison operators***
-<, >, <=, >=, ==, !=, ===, !==
+A standalone LSP server ships in the `DScript.LanguageServer` project. It speaks
+JSON-RPC over stdio and integrates with any LSP-capable editor. The companion
+VS Code extension lives in `vscode-dscript/`.
 
-***Boolean / bitwise operators***
-!, ~, &, |, ^, &&, ||, <<, >>, >>>
+Supported LSP capabilities:
+- **Diagnostics** — compile errors reported on `textDocument/didOpen` and `didChange`
+- **Hover** — variable type and value at the cursor position
+- **Go to definition** — jump to a variable or function declaration
+- **Completion** — identifier suggestions from the current scope
+- **Signature help** — parameter hints while typing a function call
 
-***Other operators***
-?: (ternary), typeof, instanceof, in, delete, new
+Run the server directly:
+
+    dotnet run --project DScript.LanguageServer
+
+---
+
+Operator reference
+------------------
+
+| Category | Operators |
+|---|---|
+| Arithmetic | `+` `-` `*` `/` `%` `++` `--` (unary `+` `-`) |
+| Assignment | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` `>>>=` |
+| Comparison | `<` `>` `<=` `>=` `==` `!=` `===` `!==` |
+| Boolean / bitwise | `!` `~` `&` `\|` `^` `&&` `\|\|` `<<` `>>` `>>>` |
+| Nullish / optional | `??` `?.` |
+| Other | `?:` `typeof` `instanceof` `in` `delete` `new` `...` |
+
+---
 
 Standard library (DScript.Extras)
----------------------------------
+----------------------------------
 
-***Global functions***
-- eval
-- exec
-- trace
-- parseInt (supports an optional radix)
-- parseFloat
-- isNaN, isFinite
-- charToInt
+Register with `new EngineFunctionLoader().RegisterFunctions(engine)`.
 
-***Console***
-- log
-- error
-- clear
+**Global functions**
 
-***Math***
-- abs, acos, asin, atan, atan2
-- ceil, cos, cosh, exp, floor
-- log, min, max, pow
-- random, randomInt (alias randInt)
-- round, sin, sinh, sqrt, tan, tanh
-- constants: PI, E, LOG2E, LOG10E
+`eval`, `exec`, `trace`, `parseInt(str, radix?)`, `parseFloat`, `isNaN`,
+`isFinite`, `charToInt`
 
-***String***
-- length (property)
-- indexOf, lastIndexOf
-- substring, substr
-- charAt, charCodeAt, fromCharCode
-- split, match (regular expressions)
-- trim, concat, replace
-- toUpperCase, toLowerCase
+**console**
 
-***Array***
-- length (property)
-- push, pop, shift, unshift
-- slice, indexOf, reverse, sort
-- contains, remove, join
-- map, filter, forEach, reduce
+`log`, `error`, `clear`
 
-***Object***
-- keys, hasOwnProperty
-- dump, clone
+**Math**
 
-***Integer***
-- parseInt (supports an optional radix), parseFloat, valueOf
+`abs`, `acos`, `asin`, `atan`, `atan2`, `ceil`, `cos`, `cosh`, `exp`, `floor`,
+`log`, `min`, `max`, `pow`, `random`, `randomInt`, `round`, `sin`, `sinh`,
+`sqrt`, `tan`, `tanh`
 
-***JSON***
-- parse
-- stringify
+Constants: `PI`, `E`, `SQRT2`, `SQRT1_2`, `LN2`, `LN10`, `LOG2E`, `LOG10E`
+
+**String** (instance methods on string values)
+
+`charAt`, `charCodeAt`, `fromCharCode`, `indexOf`, `lastIndexOf`,
+`substring`, `substr`, `split`, `match`, `trim`, `concat`, `replace`,
+`toUpperCase`, `toLowerCase`
+
+**Array** (instance methods on array values)
+
+`push`, `pop`, `shift`, `unshift`, `slice`, `indexOf`, `reverse`, `sort`,
+`contains`, `remove`, `join`, `map`, `filter`, `forEach`, `reduce`
+
+**Object**
+
+`keys`, `hasOwnProperty`, `dump`, `clone`
+
+**JSON**
+
+`parse`, `stringify`
+
+**Integer** (also available as globals)
+
+`parseInt(str, radix?)`, `parseFloat`, `isNaN`, `isFinite`, `valueOf`
+
+---
+
+Feature summary
+---------------
+
+- Variables: `var` (function-scoped), `let` and `const` (block-scoped)
+- Classes, object literals, constructor functions (`new`), prototype chains, `instanceof`
+- Shorthand property names and computed property keys (`[expr]: value`)
+- Named, anonymous, nested, and arrow functions
+- Default parameter values
+- Array and object destructuring with defaults and aliases
+- Spread (`...arr`) in calls and array literals; rest parameters (`...rest`)
+- Template literals with `${expression}` interpolation
+- Nullish coalescing (`??`) and optional chaining (`?.`)
+- `if`/`else`, `while`, `do`/`while`, `for`, `for...in`, `for...of`, `switch`/`case`/`default`
+- `break` and `continue` (with `continue` crossing `switch` to target the enclosing loop)
+- Ternary (`?:`) expressions
+- `typeof`, `instanceof`, `in`, `delete`
+- Regular-expression literals (`/pattern/flags`)
+- Exception handling (`try`/`catch`/`finally`/`throw`) with script stack traces
+- Generators (`function*`, `yield`) — stackless for simple bodies, thread-based fallback
+- `async`/`await` with `Promise`, `.then()`, `.catch()`, microtask queue
+- Modules: `require()`, `export var/const/function/default`, `import { } from`, `import * as`
+- Tail call optimisation (eligible `return f(...)` calls avoid growing the C# call stack)
+- Bytecode compiler with peephole optimiser (constant folding, BinaryIntConst fusion, jump-chain collapse, dead-code elimination)
+- Bytecode serialisation with source maps (`BytecodeSerializer.SaveWithSourceMap`)
+- Engine state serialisation (save / restore all script variables)
+- Step debugger with breakpoints (`IDebugger`)
+- Language Server Protocol server with diagnostics, hover, completion, go-to-definition, signature help
