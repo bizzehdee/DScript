@@ -520,6 +520,12 @@ namespace DScript.Compiler
                 return;
             }
 
+            if (IsForOf())
+            {
+                CompileForOf();
+                return;
+            }
+
             // C-style: init ; condition ; increment
             CompileStatement(); // init (consumes its ';')
 
@@ -846,17 +852,101 @@ namespace DScript.Compiler
         private void CompileFunctionDeclaration()
         {
             lexer.Match(ScriptLex.LexTypes.RFunction);
+            bool isGenerator = lexer.TokenType == (ScriptLex.LexTypes)'*';
+            if (isGenerator) lexer.Match((ScriptLex.LexTypes)'*');
             var name = lexer.TokenString;
             lexer.Match(ScriptLex.LexTypes.Id);
             var nameIndex = chunk.AddName(name);
 
-            var idx = CompileFunctionRest(name);
+            var idx = CompileFunctionRest(name, isGenerator);
 
             chunk.Emit(OpCode.DeclareVar, nameIndex);
             chunk.Emit(OpCode.MakeClosure, idx);  // captures the current environment
             chunk.MakesClosure = true;
             chunk.Emit(OpCode.SetVar, nameIndex);
             chunk.Emit(OpCode.Pop);
+        }
+
+        private bool IsForOf()
+        {
+            var lookahead = lexer.CloneToEnd(lexer.TokenStart);
+            var depth = 0;
+            while (lookahead.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = lookahead.TokenType;
+                if (depth == 0)
+                {
+                    if (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')') return false;
+                    if (t == ScriptLex.LexTypes.ROf) return true;
+                }
+
+                if (t is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{') depth++;
+                else if (t is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}') depth--;
+
+                lookahead.GetNextToken();
+            }
+
+            return false;
+        }
+
+        private void CompileForOf()
+        {
+            if (lexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst or ScriptLex.LexTypes.RLet)
+                lexer.Match(lexer.TokenType);
+
+            var loopVar = chunk.AddName(lexer.TokenString);
+            lexer.Match(ScriptLex.LexTypes.Id);
+            lexer.Match(ScriptLex.LexTypes.ROf);
+
+            CompileBase();                   // push the iterable
+            chunk.Emit(OpCode.GetIterator);  // normalise to an iterator with .next()
+            lexer.Match((ScriptLex.LexTypes)')');
+
+            // store the iterator in a hidden var
+            var iterVar = chunk.AddName($"$forof_iter_{forInCounter}");
+            var resultVar = chunk.AddName($"$forof_result_{forInCounter}");
+            forInCounter++;
+
+            chunk.Emit(OpCode.DeclareVar, loopVar);
+            chunk.Emit(OpCode.DeclareVar, iterVar);
+            chunk.Emit(OpCode.SetVar, iterVar);
+            chunk.Emit(OpCode.Pop);
+
+            // while (true) { var $result = $iter.next(); if ($result.done) break; loopVar = $result.value; body }
+            var loopTop = chunk.Count;
+
+            // call $iter.next()
+            chunk.Emit(OpCode.GetVar, iterVar);      // receiver
+            chunk.Emit(OpCode.Dup);
+            chunk.Emit(OpCode.GetProp, chunk.AddName("next"));
+            chunk.Emit(OpCode.CallMethod, 0);
+
+            // store result
+            chunk.Emit(OpCode.DeclareVar, resultVar);
+            chunk.Emit(OpCode.SetVar, resultVar);
+            chunk.Emit(OpCode.Pop);
+
+            // if ($result.done) break
+            chunk.Emit(OpCode.GetVar, resultVar);
+            chunk.Emit(OpCode.GetProp, chunk.AddName("done"));
+            var exitJump = chunk.EmitJump(OpCode.JumpIfTrue);
+
+            // loopVar = $result.value
+            chunk.Emit(OpCode.GetVar, resultVar);
+            chunk.Emit(OpCode.GetProp, chunk.AddName("value"));
+            chunk.Emit(OpCode.SetVar, loopVar);
+            chunk.Emit(OpCode.Pop);
+
+            loops.Push(new LoopContext());
+            CompileStatement(); // body
+
+            var incrStart = chunk.Count;
+            chunk.Emit(OpCode.Jump, loopTop);
+            chunk.PatchJump(exitJump);
+
+            var ctx = loops.Pop();
+            PatchJumps(ctx.BreakJumps, chunk.Count);
+            PatchJumps(ctx.ContinueJumps, incrStart);
         }
 
         private void PatchJumps(List<int> jumps, int target)

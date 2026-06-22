@@ -150,5 +150,9 @@ namespace DScript.Vm
         // --- Phase 5: tail-call elimination ------------------------------------
         TailCall,        // [i argc]        fn, a1..aN -> result  (tail-position direct call)
         TailCallMethod,  // [i argc]        obj, fn, a1..aN -> result  (tail-position method call)
+
+        // --- Phase 7: generators / iterators -----------------------------------
+        Yield,           //                 pop value, suspend generator, push resume value
+        GetIterator,     //                 iterable → iterator (wraps arrays; passes through objects with .next)
     }
 }

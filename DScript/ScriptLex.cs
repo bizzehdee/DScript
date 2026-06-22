@@ -150,6 +150,8 @@ namespace DScript
             QuestionDot,    // ?.
             NullCoalesce,   // ??
             Ellipsis,       // ...
+            ROf,            // of (contextual keyword in for...of)
+            RYield,         // yield keyword
         }
 
         public ScriptLex(string input)
@@ -311,6 +313,8 @@ namespace DScript
                     case "super": TokenType = LexTypes.RSuper; break;
                     case "static": TokenType = LexTypes.RStatic; break;
                     case "let": TokenType = LexTypes.RLet; break;
+                    case "of": TokenType = LexTypes.ROf; break;
+                    case "yield": TokenType = LexTypes.RYield; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers

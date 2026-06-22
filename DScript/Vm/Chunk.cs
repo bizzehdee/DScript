@@ -149,6 +149,9 @@ namespace DScript.Vm
         /// <summary>A call frame for this function may be pooled/reused.</summary>
         public bool RecyclableFrame => !MakesClosure;
 
+        /// <summary>True when this function chunk was compiled as a generator (function*).</summary>
+        public bool IsGenerator { get; set; }
+
         public int Count => Code.Count;
 
         // --- emit helpers (distinct by arity to avoid overload ambiguity) ---

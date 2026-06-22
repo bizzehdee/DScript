@@ -29,6 +29,21 @@ namespace DScript.Compiler
     {
         private void CompileFactor(bool canAssign)
         {
+            // yield expression — must be checked before arrow-function and identifier cases
+            if (lexer.TokenType == ScriptLex.LexTypes.RYield)
+            {
+                lexer.Match(ScriptLex.LexTypes.RYield);
+                // yield with a value: yield <expr>; yield with no value: yield;
+                if (lexer.TokenType != (ScriptLex.LexTypes)';' &&
+                    lexer.TokenType != (ScriptLex.LexTypes)'}' &&
+                    lexer.TokenType != ScriptLex.LexTypes.Eof)
+                    CompileBase();
+                else
+                    chunk.Emit(OpCode.PushUndefined);
+                chunk.Emit(OpCode.Yield);
+                return;
+            }
+
             // Arrow function: `x => body` or `(params) => body` — must be
             // checked before the '(' and Id cases so the disambiguation runs
             // before any tokens are consumed.
@@ -114,13 +129,15 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.RFunction:
                 {
                     lexer.Match(ScriptLex.LexTypes.RFunction);
+                    bool isGenerator = lexer.TokenType == (ScriptLex.LexTypes)'*';
+                    if (isGenerator) lexer.Match((ScriptLex.LexTypes)'*');
                     var fnName = string.Empty;
                     if (lexer.TokenType == ScriptLex.LexTypes.Id)
                     {
                         fnName = lexer.TokenString;
                         lexer.Match(ScriptLex.LexTypes.Id);
                     }
-                    var idx = CompileFunctionRest(fnName);
+                    var idx = CompileFunctionRest(fnName, isGenerator);
                     chunk.Emit(OpCode.MakeClosure, idx);
                     chunk.MakesClosure = true;
                     return;
@@ -449,9 +466,9 @@ namespace DScript.Compiler
 
         // Compile a function's "(params) { body }" into a nested chunk and
         // register it; returns its index in the enclosing chunk's function table.
-        private int CompileFunctionRest(string name)
+        private int CompileFunctionRest(string name, bool isGenerator = false)
         {
-            var fnChunk = new Chunk { Name = string.IsNullOrEmpty(name) ? "<anonymous>" : name };
+            var fnChunk = new Chunk { Name = string.IsNullOrEmpty(name) ? "<anonymous>" : name, IsGenerator = isGenerator };
 
             // capture the source span so the function can be rendered back to
             // text by JSON.stringify / GetParsableString and re-parsed by eval

@@ -20,6 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using DScript.Debugger;
@@ -226,7 +227,7 @@ namespace DScript.Vm
             return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
-        private ScriptVar Execute(Chunk chunk, Environment env)
+        private ScriptVar Execute(Chunk chunk, Environment env, GeneratorObject genObj = null)
         {
             var code = chunk.CodeBytes;
             // Hoist the inline-cache array once so each GetVar/SetVar avoids the
@@ -750,6 +751,67 @@ namespace DScript.Vm
                             return InvokeCallable(c, receiver, args) ?? new ScriptVar(ScriptVar.Flags.Undefined);
                         }
                     }
+                    case OpCode.Yield:
+                    {
+                        if (genObj == null)
+                            throw new ScriptException("yield used outside generator");
+                        var yieldVal = Pop();
+                        var resumeVal = genObj.Yield(yieldVal);
+                        Push(resumeVal);
+                        break;
+                    }
+                    case OpCode.GetIterator:
+                    {
+                        var iterable = Pop();
+                        // If it already has .next, it's an iterator — pass through
+                        var nextLink = iterable.FindChild("next");
+                        if (nextLink != null)
+                        {
+                            Push(iterable);
+                            break;
+                        }
+                        // If it's an array, wrap it in an index-based iterator
+                        if (iterable.IsArray)
+                        {
+                            var idx = new[] { 0 };
+                            var len = iterable.GetArrayLength();
+                            var iterObj = new ScriptVar(ScriptVar.Flags.Object);
+                            var nextFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                            nextFn.SetCallback((scope, _) =>
+                            {
+                                var result = new ScriptVar(ScriptVar.Flags.Object);
+                                if (idx[0] < len)
+                                {
+                                    result.AddChild("value", iterable.GetArrayIndex(idx[0]++));
+                                    result.AddChild("done", new ScriptVar(false));
+                                }
+                                else
+                                {
+                                    result.AddChild("value", new ScriptVar());
+                                    result.AddChild("done", new ScriptVar(true));
+                                }
+                                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
+                            }, null);
+                            iterObj.AddChild("next", nextFn);
+                            Push(iterObj);
+                            break;
+                        }
+                        // Unknown — return an immediately-done iterator
+                        {
+                            var doneIter = new ScriptVar(ScriptVar.Flags.Object);
+                            var doneFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                            doneFn.SetCallback((scope, _) =>
+                            {
+                                var result = new ScriptVar(ScriptVar.Flags.Object);
+                                result.AddChild("value", new ScriptVar());
+                                result.AddChild("done", new ScriptVar(true));
+                                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
+                            }, null);
+                            doneIter.AddChild("next", doneFn);
+                            Push(doneIter);
+                        }
+                        break;
+                    }
                     case OpCode.New:
                     {
                         var argc = ReadOperand(code, ref ip);
@@ -1072,6 +1134,14 @@ namespace DScript.Vm
             }
 
             var vmfn = (VmFunction)callee.GetData();
+
+            // Generator function: return an iterator object instead of executing the body
+            if (vmfn.Body.IsGenerator)
+            {
+                var genCallEnv = BuildCallEnvironment(vmfn, thisArg, args);
+                return CreateGeneratorIterator(vmfn, genCallEnv);
+            }
+
             var recyclable = vmfn.Body.RecyclableFrame;
             var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
             var callEnv = new Environment(vars, vmfn.Captured);
@@ -1117,6 +1187,18 @@ namespace DScript.Vm
             var argBase = sp - argc;
 
             var vmfn = (VmFunction)callee.GetData();
+
+            // Generator function: materialise args from stack, then return iterator
+            if (vmfn.Body.IsGenerator)
+            {
+                var genArgs = new ScriptVar[argc];
+                for (var j = 0; j < argc; j++)
+                    genArgs[j] = stack[argBase + j];
+                sp = argBase;
+                var genCallEnv = BuildCallEnvironment(vmfn, thisArg, genArgs);
+                return CreateGeneratorIterator(vmfn, genCallEnv);
+            }
+
             var recyclable = vmfn.Body.RecyclableFrame;
             var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
             var callEnv = new Environment(vars, vmfn.Captured);
@@ -1155,6 +1237,65 @@ namespace DScript.Vm
             }
 
             return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
+        }
+
+        // Build a call environment for a VmFunction from a ScriptVar[] args array.
+        // Used by the generator path to capture args before starting the body thread.
+        private Environment BuildCallEnvironment(VmFunction vmfn, ScriptVar thisArg, ScriptVar[] args)
+        {
+            var vars = new ScriptVar(ScriptVar.Flags.Object); // generators never recycle frames
+            var env = new Environment(vars, vmfn.Captured);
+            if (thisArg != null) vars.AddChildNoDup("this", thisArg);
+
+            var parameters = vmfn.Body.Parameters;
+            var restIdx = vmfn.Body.RestParamIndex;
+            var paramLimit = restIdx >= 0 ? restIdx : parameters.Count;
+            for (var j = 0; j < paramLimit; j++)
+                vars.AddChild(parameters[j], BindArg(args, j));
+
+            if (restIdx >= 0)
+            {
+                var restArr = new ScriptVar(ScriptVar.Flags.Array);
+                var restLen = 0;
+                for (var j = restIdx; j < (args?.Length ?? 0); j++)
+                    restArr.SetArrayIndex(restLen++, BindArg(args, j));
+                vars.AddChild(parameters[restIdx], restArr);
+            }
+
+            return env;
+        }
+
+        // Create an iterator object for a generator function. The iterator has a
+        // .next() native method that drives the generator body on a background thread,
+        // suspending/resuming via GeneratorObject.
+        private ScriptVar CreateGeneratorIterator(VmFunction vmfn, Environment callEnv)
+        {
+            var genObj = new GeneratorObject();
+
+            var iterObj = new ScriptVar(ScriptVar.Flags.Object);
+
+            var nextFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            // Declare a "value" parameter so callers can pass a resume value via .next(v)
+            nextFn.AddChild("value", new ScriptVar());
+            nextFn.SetCallback((scope, _) =>
+            {
+                var inputLink = scope.FindChild("value");
+                var input = inputLink?.Var ?? new ScriptVar();
+
+                var (value, done) = genObj.Next(input, g =>
+                {
+                    var result = Execute(vmfn.Body, callEnv, g);
+                    g.Complete(result ?? new ScriptVar());
+                });
+
+                var resultObj = new ScriptVar(ScriptVar.Flags.Object);
+                resultObj.AddChild("value", value);
+                resultObj.AddChild("done", new ScriptVar(done));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(resultObj);
+            }, null);
+
+            iterObj.AddChild("next", nextFn);
+            return iterObj;
         }
 
         // primitives are passed by value, objects/functions by reference
