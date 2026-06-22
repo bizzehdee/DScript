@@ -36,6 +36,15 @@ namespace DScript.Compiler
         private readonly Stack<LoopContext> loops = new();
         private int forInCounter;
 
+        // One entry per enclosing try-with-finally block. Tracks pending return/goto
+        // jumps (LeaveTry operand offsets) that must be backpatched to the finally PC
+        // once it is known. Pushed in CompileTry, popped after the finally block.
+        private sealed class FinallyContext
+        {
+            public readonly List<int> ReturnJumps = []; // LeaveTry operand offsets for `return`
+        }
+        private readonly Stack<FinallyContext> finallyStack = new();
+
         private void CompileStatement()
         {
             SetLine();
@@ -210,15 +219,24 @@ namespace DScript.Compiler
             lexer.Match(ScriptLex.LexTypes.RReturn);
 
             if (lexer.TokenType != (ScriptLex.LexTypes)';')
-            {
                 CompileBase();
+            else
+                chunk.Emit(OpCode.PushUndefined);
+
+            if (finallyStack.Count > 0)
+            {
+                // Save the return value off-stack so the finally body cannot corrupt it,
+                // then unwind through the innermost enclosing finally. LeaveFinally will
+                // chain through any further finally blocks and perform the actual Return.
+                chunk.Emit(OpCode.SaveReturn);
+                var operandOffset = chunk.EmitJump(OpCode.LeaveTry);
+                finallyStack.Peek().ReturnJumps.Add(operandOffset);
             }
             else
             {
-                chunk.Emit(OpCode.PushUndefined);
+                chunk.Emit(OpCode.Return);
             }
 
-            chunk.Emit(OpCode.Return);
             lexer.Match((ScriptLex.LexTypes)';');
         }
 
@@ -420,46 +438,90 @@ namespace DScript.Compiler
         private void CompileTry()
         {
             lexer.Match(ScriptLex.LexTypes.RTry);
-            var tryIndex = CompileSubBlock("<try>");
 
-            var catchIndex = -1;
-            var catchParamIndex = -1;
-            var finallyIndex = -1;
+            var hasFinally = lexer.TokenType == ScriptLex.LexTypes.RTry
+                ? false // handled below after peeking at both catch/finally
+                : PeekHasFinally();
 
+            // Push a finally context so nested `return` can find this finally's PC.
+            // The context's ReturnJumps will be backpatched once finallyPC is known.
+            var finallyCtx = hasFinally ? new FinallyContext() : null;
+            if (hasFinally) finallyStack.Push(finallyCtx);
+
+            // EnterTry — three operand slots emitted as placeholders now, backpatched later.
+            var enterAt = chunk.Emit(OpCode.EnterTry, -1, -1, -1);
+            var catchPCSlot   = enterAt + 1;  // offset of catchPC operand
+            var finallyPCSlot = enterAt + 5;  // offset of finallyPC operand
+            var catchVarSlot  = enterAt + 9;  // offset of catchVarIdx operand
+
+            // --- try body (inline in same chunk) ---
+            CompileBlock();
+
+            // LeaveTry: normal exit from try body. Dest (finally or after) is backpatched.
+            var leaveTryDest = chunk.EmitJump(OpCode.LeaveTry);
+
+            // --- catch block ---
+            int leaveCatchDest = -1;
             if (lexer.TokenType == ScriptLex.LexTypes.RCatch)
             {
+                chunk.PatchJumpTo(catchPCSlot, chunk.Count); // EnterTry.catchPC
                 lexer.Match(ScriptLex.LexTypes.RCatch);
                 lexer.Match((ScriptLex.LexTypes)'(');
-                catchParamIndex = chunk.AddName(lexer.TokenString);
+                var catchVarIdx = chunk.AddName(lexer.TokenString);
+                chunk.PatchJumpTo(catchVarSlot, catchVarIdx); // EnterTry.catchVarIdx
                 lexer.Match(ScriptLex.LexTypes.Id);
                 lexer.Match((ScriptLex.LexTypes)')');
-                catchIndex = CompileSubBlock("<catch>");
+
+                CompileBlock();
+
+                leaveCatchDest = chunk.EmitJump(OpCode.LeaveCatch);
             }
 
+            // --- finally block ---
             if (lexer.TokenType == ScriptLex.LexTypes.RFinally)
             {
-                lexer.Match(ScriptLex.LexTypes.RFinally);
-                finallyIndex = CompileSubBlock("<finally>");
-            }
+                var finallyPC = chunk.Count;
+                chunk.PatchJumpTo(finallyPCSlot, finallyPC); // EnterTry.finallyPC
+                chunk.PatchJump(leaveTryDest);               // LeaveTry → finally
+                if (leaveCatchDest >= 0) chunk.PatchJump(leaveCatchDest); // LeaveCatch → finally
 
-            chunk.Emit(OpCode.Try, tryIndex, catchIndex, finallyIndex, catchParamIndex);
+                // Backpatch any `return` statements compiled inside the try body.
+                if (finallyCtx != null)
+                {
+                    foreach (var slot in finallyCtx.ReturnJumps)
+                        chunk.PatchJumpTo(slot, finallyPC);
+                    finallyStack.Pop();
+                }
+
+                lexer.Match(ScriptLex.LexTypes.RFinally);
+                CompileBlock();
+                chunk.Emit(OpCode.LeaveFinally);
+            }
+            else
+            {
+                // No finally: LeaveTry and LeaveCatch both jump to after.
+                chunk.PatchJump(leaveTryDest);
+                if (leaveCatchDest >= 0) chunk.PatchJump(leaveCatchDest);
+                if (finallyCtx != null) finallyStack.Pop();
+            }
         }
 
-        // Compile a brace-delimited block into a nested chunk; returns its index
-        // in the enclosing chunk's function table.
-        private int CompileSubBlock(string name)
+        // Quick lookahead to decide if the try has a finally clause (so we know
+        // before compiling the try body whether to push a FinallyContext).
+        private bool PeekHasFinally()
         {
-            var sub = new Chunk { Name = name };
-            var saved = chunk;
-            chunk = sub;
-            CompileBlock();
-            chunk.Emit(OpCode.PushUndefined);
-            chunk.Emit(OpCode.Return);
-            chunk = saved;
-            // a try/catch/finally body runs in the enclosing function's
-            // environment, so a closure created there captures that frame too
-            chunk.MakesClosure |= sub.MakesClosure;
-            return saved.AddFunction(sub);
+            var clone = lexer.CloneToEnd(lexer.TokenStart);
+            var depth = 0;
+            while (clone.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = clone.TokenType;
+                if (depth == 0 && t == ScriptLex.LexTypes.RFinally) return true;
+                if (depth == 0 && t == ScriptLex.LexTypes.RTry) depth++;
+                if (t is (ScriptLex.LexTypes)'{') depth++;
+                else if (t is (ScriptLex.LexTypes)'}') { if (depth > 0) depth--; }
+                clone.GetNextToken();
+            }
+            return false;
         }
 
         private void CompileFunctionDeclaration()

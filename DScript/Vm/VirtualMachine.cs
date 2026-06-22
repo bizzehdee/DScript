@@ -46,6 +46,27 @@ namespace DScript.Vm
         // avoids allocating a throwaway zero on every Negate/Not.
         private static readonly ScriptVar Zero = new(0);
 
+        // --- structured exception handling ----------------------------------
+
+        private struct TryFrame
+        {
+            public int CatchPC;      // -1 if no catch clause (or catch already entered)
+            public int FinallyPC;    // -1 if no finally clause
+            public int CatchVarIdx;  // Names index for the catch binding; -1 if absent
+            public int StackDepth;   // value-stack depth at EnterTry (restored on exception)
+        }
+
+        private readonly Stack<TryFrame> tryStack = new();
+
+        // Set by exception dispatch when no catch is present but a finally must run.
+        // LeaveFinally re-throws this after the finally body completes.
+        private JITException pendingException;
+
+        // Set by SaveReturn when `return` exits a try-with-finally mid-body.
+        // LeaveFinally performs the actual return after all finally blocks have run.
+        private bool hasPendingReturn;
+        private ScriptVar pendingReturnValue;
+
         // Pool of call-frame binding containers. A function whose frame cannot
         // escape (no closure captures it — see Chunk.RecyclableFrame) returns its
         // bindings var here on exit and the next such call reuses it, avoiding a
@@ -111,6 +132,13 @@ namespace DScript.Vm
             // property's lazy null-check on every resolution.
             var cache = chunk.InlineCache;
             var ip = 0;
+
+            // Save handler-stack depth so any unclosed frames from this invocation
+            // (e.g. `return` mid-try without finally) are cleaned up on all exit paths.
+            var savedTryDepth = tryStack.Count;
+
+            try
+            {
 
             while (ip < code.Length)
             {
@@ -493,9 +521,79 @@ namespace DScript.Vm
                     }
 
                     case OpCode.Throw:
-                        throw new JITException(Pop());
-                    case OpCode.Try:
-                        ExecuteTry(chunk, code, env, ref ip);
+                    {
+                        var ex = new JITException(Pop());
+                        if (!DispatchException(ex, ref ip, env, chunk, savedTryDepth)) throw ex;
+                        break;
+                    }
+
+                    case OpCode.EnterTry:
+                    {
+                        var catchPC     = ReadOperand(code, ref ip);
+                        var finallyPC   = ReadOperand(code, ref ip);
+                        var catchVarIdx = ReadOperand(code, ref ip);
+                        tryStack.Push(new TryFrame
+                        {
+                            CatchPC     = catchPC,
+                            FinallyPC   = finallyPC,
+                            CatchVarIdx = catchVarIdx,
+                            StackDepth  = sp,
+                        });
+                        break;
+                    }
+                    case OpCode.LeaveTry:
+                    {
+                        // Normal exit from try body: pop the handler frame and jump
+                        // to the finally block (or straight to after if no finally).
+                        var destPC = ReadOperand(code, ref ip);
+                        tryStack.Pop();
+                        ip = destPC;
+                        break;
+                    }
+                    case OpCode.LeaveCatch:
+                    {
+                        // Normal exit from catch body: pop the catch-protecting frame
+                        // (pushed by DispatchException to guard against exceptions
+                        // inside the catch body) and jump to finally or after.
+                        var destPC = ReadOperand(code, ref ip);
+                        if (tryStack.Count > savedTryDepth)
+                        {
+                            var top = tryStack.Peek();
+                            if (top.CatchPC == -1) // it is a catch-protecting frame
+                                tryStack.Pop();
+                        }
+                        ip = destPC;
+                        break;
+                    }
+                    case OpCode.LeaveFinally:
+                    {
+                        if (pendingException != null)
+                        {
+                            var ex = pendingException;
+                            pendingException = null;
+                            if (!DispatchException(ex, ref ip, env, chunk, savedTryDepth)) throw ex;
+                            break;
+                        }
+                        if (hasPendingReturn)
+                        {
+                            // Chain through any further enclosing finally blocks.
+                            int nextFinally = -1;
+                            while (tryStack.Count > savedTryDepth)
+                            {
+                                var frame = tryStack.Pop();
+                                if (frame.FinallyPC >= 0) { nextFinally = frame.FinallyPC; break; }
+                            }
+                            if (nextFinally >= 0) { ip = nextFinally; break; }
+                            // No more finally blocks — perform the actual return.
+                            hasPendingReturn = false;
+                            return pendingReturnValue;
+                        }
+                        // Normal completion: ip is already past the finally block.
+                        break;
+                    }
+                    case OpCode.SaveReturn:
+                        pendingReturnValue = Pop();
+                        hasPendingReturn = true;
                         break;
 
                     case OpCode.Return:
@@ -506,8 +604,13 @@ namespace DScript.Vm
                     default:
                         throw new ScriptException($"VM opcode not yet implemented: {op}");
                 }
-                } // end try
-                catch (JITException) { throw; } // script-level throw: let it propagate as-is
+                } // end inner try
+                catch (JITException ex)
+                {
+                    if (!DispatchException(ex, ref ip, env, chunk, savedTryDepth))
+                        throw; // no handler in this frame, propagate to caller
+                    // handled: continue dispatch loop at new ip
+                }
                 catch (ScriptException ex) when (ex.InnerException == null)
                 {
                     // First VM frame to see this exception — annotate with source line.
@@ -518,53 +621,68 @@ namespace DScript.Vm
             }
 
             return null;
-        }
 
-        // Runs a try/catch/finally whose three bodies are compiled as nested
-        // chunks. `throw` surfaces as a JITException that propagates across VM
-        // frames (C# call stack), so the C# try/catch/finally here mirrors the
-        // tree-walking engine's behaviour exactly.
-        private void ExecuteTry(Chunk chunk, byte[] code, Environment env, ref int ip)
-        {
-            var tryIndex = ReadOperand(code, ref ip);
-            var catchIndex = ReadOperand(code, ref ip);
-            var finallyIndex = ReadOperand(code, ref ip);
-            var catchParamIndex = ReadOperand(code, ref ip);
-
-            var tryChunk = chunk.Functions[tryIndex];
-            var catchChunk = catchIndex >= 0 ? chunk.Functions[catchIndex] : null;
-            var finallyChunk = finallyIndex >= 0 ? chunk.Functions[finallyIndex] : null;
-
-            JITException pending = null;
-            try
-            {
-                Execute(tryChunk, env);
-            }
-            catch (JITException ex)
-            {
-                if (catchChunk != null)
-                {
-                    var catchEnv = new Environment(new ScriptVar(ScriptVar.Flags.Object), env);
-                    if (catchParamIndex >= 0)
-                    {
-                        catchEnv.Vars.AddChild(chunk.Names[catchParamIndex], ex.VarObj);
-                    }
-                    Execute(catchChunk, catchEnv);
-                }
-                else
-                {
-                    pending = ex; // no catch: rethrow after finally
-                }
-            }
+            } // end outer try
             finally
             {
-                if (finallyChunk != null)
-                {
-                    Execute(finallyChunk, env);
-                }
+                // Clean up any handler frames belonging to this Execute() invocation
+                // that were not closed normally (e.g. `return` inside try without finally).
+                while (tryStack.Count > savedTryDepth) tryStack.Pop();
+                // Clear pending-return state if this frame is unwinding due to an exception
+                // so it does not bleed into an enclosing Execute() invocation.
+                hasPendingReturn = false;
             }
+        }
 
-            if (pending != null) throw pending;
+        // Walk the handler stack looking for a catch or finally that covers the
+        // exception. Returns true and updates `ip` when a handler is found;
+        // returns false when the exception must propagate to the caller.
+        // `floorDepth` is the savedTryDepth of the current Execute() invocation —
+        // we must not pop frames that belong to an outer invocation.
+        private bool DispatchException(JITException ex, ref int ip, Environment env, Chunk chunk, int floorDepth)
+        {
+            while (tryStack.Count > floorDepth)
+            {
+                var frame = tryStack.Pop();
+                sp = frame.StackDepth; // unwind the value stack
+
+                if (frame.CatchPC >= 0)
+                {
+                    // Bind the exception variable into the current environment.
+                    if (frame.CatchVarIdx >= 0)
+                    {
+                        var name = chunk.Names[frame.CatchVarIdx];
+                        var link = env.Vars.FindChildOrCreate(name);
+                        link.ReplaceWith(ex.VarObj ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        env.Version++;
+                    }
+                    // Push a catch-protecting frame so that any exception thrown
+                    // inside the catch body still triggers the finally block.
+                    tryStack.Push(new TryFrame
+                    {
+                        CatchPC     = -1,
+                        FinallyPC   = frame.FinallyPC,
+                        CatchVarIdx = -1,
+                        StackDepth  = sp,
+                    });
+                    pendingException = null;
+                    ip = frame.CatchPC;
+                    return true;
+                }
+
+                if (frame.FinallyPC >= 0)
+                {
+                    // No catch, but there is a finally. Record the exception as
+                    // pending; LeaveFinally will re-throw it when the body ends.
+                    pendingException = ex;
+                    ip = frame.FinallyPC;
+                    return true;
+                }
+
+                // Frame has neither catch nor finally (shouldn't happen in well-formed
+                // bytecode, but continue unwinding rather than silently eating the exception).
+            }
+            return false; // no handler found in this Execute() frame
         }
 
         private ScriptVar[] PopArgs(int count)

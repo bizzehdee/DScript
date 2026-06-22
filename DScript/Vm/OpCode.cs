@@ -91,8 +91,6 @@ namespace DScript.Vm
         InitElem,        // [i index]       arr, value -> arr  (array literal element)
 
         // --- exceptions -----------------------------------------------------
-        Try,             // [i try][i catch][i fin][i param] run a try/catch/finally
-                         //                 (body indices into Functions; -1 = absent)
         Throw,           //                 throw top of stack
 
         // --- termination ----------------------------------------------------
@@ -105,10 +103,24 @@ namespace DScript.Vm
                          //                 is a single literal (saves an opcode
                          //                 dispatch + a push/pop per use)
 
-        BinaryIntConst   // [i op][i intValue]    a -> (a op intValue)
+        BinaryIntConst,  // [i op][i intValue]    a -> (a op intValue)
                          //                 like BinaryConst but stores the integer
                          //                 value inline rather than as a constant-pool
                          //                 index, eliminating the pool lookup on the
                          //                 hot path (e.g. i < n; i + 1 in tight loops)
+
+        // --- structured exception handling (inline bytecode) ----------------
+        EnterTry,        // [i catchPC][i finallyPC][i catchVarIdx]
+                         //                 push a handler frame; catchPC/finallyPC are
+                         //                 absolute bytecode offsets (-1 = absent);
+                         //                 catchVarIdx is a Names index (-1 = no binding)
+        LeaveTry,        // [i destPC]      normal exit from try body; pop handler frame,
+                         //                 jump to destPC (finally or after)
+        LeaveCatch,      // [i destPC]      normal exit from catch body; pop the
+                         //                 catch-protecting frame, jump to destPC
+        LeaveFinally,    //                 end of finally; rethrow pending exception,
+                         //                 propagate pending return, or fall through
+        SaveReturn,      //                 pop top of stack, save as pending return value
+                         //                 (used when `return` appears inside try-with-finally)
     }
 }

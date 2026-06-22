@@ -149,6 +149,16 @@ namespace DScript.Vm
             return at;
         }
 
+        /// <summary>Emit an opcode followed by three 4-byte int operands.</summary>
+        public int Emit(OpCode op, int operand1, int operand2, int operand3)
+        {
+            var at = Emit(op);
+            EmitInt(operand1);
+            EmitInt(operand2);
+            EmitInt(operand3);
+            return at;
+        }
+
         /// <summary>Emit an opcode followed by four 4-byte int operands.</summary>
         public int Emit(OpCode op, int operand1, int operand2, int operand3, int operand4)
         {
@@ -372,7 +382,7 @@ namespace DScript.Vm
         // Total byte size of an instruction (opcode byte + 4 bytes per operand).
         internal static int InstructionSize(OpCode op) => op switch
         {
-            OpCode.Try             => 17, // 1 + 4*4
+            OpCode.EnterTry        => 13, // 1 + 4*3
             OpCode.BinaryConst     =>  9, // 1 + 4*2
             OpCode.BinaryIntConst  =>  9, // 1 + 4*2
             OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
@@ -382,7 +392,8 @@ namespace DScript.Vm
             OpCode.Jump         or OpCode.JumpIfFalse  or OpCode.JumpIfTrue or
             OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop             or
             OpCode.MakeClosure  or OpCode.Call         or OpCode.CallMethod or
-            OpCode.New          or OpCode.InitProp      or OpCode.InitElem  =>  5, // 1 + 4*1
+            OpCode.New          or OpCode.InitProp      or OpCode.InitElem  or
+            OpCode.LeaveTry     or OpCode.LeaveCatch                        =>  5, // 1 + 4*1
             _                   =>  1, // no operands
         };
 
@@ -430,13 +441,31 @@ namespace DScript.Vm
             {
                 var op = (OpCode)Code[ip];
                 if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
-                         or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop)
+                         or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                         or OpCode.LeaveTry or OpCode.LeaveCatch)
                 {
                     var operandAt = ip + 1;
                     var target = ReadIntFromCode(operandAt);
                     var resolved = ChaseUnconditionalJumps(target);
                     if (resolved != target)
                         PatchJumpTo(operandAt, resolved);
+                }
+                else if (op is OpCode.EnterTry)
+                {
+                    var catchAt = ip + 1;
+                    var catchPC = ReadIntFromCode(catchAt);
+                    if (catchPC >= 0)
+                    {
+                        var resolved = ChaseUnconditionalJumps(catchPC);
+                        if (resolved != catchPC) PatchJumpTo(catchAt, resolved);
+                    }
+                    var finallyAt = ip + 5;
+                    var finallyPC = ReadIntFromCode(finallyAt);
+                    if (finallyPC >= 0)
+                    {
+                        var resolved = ChaseUnconditionalJumps(finallyPC);
+                        if (resolved != finallyPC) PatchJumpTo(finallyAt, resolved);
+                    }
                 }
                 ip += InstructionSize(op);
             }
@@ -478,9 +507,17 @@ namespace DScript.Vm
                 {
                     var op = (OpCode)Code[ip];
                     if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
-                             or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop)
+                             or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                             or OpCode.LeaveTry or OpCode.LeaveCatch)
                     {
                         jumpTargets.Add(ReadIntFromCode(ip + 1));
+                    }
+                    else if (op is OpCode.EnterTry)
+                    {
+                        var catchPC   = ReadIntFromCode(ip + 1);
+                        var finallyPC = ReadIntFromCode(ip + 5);
+                        if (catchPC   >= 0) jumpTargets.Add(catchPC);
+                        if (finallyPC >= 0) jumpTargets.Add(finallyPC);
                     }
                     ip += InstructionSize(op);
                 }
@@ -503,7 +540,8 @@ namespace DScript.Vm
                     {
                         for (var k = ip; k < ip + size; k++) dead[k] = true;
                     }
-                    else if (op is OpCode.Jump or OpCode.Return or OpCode.Halt or OpCode.Throw)
+                    else if (op is OpCode.Jump or OpCode.Return or OpCode.Halt or OpCode.Throw
+                                  or OpCode.LeaveTry or OpCode.LeaveCatch)
                     {
                         inDead = true;
                     }
@@ -546,13 +584,28 @@ namespace DScript.Vm
                     var op = (OpCode)Code[ip];
                     var size = InstructionSize(op);
                     var isJump = op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
-                                        or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop;
+                                        or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                                        or OpCode.LeaveTry or OpCode.LeaveCatch;
 
                     newCode.Add(Code[ip]); // opcode byte
                     newLines.Add(Lines[ip]);
 
                     var src = ip + 1;
-                    if (isJump)
+                    if (op is OpCode.EnterTry)
+                    {
+                        // catchPC — remap if not -1
+                        var catchPC = ReadIntFromCode(src);
+                        AppendInt(newCode, catchPC >= 0 ? remap[catchPC] : -1);
+                        for (var b = 0; b < 4; b++) newLines.Add(Lines[src + b]);
+                        src += 4;
+                        // finallyPC — remap if not -1
+                        var finallyPC = ReadIntFromCode(src);
+                        AppendInt(newCode, finallyPC >= 0 ? remap[finallyPC] : -1);
+                        for (var b = 0; b < 4; b++) newLines.Add(Lines[src + b]);
+                        src += 4;
+                        // catchVarIdx is a Names index, not a jump target — falls to verbatim loop below
+                    }
+                    else if (isJump)
                     {
                         AppendInt(newCode, remap[ReadIntFromCode(src)]); // remapped target
                         newLines.Add(Lines[src]);

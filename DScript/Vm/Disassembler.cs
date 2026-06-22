@@ -36,8 +36,8 @@ namespace DScript.Vm
         {
             switch (op)
             {
-                case OpCode.Try:
-                    return 4;
+                case OpCode.EnterTry:
+                    return 3;
 
                 case OpCode.BinaryConst:
                 case OpCode.BinaryIntConst:
@@ -64,6 +64,8 @@ namespace DScript.Vm
                 case OpCode.New:
                 case OpCode.InitProp:
                 case OpCode.InitElem:
+                case OpCode.LeaveTry:
+                case OpCode.LeaveCatch:
                     return 1;
 
                 default:
