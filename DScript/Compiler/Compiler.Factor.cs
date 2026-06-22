@@ -214,8 +214,9 @@ namespace DScript.Compiler
             {
                 lexer.Match(lexer.TokenType);
                 chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+                var operandStart1 = chunk.Code.Count;
                 CompileBase();
-                EmitBinaryOrShift(baseOp, isShift);
+                EmitBinaryOrShift(baseOp, isShift, operandStart1);
                 chunk.Emit(OpCode.SetVar, chunk.AddName(name));
                 return;
             }
@@ -227,8 +228,9 @@ namespace DScript.Compiler
                 lexer.Match(lexer.TokenType);
                 chunk.Emit(OpCode.GetVar, chunk.AddName(name)); // old value (kept as result)
                 chunk.Emit(OpCode.GetVar, chunk.AddName(name)); // value to increment
+                var operandStart2 = chunk.Code.Count;
                 EmitConstantInt(1);
-                chunk.Emit(OpCode.Binary, (int)op);
+                EmitBinary((int)op, operandStart2);
                 chunk.Emit(OpCode.SetVar, chunk.AddName(name));
                 chunk.Emit(OpCode.Pop);                         // discard new, leave old
                 return;
@@ -318,8 +320,9 @@ namespace DScript.Compiler
                         lexer.Match(lexer.TokenType);
                         chunk.Emit(OpCode.Dup);                 // keep obj
                         chunk.Emit(OpCode.GetProp, nameIndex);  // current value
+                        var operandStart3 = chunk.Code.Count;
                         EmitConstantInt(1);
-                        chunk.Emit(OpCode.Binary, (int)op);
+                        EmitBinary((int)op, operandStart3);
                         chunk.Emit(OpCode.SetProp, nameIndex);  // leaves new value
                         return;
                     }
@@ -337,8 +340,9 @@ namespace DScript.Compiler
                         lexer.Match(lexer.TokenType);
                         chunk.Emit(OpCode.Dup);                 // keep obj for the set
                         chunk.Emit(OpCode.GetProp, nameIndex);  // current value
+                        var operandStart4 = chunk.Code.Count;
                         CompileBase();
-                        EmitBinaryOrShift(baseOp, isShift);
+                        EmitBinaryOrShift(baseOp, isShift, operandStart4);
                         chunk.Emit(OpCode.SetProp, nameIndex);
                         return;
                     }
@@ -364,8 +368,9 @@ namespace DScript.Compiler
                         lexer.Match(lexer.TokenType);
                         chunk.Emit(OpCode.Dup2);                // keep obj,key for the set
                         chunk.Emit(OpCode.GetIndex);            // current value
+                        var operandStart5 = chunk.Code.Count;
                         CompileBase();
-                        EmitBinaryOrShift(baseOp, isShift);
+                        EmitBinaryOrShift(baseOp, isShift, operandStart5);
                         chunk.Emit(OpCode.SetIndex);
                         return;
                     }
@@ -376,8 +381,9 @@ namespace DScript.Compiler
                         lexer.Match(lexer.TokenType);
                         chunk.Emit(OpCode.Dup2);                // keep obj,key
                         chunk.Emit(OpCode.GetIndex);            // current value
+                        var operandStart6 = chunk.Code.Count;
                         EmitConstantInt(1);
-                        chunk.Emit(OpCode.Binary, (int)op);
+                        EmitBinary((int)op, operandStart6);
                         chunk.Emit(OpCode.SetIndex);            // leaves new value
                         return;
                     }
@@ -967,9 +973,12 @@ namespace DScript.Compiler
             }
         }
 
-        private void EmitBinaryOrShift(ScriptLex.LexTypes baseOp, bool isShift)
+        private void EmitBinaryOrShift(ScriptLex.LexTypes baseOp, bool isShift, int operandStart = -1)
         {
-            chunk.Emit(isShift ? OpCode.Shift : OpCode.Binary, (int)baseOp);
+            if (isShift)
+                chunk.Emit(OpCode.Shift, (int)baseOp);
+            else
+                EmitBinary((int)baseOp, operandStart >= 0 ? operandStart : chunk.Code.Count - 1);
         }
     }
 }
