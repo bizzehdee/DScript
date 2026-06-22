@@ -154,5 +154,8 @@ namespace DScript.Vm
         // --- Phase 7: generators / iterators -----------------------------------
         Yield,           //                 pop value, suspend generator, push resume value
         GetIterator,     //                 iterable → iterator (wraps arrays; passes through objects with .next)
+
+        // --- Phase 5 optimisation: fused for..of step -------------------------
+        ForOfStep,       // <exitOffset>    pops iter, calls .next() natively; if done jumps to exitOffset, else pushes value
     }
 }

@@ -815,6 +815,21 @@ namespace DScript.Vm
                         }
                         break;
                     }
+                    case OpCode.ForOfStep:
+                    {
+                        var exitOffset = ReadOperand(code, ref ip);
+                        var iter = Pop();
+                        var nextLink = iter.FindChild("next");
+                        ScriptVar result;
+                        if (nextLink != null)
+                            result = InvokeCallable(nextLink.Var, iter, Array.Empty<ScriptVar>());
+                        else
+                            result = null;
+                        var done = result?.FindChild("done")?.Var.Bool ?? true;
+                        if (done) { ip = exitOffset; break; }
+                        Push(result.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        break;
+                    }
                     case OpCode.New:
                     {
                         var argc = ReadOperand(code, ref ip);

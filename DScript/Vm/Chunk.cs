@@ -482,6 +482,7 @@ namespace DScript.Vm
             OpCode.Jump         or OpCode.JumpIfFalse  or OpCode.JumpIfTrue or
             OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop              or
             OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined            or
+            OpCode.ForOfStep                                                or
             OpCode.MakeClosure  or OpCode.Call         or OpCode.CallMethod or
             OpCode.TailCall     or OpCode.TailCallMethod                    or
             OpCode.New          or OpCode.InitProp      or OpCode.InitElem  or
@@ -539,6 +540,7 @@ namespace DScript.Vm
                 if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
                          or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
                          or OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined
+                         or OpCode.ForOfStep
                          or OpCode.LeaveTry or OpCode.LeaveCatch)
                 {
                     var operandAt = ip + 1;
@@ -606,6 +608,7 @@ namespace DScript.Vm
                     if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
                              or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
                              or OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined
+                             or OpCode.ForOfStep
                              or OpCode.LeaveTry or OpCode.LeaveCatch)
                     {
                         jumpTargets.Add(ReadIntFromCode(ip + 1));

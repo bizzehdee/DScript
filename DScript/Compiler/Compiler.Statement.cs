@@ -930,7 +930,6 @@ namespace DScript.Compiler
 
             // store the iterator in a hidden var
             var iterVar = chunk.AddName($"$forof_iter_{forInCounter}");
-            var resultVar = chunk.AddName($"$forof_result_{forInCounter}");
             forInCounter++;
 
             chunk.Emit(OpCode.DeclareVar, loopVar);
@@ -938,28 +937,13 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.SetVar, iterVar);
             chunk.Emit(OpCode.Pop);
 
-            // while (true) { var $result = $iter.next(); if ($result.done) break; loopVar = $result.value; body }
+            // while (true) { ForOfStep <exit>; loopVar = value; pop; body }
             var loopTop = chunk.Count;
 
-            // call $iter.next()
-            chunk.Emit(OpCode.GetVar, iterVar);      // receiver
-            chunk.Emit(OpCode.Dup);
-            chunk.Emit(OpCode.GetProp, chunk.AddName("next"));
-            chunk.Emit(OpCode.CallMethod, 0);
+            chunk.Emit(OpCode.GetVar, iterVar);
+            var exitJump = chunk.EmitJump(OpCode.ForOfStep); // pops iter; if done, jumps to exit; else pushes value
 
-            // store result
-            chunk.Emit(OpCode.DeclareVar, resultVar);
-            chunk.Emit(OpCode.SetVar, resultVar);
-            chunk.Emit(OpCode.Pop);
-
-            // if ($result.done) break
-            chunk.Emit(OpCode.GetVar, resultVar);
-            chunk.Emit(OpCode.GetProp, chunk.AddName("done"));
-            var exitJump = chunk.EmitJump(OpCode.JumpIfTrue);
-
-            // loopVar = $result.value
-            chunk.Emit(OpCode.GetVar, resultVar);
-            chunk.Emit(OpCode.GetProp, chunk.AddName("value"));
+            // loopVar = value (left on stack by ForOfStep)
             chunk.Emit(OpCode.SetVar, loopVar);
             chunk.Emit(OpCode.Pop);
 
