@@ -842,13 +842,10 @@ namespace DScript.Vm
                     {
                         var spreadArr = Pop();
                         var arr = Peek(); // the array being built stays on stack
-                        var len = spreadArr.IsArray ? spreadArr.GetArrayLength() : 0;
+                        var elems = ExtractArrayElements(spreadArr);
                         var existingLen = arr.IsArray ? arr.GetArrayLength() : 0;
-                        for (var si = 0; si < len; si++)
-                        {
-                            var elem = spreadArr.FindChild(ScriptVar.IndexName(si));
-                            arr.SetArrayIndex(existingLen + si, elem?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined));
-                        }
+                        for (var si = 0; si < elems.Length; si++)
+                            arr.SetArrayIndex(existingLen + si, elems[si]);
                         break;
                     }
                     case OpCode.MergeObject:
@@ -868,13 +865,7 @@ namespace DScript.Vm
                     {
                         var argsArr = Pop();
                         var callee = Pop();
-                        var len = argsArr.IsArray ? argsArr.GetArrayLength() : 0;
-                        var args = new ScriptVar[len];
-                        for (var ai = 0; ai < len; ai++)
-                        {
-                            var link = argsArr.FindChild(ScriptVar.IndexName(ai));
-                            args[ai] = link?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
-                        }
+                        var args = ExtractArrayElements(argsArr);
                         Push(InvokeCallable(callee, null, args));
                         break;
                     }
@@ -883,13 +874,7 @@ namespace DScript.Vm
                         var argsArr = Pop();
                         var callee = Pop();
                         var receiver = Pop();
-                        var len = argsArr.IsArray ? argsArr.GetArrayLength() : 0;
-                        var args = new ScriptVar[len];
-                        for (var ai = 0; ai < len; ai++)
-                        {
-                            var link = argsArr.FindChild(ScriptVar.IndexName(ai));
-                            args[ai] = link?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
-                        }
+                        var args = ExtractArrayElements(argsArr);
                         Push(InvokeCallable(callee, receiver, args));
                         break;
                     }
@@ -897,13 +882,7 @@ namespace DScript.Vm
                     {
                         var argsArr = Pop();
                         var ctor = Pop();
-                        var len = argsArr.IsArray ? argsArr.GetArrayLength() : 0;
-                        var args = new ScriptVar[len];
-                        for (var ai = 0; ai < len; ai++)
-                        {
-                            var link = argsArr.FindChild(ScriptVar.IndexName(ai));
-                            args[ai] = link?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
-                        }
+                        var args = ExtractArrayElements(argsArr);
                         Push(Construct(ctor, args));
                         break;
                     }
@@ -1480,6 +1459,30 @@ namespace DScript.Vm
         private static string KeyName(ScriptVar key)
         {
             return key.IsInt ? ScriptVar.IndexName(key.Int) : key.String;
+        }
+
+        // Single-pass O(n) extraction of array elements into a flat ScriptVar[].
+        // Replaces the previous per-element FindChild(IndexName(i)) pattern which
+        // was O(n²) because each FindChild walk scans from the head of the list.
+        private static ScriptVar[] ExtractArrayElements(ScriptVar arr)
+        {
+            var len = arr.IsArray ? arr.GetArrayLength() : 0;
+            if (len == 0) return Array.Empty<ScriptVar>();
+            var result = new ScriptVar[len];
+            var child = arr.FirstChild;
+            while (child != null)
+            {
+                if (int.TryParse(child.Name,
+                                 System.Globalization.NumberStyles.None,
+                                 System.Globalization.CultureInfo.InvariantCulture,
+                                 out var idx)
+                    && (uint)idx < (uint)len)
+                    result[idx] = child.Var;
+                child = child.Next;
+            }
+            for (var i = 0; i < len; i++)
+                result[i] ??= new ScriptVar(ScriptVar.Flags.Undefined);
+            return result;
         }
 
         // Resolve a variable name through the inline cache. A site (identified by
