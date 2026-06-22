@@ -894,60 +894,38 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)'[');
             chunk.Emit(OpCode.NewArray);
 
-            // Fast-scan to detect any spread element at depth 0
-            bool hasSpread;
-            {
-                var clone = lexer.CloneToEnd(lexer.TokenStart);
-                int depth = 0;
-                hasSpread = false;
-                while (clone.TokenType != (ScriptLex.LexTypes)']' || depth > 0)
-                {
-                    if (clone.TokenType == ScriptLex.LexTypes.Eof) break;
-                    if (clone.TokenType == ScriptLex.LexTypes.Ellipsis && depth == 0)
-                    { hasSpread = true; break; }
-                    if (clone.TokenType == (ScriptLex.LexTypes)'[' ||
-                        clone.TokenType == (ScriptLex.LexTypes)'(' ||
-                        clone.TokenType == (ScriptLex.LexTypes)'{') depth++;
-                    else if (clone.TokenType == (ScriptLex.LexTypes)']' ||
-                             clone.TokenType == (ScriptLex.LexTypes)')' ||
-                             clone.TokenType == (ScriptLex.LexTypes)'}') depth--;
-                    clone.GetNextToken();
-                }
-            }
+            // Single-pass parse with seenSpread flag — no lexer clone needed.
+            // Elements before the first spread use compile-time indices (InitElem),
+            // avoiding both a full re-parse and O(n) runtime GetProp "length" calls.
+            // Elements after any spread fall back to the runtime-length append path.
+            var staticCount = 0;
+            var seenSpread = false;
 
-            if (!hasSpread)
+            while (lexer.TokenType != (ScriptLex.LexTypes)']')
             {
-                // No spread — original static-index path
-                var index = 0;
-                while (lexer.TokenType != (ScriptLex.LexTypes)']')
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    CompileBase();
+                    chunk.Emit(OpCode.PushSpread);
+                    seenSpread = true;
+                }
+                else if (!seenSpread)
                 {
                     CompileBase();
-                    chunk.Emit(OpCode.InitElem, index);
-                    if (lexer.TokenType != (ScriptLex.LexTypes)']') lexer.Match((ScriptLex.LexTypes)',');
-                    index++;
+                    chunk.Emit(OpCode.InitElem, staticCount);
+                    staticCount++;
                 }
-            }
-            else
-            {
-                // Spread present: use dynamic-append for all elements
-                while (lexer.TokenType != (ScriptLex.LexTypes)']')
+                else
                 {
-                    if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
-                    {
-                        lexer.Match(ScriptLex.LexTypes.Ellipsis);
-                        CompileBase();          // spreadArr on stack, array below
-                        chunk.Emit(OpCode.PushSpread);
-                    }
-                    else
-                    {
-                        // Dynamic append: arr.Dup + GetProp("length") + value + SetPropDynamic
-                        chunk.Emit(OpCode.Dup);
-                        chunk.Emit(OpCode.GetProp, chunk.AddName("length"));
-                        CompileBase();
-                        chunk.Emit(OpCode.SetPropDynamic);
-                    }
-                    if (lexer.TokenType != (ScriptLex.LexTypes)']') lexer.Match((ScriptLex.LexTypes)',');
+                    chunk.Emit(OpCode.Dup);
+                    chunk.Emit(OpCode.GetProp, chunk.AddName("length"));
+                    CompileBase();
+                    chunk.Emit(OpCode.SetPropDynamic);
                 }
+
+                if (lexer.TokenType != (ScriptLex.LexTypes)']')
+                    lexer.Match((ScriptLex.LexTypes)',');
             }
 
             lexer.Match((ScriptLex.LexTypes)']');
