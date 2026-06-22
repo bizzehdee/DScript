@@ -319,5 +319,68 @@ namespace DScript.Vm
             if (v.IsDouble) return ConstantValue.Double(v.Float);
             return null;
         }
+
+        // --- post-compilation passes ----------------------------------------
+
+        // Total byte size of an instruction (opcode byte + 4 bytes per operand).
+        internal static int InstructionSize(OpCode op) => op switch
+        {
+            OpCode.Try          => 17, // 1 + 4*4
+            OpCode.BinaryConst  =>  9, // 1 + 4*2
+            OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
+            OpCode.DeclareVar   or OpCode.DeclareConst or
+            OpCode.GetProp      or OpCode.SetProp      or OpCode.DeleteProp or
+            OpCode.Binary       or OpCode.Shift        or
+            OpCode.Jump         or OpCode.JumpIfFalse  or OpCode.JumpIfTrue or
+            OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop             or
+            OpCode.MakeClosure  or OpCode.Call         or OpCode.CallMethod or
+            OpCode.New          or OpCode.InitProp      or OpCode.InitElem  =>  5, // 1 + 4*1
+            _                   =>  1, // no operands
+        };
+
+        /// <summary>
+        /// Walk every jump in this chunk (and all nested function chunks) and
+        /// collapse any chain of unconditional <see cref="OpCode.Jump"/>s so that
+        /// each jump points directly at the final destination.
+        ///
+        /// Example: <c>JumpIfFalse → A; [A] Jump → B</c> becomes
+        /// <c>JumpIfFalse → B</c>, saving one extra dispatch per branch.
+        /// Only unconditional <see cref="OpCode.Jump"/> targets are chased: they
+        /// cannot change stack depth, so the collapse is always semantics-preserving.
+        /// </summary>
+        public void CollapseJumpChains()
+        {
+            var ip = 0;
+            while (ip < Code.Count)
+            {
+                var op = (OpCode)Code[ip];
+                if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                         or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop)
+                {
+                    var operandAt = ip + 1;
+                    var target = ReadIntFromCode(operandAt);
+                    var resolved = ChaseUnconditionalJumps(target);
+                    if (resolved != target)
+                        PatchJumpTo(operandAt, resolved);
+                }
+                ip += InstructionSize(op);
+            }
+
+            foreach (var fn in Functions)
+                fn.CollapseJumpChains();
+        }
+
+        // Follow a chain of unconditional Jump instructions to their final target.
+        // The seen set prevents infinite loops on self-referencing bytecode.
+        private int ChaseUnconditionalJumps(int target)
+        {
+            var seen = new HashSet<int>();
+            while (target < Code.Count && seen.Add(target))
+            {
+                if ((OpCode)Code[target] != OpCode.Jump) break;
+                target = ReadIntFromCode(target + 1);
+            }
+            return target;
+        }
     }
 }
