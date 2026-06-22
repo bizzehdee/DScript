@@ -43,6 +43,19 @@ namespace DScript.Extras
         }
 
         /// <summary>
+        /// Populates <c>process.argv</c> with the supplied string array.
+        /// Call this after <see cref="RegisterFunctions"/> to inject host arguments.
+        /// </summary>
+        public static void SetArgv(ScriptEngine engine, string[] argv)
+        {
+            var arr = new ScriptVar();
+            arr.SetArray();
+            for (var i = 0; i < argv.Length; i++)
+                arr.SetArrayIndex(i, new ScriptVar(argv[i]));
+            engine.Root.AddChildNoDup("__argv__", arr);
+        }
+
+        /// <summary>
         /// Legacy registration that scans every loaded assembly for
         /// <see cref="ScriptClassAttribute"/> providers via reflection. Use this only
         /// when providers live in assemblies the source generator does not run over
