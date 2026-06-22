@@ -62,6 +62,19 @@ namespace DScript
         // The global (outermost) lexical scope; its bindings live on Root.
         private readonly VmEnvironment globalEnvironment;
 
+        // --- module system --------------------------------------------------
+
+        /// <summary>
+        /// Called by require() to resolve a module. Given (importPath, currentModulePath),
+        /// return the module source, or null if not found.
+        /// </summary>
+        public Func<string, string, string> ModuleLoader { get; set; }
+
+        /// <summary>Path of the module currently being executed (used for relative imports).</summary>
+        public string CurrentModulePath { get; set; } = string.Empty;
+
+        private readonly Dictionary<string, ScriptVar> _moduleCache = new();
+
         // --- debugger -------------------------------------------------------
         private IDebugger _debugger;
         private DebugAction _debugInitialAction = DebugAction.StepIn;
@@ -84,8 +97,78 @@ namespace DScript
             Root.AddChild("Array", arrayClass);
 
             RegisterPromiseBuiltin();
+            RegisterRequireBuiltin();
 
             globalEnvironment = new VmEnvironment(Root, null);
+        }
+
+        private void RegisterRequireBuiltin()
+        {
+            var requireVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            requireVar.AddChild("path", new ScriptVar(ScriptVar.Flags.Undefined));
+            requireVar.SetCallback((scope, _) =>
+            {
+                var pathVar = scope.FindChild("path")?.Var;
+                var path = pathVar?.String ?? string.Empty;
+
+                // Check cache first — also handles circular requires (pre-seeded below).
+                if (_moduleCache.TryGetValue(path, out var cached))
+                {
+                    scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(cached);
+                    return;
+                }
+
+                // Load source via the user-supplied loader.
+                string source = null;
+                if (ModuleLoader != null)
+                    source = ModuleLoader(path, CurrentModulePath);
+
+                if (source == null)
+                    throw new ScriptException($"Cannot find module '{path}'");
+
+                // Pre-seed the cache BEFORE running the module to break circular require cycles.
+                var exportsObj = new ScriptVar(ScriptVar.Flags.Object);
+                _moduleCache[path] = exportsObj;
+
+                // Build an isolated module environment:
+                //   - a fresh root object containing __exports__ and copies of all globals
+                var moduleRoot = new ScriptVar(ScriptVar.Flags.Object);
+                moduleRoot.AddChild("__exports__", exportsObj);
+
+                // Copy globals (require, Promise, String, …) into the module root.
+                var link = Root.FirstChild;
+                while (link != null)
+                {
+                    moduleRoot.AddChildNoDup(link.Name, link.Var);
+                    link = link.Next;
+                }
+
+                var moduleEnv = new Vm.Environment(moduleRoot, null);
+
+                // Compile and run the module.
+                var savedPath = CurrentModulePath;
+                CurrentModulePath = path;
+                try
+                {
+                    using var compiler = new Compiler.DScriptCompiler();
+                    var chunk = compiler.CompileProgram(source);
+                    var vm = new Vm.VirtualMachine(this);
+                    vm.Run(chunk, moduleEnv);
+                }
+                finally
+                {
+                    CurrentModulePath = savedPath;
+                }
+
+                // Retrieve exports (the module may have mutated __exports__ or replaced it).
+                var exports = moduleRoot.FindChild("__exports__")?.Var ?? exportsObj;
+
+                // Update the cache entry in case it was replaced, and return.
+                _moduleCache[path] = exports;
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(exports);
+            }, null);
+
+            Root.AddChild("require", requireVar);
         }
 
         private void RegisterPromiseBuiltin()

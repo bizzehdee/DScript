@@ -105,6 +105,12 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.RAsync:
                     CompileAsyncFunctionDeclaration();
                     break;
+                case ScriptLex.LexTypes.RExport:
+                    CompileExport();
+                    break;
+                case ScriptLex.LexTypes.RImport:
+                    CompileImport();
+                    break;
                 case ScriptLex.LexTypes.RThrow:
                     CompileThrow();
                     break;
@@ -975,6 +981,214 @@ namespace DScript.Compiler
             {
                 chunk.PatchJumpTo(operandOffset, target);
             }
+        }
+
+        // ---- export statement -----------------------------------------------
+
+        private void CompileExport()
+        {
+            lexer.Match(ScriptLex.LexTypes.RExport);
+
+            if (lexer.TokenType == ScriptLex.LexTypes.RDefault)
+            {
+                // export default <expr>;
+                lexer.Match(ScriptLex.LexTypes.RDefault);
+
+                // Compile the expression into a temp var, then assign to __exports__.default
+                var tmpName = "$exportDefault" + _importCounter++;
+                var tmpIdx = chunk.AddName(tmpName);
+                var exportsIdx = chunk.AddName("__exports__");
+                var defaultIdx = chunk.AddName("default");
+
+                chunk.Emit(OpCode.DeclareVar, tmpIdx);
+                CompileBase();                          // push expr value
+                chunk.Emit(OpCode.SetVar, tmpIdx);      // store; leaves value on stack
+                chunk.Emit(OpCode.Pop);
+
+                chunk.Emit(OpCode.GetVar, exportsIdx);  // push __exports__ (obj)
+                chunk.Emit(OpCode.GetVar, tmpIdx);       // push value
+                chunk.Emit(OpCode.SetProp, defaultIdx);  // __exports__.default = value
+                chunk.Emit(OpCode.Pop);
+
+                lexer.Match((ScriptLex.LexTypes)';');
+            }
+            else if (lexer.TokenType is ScriptLex.LexTypes.RVar
+                                     or ScriptLex.LexTypes.RConst
+                                     or ScriptLex.LexTypes.RLet)
+            {
+                // export var/let/const name = expr;
+                // Peek ahead to collect variable names before compiling the declaration.
+                var names = CollectVarDeclNames();
+                CompileVarDeclaration();
+
+                var exportsIdx = chunk.AddName("__exports__");
+                foreach (var name in names)
+                {
+                    var nameIdx = chunk.AddName(name);
+                    chunk.Emit(OpCode.GetVar, exportsIdx);  // obj
+                    chunk.Emit(OpCode.GetVar, nameIdx);      // value
+                    chunk.Emit(OpCode.SetProp, nameIdx);     // __exports__.name = value
+                    chunk.Emit(OpCode.Pop);
+                }
+            }
+            else if (lexer.TokenType == ScriptLex.LexTypes.RFunction)
+            {
+                // export function f() {}
+                // Peek the function name before consuming it.
+                var lookahead = lexer.CloneToEnd(lexer.TokenStart);
+                lookahead.Match(ScriptLex.LexTypes.RFunction);
+                // Skip optional generator star
+                if (lookahead.TokenType == (ScriptLex.LexTypes)'*') lookahead.Match((ScriptLex.LexTypes)'*');
+                var funcName = lookahead.TokenString;
+
+                CompileFunctionDeclaration();
+
+                var exportsIdx = chunk.AddName("__exports__");
+                var nameIdx = chunk.AddName(funcName);
+                chunk.Emit(OpCode.GetVar, exportsIdx);
+                chunk.Emit(OpCode.GetVar, nameIdx);
+                chunk.Emit(OpCode.SetProp, nameIdx);
+                chunk.Emit(OpCode.Pop);
+            }
+        }
+
+        // Lookahead: collect the declared variable names from a var/let/const statement
+        // that starts at the current lexer position (token is var/let/const).
+        private List<string> CollectVarDeclNames()
+        {
+            var names = new List<string>();
+            var clone = lexer.CloneToEnd(lexer.TokenStart);
+            clone.Match(clone.TokenType); // skip var/let/const
+
+            while (clone.TokenType != (ScriptLex.LexTypes)';' && clone.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                if (clone.TokenType == ScriptLex.LexTypes.Id)
+                {
+                    names.Add(clone.TokenString);
+                    clone.Match(ScriptLex.LexTypes.Id);
+
+                    // Skip past the initialiser (if any) to the next comma or semicolon.
+                    int depth = 0;
+                    while (clone.TokenType != ScriptLex.LexTypes.Eof)
+                    {
+                        var t = clone.TokenType;
+                        if (t is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{') depth++;
+                        else if (t is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}') depth--;
+                        else if (depth == 0 && (t == (ScriptLex.LexTypes)',' || t == (ScriptLex.LexTypes)';')) break;
+                        clone.GetNextToken();
+                    }
+
+                    if (clone.TokenType == (ScriptLex.LexTypes)',')
+                        clone.Match((ScriptLex.LexTypes)',');
+                }
+                else
+                {
+                    // Destructuring or unexpected — skip.
+                    clone.GetNextToken();
+                }
+            }
+            return names;
+        }
+
+        // ---- import statement -----------------------------------------------
+
+        private void CompileImport()
+        {
+            lexer.Match(ScriptLex.LexTypes.RImport);
+
+            if (lexer.TokenType == (ScriptLex.LexTypes)'*')
+            {
+                // import * as ns from "path"
+                lexer.Match((ScriptLex.LexTypes)'*');
+                // "as" is treated as a contextual identifier
+                if (lexer.TokenType == ScriptLex.LexTypes.Id && lexer.TokenString == "as")
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                var nsName = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
+                lexer.Match(ScriptLex.LexTypes.RFrom);
+                var path = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Str);
+                lexer.Match((ScriptLex.LexTypes)';');
+
+                var nsIdx = chunk.AddName(nsName);
+                chunk.Emit(OpCode.DeclareVar, nsIdx);
+                EmitRequireCall(path);
+                chunk.Emit(OpCode.SetVar, nsIdx);
+                chunk.Emit(OpCode.Pop);
+            }
+            else if (lexer.TokenType == (ScriptLex.LexTypes)'{')
+            {
+                // import { x, y as z } from "path"
+                var bindings = new List<(string key, string local)>();
+                lexer.Match((ScriptLex.LexTypes)'{');
+                while (lexer.TokenType != (ScriptLex.LexTypes)'}')
+                {
+                    var key = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    var local = key;
+                    if (lexer.TokenType == ScriptLex.LexTypes.Id && lexer.TokenString == "as")
+                    {
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                        local = lexer.TokenString;
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                    }
+                    bindings.Add((key, local));
+                    if (lexer.TokenType != (ScriptLex.LexTypes)'}')
+                        lexer.Match((ScriptLex.LexTypes)',');
+                }
+                lexer.Match((ScriptLex.LexTypes)'}');
+                lexer.Match(ScriptLex.LexTypes.RFrom);
+                var path = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Str);
+                lexer.Match((ScriptLex.LexTypes)';');
+
+                // var $mod = require("path");
+                var modTmpName = "$importMod" + _importCounter++;
+                var modTmpIdx = chunk.AddName(modTmpName);
+                chunk.Emit(OpCode.DeclareVar, modTmpIdx);
+                EmitRequireCall(path);
+                chunk.Emit(OpCode.SetVar, modTmpIdx);
+                chunk.Emit(OpCode.Pop);
+
+                foreach (var (key, local) in bindings)
+                {
+                    var localIdx = chunk.AddName(local);
+                    var keyIdx = chunk.AddName(key);
+                    chunk.Emit(OpCode.DeclareVar, localIdx);
+                    chunk.Emit(OpCode.GetVar, modTmpIdx);
+                    chunk.Emit(OpCode.GetProp, keyIdx);
+                    chunk.Emit(OpCode.SetVar, localIdx);
+                    chunk.Emit(OpCode.Pop);
+                }
+            }
+            else if (lexer.TokenType == ScriptLex.LexTypes.Id)
+            {
+                // import defaultExport from "path"
+                var localName = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
+                lexer.Match(ScriptLex.LexTypes.RFrom);
+                var path = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Str);
+                lexer.Match((ScriptLex.LexTypes)';');
+
+                var localIdx = chunk.AddName(localName);
+                var defaultIdx = chunk.AddName("default");
+                chunk.Emit(OpCode.DeclareVar, localIdx);
+                EmitRequireCall(path);
+                chunk.Emit(OpCode.GetProp, defaultIdx);
+                chunk.Emit(OpCode.SetVar, localIdx);
+                chunk.Emit(OpCode.Pop);
+            }
+        }
+
+        // Emit bytecode equivalent to: require("<path>")  (result left on stack)
+        private void EmitRequireCall(string path)
+        {
+            var requireIdx = chunk.AddName("require");
+            var pathConstIdx = chunk.AddConstant(ConstantValue.String(path));
+            chunk.Emit(OpCode.GetVar, requireIdx);
+            chunk.Emit(OpCode.Constant, pathConstIdx);
+            chunk.Emit(OpCode.Call, 1);
         }
     }
 }

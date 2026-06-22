@@ -154,6 +154,9 @@ namespace DScript
             RYield,         // yield keyword
             RAsync,         // async keyword
             RAwait,         // await keyword
+            RExport,        // export keyword
+            RImport,        // import keyword
+            RFrom,          // from contextual keyword
         }
 
         public ScriptLex(string input)
@@ -319,6 +322,9 @@ namespace DScript
                     case "yield": TokenType = LexTypes.RYield; break;
                     case "async": TokenType = LexTypes.RAsync; break;
                     case "await": TokenType = LexTypes.RAwait; break;
+                    case "export": TokenType = LexTypes.RExport; break;
+                    case "import": TokenType = LexTypes.RImport; break;
+                    case "from": TokenType = LexTypes.RFrom; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers
