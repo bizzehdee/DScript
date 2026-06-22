@@ -311,9 +311,20 @@ namespace DScript.Vm
             var bcAt = Code.Count - 9;
             if ((OpCode)Code[bcAt] != OpCode.BinaryConst) return false;
 
-            // The instruction before BinaryConst must be Constant(leftIdx) = 5 bytes
+            // The instruction before BinaryConst must be Constant(leftIdx) = 5 bytes.
             var cAt = bcAt - 5;
             if (cAt < 0 || (OpCode)Code[cAt] != OpCode.Constant) return false;
+
+            // Guard against a false positive: if a 9-byte instruction (BinaryConst or
+            // BinaryIntConst) ends at bcAt-1, its opcode is at bcAt-9 = cAt-4, and byte
+            // cAt falls inside its first operand. Operator values are always < 65536, so
+            // the high byte at cAt is 0x00 — identical to OpCode.Constant. Reject if the
+            // 9-byte instruction's opcode is at cAt-4.
+            if (cAt >= 4)
+            {
+                var prevOp = (OpCode)Code[cAt - 4];
+                if (prevOp is OpCode.BinaryConst or OpCode.BinaryIntConst) return false;
+            }
 
             var op = (ScriptLex.LexTypes)ReadIntFromCode(bcAt + 1);
             var leftIdx  = ReadIntFromCode(cAt + 1);
