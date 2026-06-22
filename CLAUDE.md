@@ -48,6 +48,21 @@ dotnet test DScript.Test --configuration Release \
 
 If new code is inherently difficult to cover (e.g. platform-specific branches, internal infrastructure), add `[ExcludeFromCodeCoverage]` with a comment explaining why rather than lowering the global threshold.
 
+## Documentation
+
+- Keep `README.md` up to date whenever public APIs, language features, or behaviour visible to users change
+- Keep the language server (`DScript.LanguageServer`) up to date whenever the lexer, parser, or public API surface changes — hover, completion, go-to-definition, and signature help should reflect the current language
+
+## Benchmarking
+
+Any change to `DScript/ScriptLex.cs` or anything under `DScript/Vm/` must be benchmarked before and after:
+
+```
+dotnet run --project DScript.Benchmark --configuration Release
+```
+
+Record the `best ms` column for each workload. Variance between runs is normal; a consistent regression of more than ~5 % on any workload is not acceptable and must be investigated before committing. Note the before/after numbers in the commit message.
+
 ## Code style
 
 - Match the style of the surrounding file (existing indentation, brace placement, `var` usage)

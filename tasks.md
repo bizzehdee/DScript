@@ -1,254 +1,310 @@
-# DScript.Extras — API Expansion Task List
+# DScript.Extras — API Expansion Tasks (Phase 2)
 
-Tasks are ordered by effort-to-impact ratio: quick wins first, then medium
-changes, then larger new types. Each phase is independent and can be committed
-separately. See `plan.md` for full design notes on each item.
+Phase 1 (Math, String, console, Object, Number, Array, Date, Map, Set, Error types, performance, structuredClone/queueMicrotask, process) is complete.
+
+Tasks are ordered by effort-to-impact ratio. Each phase is independent and can be committed separately. See `plan.md` for full design notes.
 
 Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ---
 
-## Phase 1 — Trivial fills (< 1 hour total)
+## Phase 1 — Trivial fills (< 2 hours total)
 
-### 1a — Math gaps
-- [ ] Add `Math.trunc(x)` → `Math.Truncate()`
-- [ ] Add `Math.sign(x)` → `Math.Sign()`
-- [ ] Add `Math.hypot(...vals)` → `Math.Sqrt(sum of squares)` (variadic via array arg)
-- [ ] Add `Math.log2(x)` → `Math.Log2()`
-- [ ] Add `Math.log10(x)` → `Math.Log10()`
-- [ ] Add `Math.cbrt(x)` → `Math.Cbrt()`
-- [ ] Add `Math.clamp(x, lo, hi)` → `Math.Clamp()`
-- [ ] Add `Math.fround(x)` → `(double)(float)x`
-- [ ] Add `Math.imul(a, b)` → `unchecked((int)a * (int)b)`
+### 1a — Core globals
+- [ ] `encodeURIComponent(str)` → `Uri.EscapeDataString()` (root global)
+- [ ] `decodeURIComponent(str)` → `Uri.UnescapeDataString()` (root global)
+- [ ] `encodeURI(str)` — escape all except `: / ? # [ ] @ ! $ & ' ( ) * + , ; = ~` (root global)
+- [ ] `decodeURI(str)` — inverse of `encodeURI` (root global)
+- [ ] `btoa(str)` → `Convert.ToBase64String()` (root global)
+- [ ] `atob(str)` → `Convert.FromBase64String()` (root global)
 
-### 1b — Trivial globals
-- [ ] Add `performance.now()` → `Stopwatch.GetTimestamp()` scaled to ms (new `PerformanceFunctionProvider` class, `AppearAtRoot = false`)
-- [ ] Add `structuredClone(val)` → `val.CopyValue()` (root global)
-- [ ] Add `queueMicrotask(fn)` → `MicroTaskQueue.Enqueue(fn)` (root global)
+### 1b — path module
+- [ ] `path.join(...parts)` → `Path.Combine()` + normalise separators
+- [ ] `path.resolve(...parts)` → `Path.GetFullPath(Path.Combine(...))`
+- [ ] `path.dirname(p)` → `Path.GetDirectoryName()`
+- [ ] `path.basename(p, ext?)` → `Path.GetFileName()` / `Path.GetFileNameWithoutExtension()`
+- [ ] `path.extname(p)` → `Path.GetExtension()`
+- [ ] `path.isAbsolute(p)` → `Path.IsPathRooted()`
+- [ ] `path.normalize(p)` → `Path.GetFullPath()`
+- [ ] `path.sep` property → `Path.DirectorySeparatorChar.ToString()`
 
----
+### 1c — os module
+- [ ] `os.hostname()` → `Dns.GetHostName()`
+- [ ] `os.platform()` — same mapping as `process.platform`
+- [ ] `os.arch()` → `RuntimeInformation.ProcessArchitecture.ToString().ToLower()`
+- [ ] `os.homedir()` → `Environment.GetFolderPath(SpecialFolder.UserProfile)`
+- [ ] `os.tmpdir()` → `Path.GetTempPath()`
+- [ ] `os.totalmem()` → `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`
+- [ ] `os.freemem()` — platform-specific
+- [ ] `os.cpus()` → `Environment.ProcessorCount` (int)
+- [ ] `os.EOL` property → `Environment.NewLine`
 
-## Phase 2 — String gaps (half a day)
+### 1d — console.timeLog
+- [ ] `console.timeLog(label?)` — print elapsed ms without stopping the timer
 
-All additions go in `StringFunctionProvider`. Each follows the existing parameter
-pattern: `var.GetParameter("this")` for the receiver.
+### 1e — console output routing
+- [ ] `ConsoleFunctionProvider.SetOutput(Action<string> stdout, Action<string> stderr)` — static delegates the host can set; defaults to `Console.WriteLine` / `Console.Error.WriteLine`
 
-- [ ] `startsWith(prefix, pos?)` — `str.StartsWith(prefix)` with optional start offset
-- [ ] `endsWith(suffix, len?)` — `str.EndsWith(suffix)` with optional length clamp
-- [ ] `includes(search, pos?)` — `str.Contains(search)` with optional start offset
-- [ ] `repeat(n)` — `string.Concat(Enumerable.Repeat(str, n))`
-- [ ] `padStart(len, fill?)` — `str.PadLeft(len, fillChar)`, fill defaults to space
-- [ ] `padEnd(len, fill?)` — `str.PadRight(len, fillChar)`, fill defaults to space
-- [ ] `slice(start, end?)` — negative-index substring; semantics differ from `substring` (clamps, no swap)
-- [ ] `trimStart()` — `str.TrimStart()`
-- [ ] `trimEnd()` — `str.TrimEnd()`
-- [ ] `replaceAll(what, with)` — `str.Replace(what, with)`
-- [ ] `at(index)` — negative-index single-char access; returns `""` for out-of-range
-- [ ] `search(regex)` — `Regex.Match(str, pattern).Index`; returns -1 if no match
-- [ ] `matchAll(regex)` — `Regex.Matches()`; returns array of match-group arrays
-
----
-
-## Phase 3 — console gaps (half a day)
-
-All additions go in `ConsoleFunctionProvider`.
-
-- [ ] `console.warn(val)` — `Console.Error.WriteLine("[WARN] " + val)`
-- [ ] `console.info(val)` — `Console.WriteLine("[INFO] " + val)`
-- [ ] `console.debug(val)` — `Console.WriteLine("[DEBUG] " + val)`
-- [ ] `console.assert(cond, msg?)` — writes `[ASSERT] msg` to stderr if `cond` is falsy
-- [ ] `console.time(label?)` — stores `Stopwatch.StartNew()` in a static `Dictionary<string, Stopwatch>`
-- [ ] `console.timeEnd(label?)` — stops stopwatch, prints `"label: Xms"`
-- [ ] `console.count(label?)` — increments and prints `"label: N"` using a static counter dict
-- [ ] `console.countReset(label?)` — resets named counter to zero
-- [ ] `console.group(label?)` — increments indent level, optionally prints label
-- [ ] `console.groupEnd()` — decrements indent level
-- [ ] `console.dir(obj)` — calls `obj.Trace(0, null)` to dump structure
-- [ ] `console.table(arr)` — prints a column-aligned text table from an array of objects
+### 1f — Language completeness (trivial)
+- [ ] `Array.prototype.reduceRight(fn, init?)` — same as `reduce` but right-to-left
+- [ ] `Array.prototype.toSorted(fn?)` — non-mutating `sort`; returns a copy
+- [ ] `Array.prototype.toReversed()` — non-mutating `reverse`; returns a copy
+- [ ] `Array.prototype.toSpliced(start, del, ...items)` — non-mutating `splice`; returns a copy
+- [ ] `Array.prototype.with(index, val)` — returns copy with one element replaced
+- [ ] `Object.hasOwn(obj, key)` — ES2022; cleaner than `hasOwnProperty`
+- [ ] `Object.is(a, b)` — strict equality handling `NaN` and `-0`
+- [ ] `Object.seal(obj)` / `Object.isSealed(obj)` — complement to existing `freeze`/`isFrozen`
+- [ ] `Object.groupBy(arr, fn)` — ES2024; groups into `{ key: [items] }`
+- [ ] `Map.groupBy(arr, fn)` — ES2024; groups into a Map
+- [ ] `AggregateError(errors, msg?)` — wraps multiple errors; needed by `Promise.any`
+- [ ] `Error` `.cause` property — `new Error('msg', { cause: err })` (ES2022)
+- [ ] `Number.prototype.toPrecision(digits?)` — significant-figure string
+- [ ] `String.prototype.normalize(form?)` → `str.Normalize(NormalizationForm.*)`
+- [ ] `String.prototype.codePointAt(pos)` — full Unicode code point
+- [ ] `String.fromCodePoint(...codes)` → `char.ConvertFromUtf32()`
 
 ---
 
-## Phase 4 — Object gaps (half a day)
+## Phase 2 — crypto module (half a day)
 
-All additions go in `ObjectFunctionProvider`.
+Create `CryptoFunctionProvider` with `[ScriptClass("crypto")]`.
 
-- [ ] `Object.values(obj)` — array of own enumerable values (symmetric with existing `keys`)
-- [ ] `Object.entries(obj)` — array of `[key, value]` pairs; excludes `__proto__`
-- [ ] `Object.assign(target, ...sources)` — shallow merge sources into target; returns target
-  - Variadic: collect extra args via an array parameter or repeated `GetParameter` with index
-- [ ] `Object.fromEntries(entries)` — iterate `entries` array, set each `[k, v]` pair on a new object
-- [ ] `Object.freeze(obj)` — mark object as read-only (can track via a `__frozen__` flag child for now)
-- [ ] `Object.isFrozen(obj)` — check the `__frozen__` flag
-- [ ] `Object.create(proto)` — create new object and set `__proto__` to proto
-- [ ] `Object.getOwnPropertyNames(obj)` — like `keys` but includes all children
+- [ ] `crypto.randomUUID()` → `Guid.NewGuid().ToString()`
+- [ ] `crypto.randomBytes(n)` → `RandomNumberGenerator.GetBytes(n)` returned as array of ints
+- [ ] `crypto.getRandomValues(arr)` — fills a script array with cryptographically random ints
+- [ ] `crypto.createHash(algo)` — returns hash object; `.update(data)`, `.digest(enc?)`
+- [ ] `crypto.createHmac(algo, key)` — returns hmac object; `.update(data)`, `.digest(enc?)`
+- [ ] Supported algorithms: `'sha256'`, `'sha512'`, `'sha1'`, `'md5'`
 
 ---
 
-## Phase 5 — Number class (half a day)
+## Phase 3 — process lifecycle hooks (half a day)
 
-Create `NumberFunctionProvider` in `DScript.Extras`. Register under `Number.*` and
-also expose the root-level globals (`parseInt`, `parseFloat`, `isNaN`, `isFinite`)
-as `Number.*` variants to match the JS spec.
+Extend existing `ProcessFunctionProvider`.
 
-- [ ] Add `Number` class scaffold with `[ScriptClass("Number")]`
-- [ ] `Number.isInteger(x)` — check `x == Math.Floor(x)` and not NaN/Infinity
-- [ ] `Number.isFinite(x)` — non-coercing: returns false for non-numbers
-- [ ] `Number.isNaN(x)` — non-coercing: returns false for non-numbers
-- [ ] `Number.isSafeInteger(x)` — `isInteger(x) && Math.Abs(x) <= MAX_SAFE_INTEGER`
-- [ ] `Number.MAX_SAFE_INTEGER` property → `9007199254740991`
-- [ ] `Number.MIN_SAFE_INTEGER` property → `-9007199254740991`
-- [ ] `Number.MAX_VALUE` property → `double.MaxValue`
-- [ ] `Number.MIN_VALUE` property → `double.Epsilon`
-- [ ] `Number.EPSILON` property → `2.220446049250313e-16`
-- [ ] `Number.POSITIVE_INFINITY` property → `double.PositiveInfinity`
-- [ ] `Number.NEGATIVE_INFINITY` property → `double.NegativeInfinity`
-- [ ] `Number.NaN` property → `double.NaN`
-- [ ] `(num).toFixed(digits)` — instance method; format to N decimal places as string
-- [ ] `(num).toString(radix?)` — instance method; base conversion (2–36)
-- [ ] `(num).toExponential(digits?)` — instance method; scientific notation string
+- [ ] `process.on('exit', fn)` — register handler called just before exit
+- [ ] `process.on('uncaughtException', fn)` — register handler for top-level exceptions
+- [ ] `process.on('unhandledRejection', fn)` — register handler for unhandled Promise rejections
+- [ ] Dispatch hooks from the VM's top-level exception handler and `process.exit`
 
 ---
 
-## Phase 6 — Array gaps (1–2 days)
+## Phase 4 — assert module (half a day)
 
-All instance-method additions go in `ArrayFunctionProvider`. Static methods are
-new entries with the receiver as `"this"` pointing to the `Array` class object
-(or registered under `Array.*` directly).
+Create `AssertFunctionProvider` registered under `assert.*`.
 
-### Instance methods
-- [ ] `find(fn)` — return first element where `fn(elem, idx, arr)` is truthy, or `undefined`
-- [ ] `findIndex(fn)` — return index of first match, or -1
-- [ ] `findLast(fn)` — like `find` but iterates in reverse
-- [ ] `findLastIndex(fn)` — like `findIndex` but iterates in reverse
-- [ ] `some(fn)` — return `true` if any element passes `fn`
-- [ ] `every(fn)` — return `true` if all elements pass `fn`
-- [ ] `includes(val)` — value-equality membership test (deprecates non-standard `contains`)
-- [ ] `flat(depth?)` — flatten nested arrays; default depth 1
-- [ ] `flatMap(fn)` — `map(fn).flat(1)` in one pass
-- [ ] `fill(val, start?, end?)` — set a range of elements to val in place
-- [ ] `concat(...arrs)` — shallow-merge arrays into a new array (does not mutate)
-- [ ] `splice(start, deleteCount?, ...items)` — in-place remove/insert; returns removed elements
-- [ ] `at(index)` — negative-index element access
-- [ ] `entries()` — returns array of `[index, value]` pairs (usable with `for...of`)
-- [ ] `keys()` — returns array of indices (usable with `for...of`)
-- [ ] `values()` — returns array of values (usable with `for...of`)
-
-### Static methods
-- [ ] `Array.isArray(val)` — return `true` if val is an array
-- [ ] `Array.from(iterable, mapFn?)` — construct array from any iterable or array-like
-- [ ] `Array.of(...vals)` — construct array from argument list
+- [ ] `assert(val, msg?)` / `assert.ok(val, msg?)` — throw if falsy
+- [ ] `assert.equal(a, b, msg?)` — `==` comparison
+- [ ] `assert.strictEqual(a, b, msg?)` — `===` comparison
+- [ ] `assert.notEqual(a, b, msg?)` / `assert.notStrictEqual(a, b, msg?)`
+- [ ] `assert.deepEqual(a, b, msg?)` — recursive value equality
+- [ ] `assert.throws(fn, err?, msg?)` — assert fn throws
+- [ ] `assert.doesNotThrow(fn, msg?)` — assert fn does not throw
+- [ ] `assert.fail(msg?)` — unconditional failure
 
 ---
 
-## Phase 7 — Date class (1–2 days)
+## Phase 5 — util module (half a day)
 
-Create `DateFunctionProvider` in `DScript.Extras`. `Date` instances must store a
-`DateTimeOffset` in `ScriptVar`'s data field (same pattern as `VmFunction`).
-The engine needs a `new Date(...)` constructor registered similarly to how
-`Promise` is registered in `ScriptEngine.cs`.
+Create `UtilFunctionProvider` registered under `util.*`.
 
-### Scaffolding
-- [ ] Create `DateObject` wrapper class holding a `DateTimeOffset`
-- [ ] Register `Date` constructor in `ScriptEngine` (or via `EngineFunctionLoader`)
-  - `new Date()` → current UTC
-  - `new Date(ms)` → from epoch milliseconds
-  - `new Date(str)` → `DateTimeOffset.Parse(str)`
-  - `new Date(y, m, d, h?, min?, s?, ms?)` → component form
-- [ ] `Date.now()` static → `DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()`
-
-### Instance get methods
-- [ ] `getTime()` — epoch ms
-- [ ] `getFullYear()`, `getMonth()` (0-based), `getDate()`, `getDay()` (0=Sun)
-- [ ] `getHours()`, `getMinutes()`, `getSeconds()`, `getMilliseconds()`
-- [ ] UTC variants: `getUTCFullYear()`, `getUTCMonth()`, `getUTCDate()`,
-  `getUTCDay()`, `getUTCHours()`, `getUTCMinutes()`, `getUTCSeconds()`,
-  `getUTCMilliseconds()`
-- [ ] `getTimezoneOffset()` — local offset in minutes
-
-### Instance set methods
-- [ ] `setTime(ms)`, `setFullYear(y)`, `setMonth(m)`, `setDate(d)`
-- [ ] `setHours(h)`, `setMinutes(m)`, `setSeconds(s)`, `setMilliseconds(ms)`
-
-### Formatting
-- [ ] `toISOString()` — `"2024-06-22T15:30:00.000Z"`
-- [ ] `toString()`, `toDateString()`, `toTimeString()`
-- [ ] `toLocaleDateString()`, `toLocaleTimeString()`, `toLocaleString()`
-- [ ] `toUTCString()`
-- [ ] `valueOf()` — same as `getTime()`
+- [ ] `util.format(fmt, ...args)` — printf-style: `%s`, `%d`, `%i`, `%f`, `%o`, `%j`
+- [ ] `util.inspect(val, opts?)` — pretty-print any value; handles cycles and functions
+- [ ] `util.promisify(fn)` — wraps a `(err, result)` callback-style function as Promise-returning
+- [ ] `util.deprecate(fn, msg)` — wraps a function; prints deprecation warning on first call
 
 ---
 
-## Phase 8 — Map (1 day)
+## Phase 6 — fs module (half a day)
 
-Create `MapFunctionProvider`. `Map` instances store a `Dictionary<ScriptVar, ScriptVar>`
-(reference equality for object keys) in `ScriptVar`'s data field. Register a `Map`
-constructor similarly to `Date`.
+Create `FsFunctionProvider` registered under `fs.*`. Synchronous-only to start.
 
-- [ ] Create `MapObject` wrapper class holding `Dictionary<ScriptVar, ScriptVar>`
-- [ ] Register `Map` constructor: `new Map()` and `new Map([[k,v],…])`
-- [ ] `.get(key)` — return value or `undefined`
-- [ ] `.set(key, val)` — store and return the Map (chainable)
-- [ ] `.has(key)` — membership test
-- [ ] `.delete(key)` — remove entry; return true if it existed
-- [ ] `.clear()` — remove all entries
-- [ ] `.size` property — entry count
-- [ ] `.keys()` — array of keys
-- [ ] `.values()` — array of values
-- [ ] `.entries()` — array of `[key, value]` pairs
-- [ ] `.forEach(fn)` — `fn(value, key, map)` for each entry
+- [ ] `fs.readFileSync(path, enc?)` → `File.ReadAllText()` / `File.ReadAllBytes()`
+- [ ] `fs.writeFileSync(path, data, enc?)` → `File.WriteAllText()` / `File.WriteAllBytes()`
+- [ ] `fs.appendFileSync(path, data, enc?)` → `File.AppendAllText()`
+- [ ] `fs.existsSync(path)` → `File.Exists() || Directory.Exists()`
+- [ ] `fs.mkdirSync(path, opts?)` → `Directory.CreateDirectory()`
+- [ ] `fs.rmdirSync(path)` → `Directory.Delete()`
+- [ ] `fs.unlinkSync(path)` → `File.Delete()`
+- [ ] `fs.readdirSync(path)` → `Directory.GetFileSystemEntries()` → array of names
+- [ ] `fs.renameSync(old, new)` → `File.Move()`
+- [ ] `fs.statSync(path)` → object `{ size, isFile(), isDirectory(), mtime }`
+- [ ] `fs.copyFileSync(src, dest)` → `File.Copy()`
 
 ---
 
-## Phase 9 — Set (1 day)
+## Phase 7 — RegExp constructor (half a day)
 
-Create `SetFunctionProvider`. Backed by `HashSet<ScriptVar>` (reference equality
-for objects, value equality for primitives). Register a `Set` constructor.
-
-- [ ] Create `SetObject` wrapper class holding `HashSet<ScriptVar>`
-- [ ] Register `Set` constructor: `new Set()` and `new Set(iterable)`
-- [ ] `.add(val)` — add and return the Set (chainable)
-- [ ] `.has(val)` — membership test
-- [ ] `.delete(val)` — remove; return true if present
-- [ ] `.clear()` — remove all
-- [ ] `.size` property — element count
-- [ ] `.keys()` / `.values()` — array of elements (identical for Set)
-- [ ] `.entries()` — array of `[val, val]` pairs (matching JS spec)
-- [ ] `.forEach(fn)` — `fn(value, value, set)` for each element
-- [ ] `.union(other)` — new Set with all elements from both
-- [ ] `.intersection(other)` — new Set with elements in both
-- [ ] `.difference(other)` — new Set with elements not in other
-- [ ] `.isSubsetOf(other)` — true if all elements are in other
+- [ ] Create `RegExpObject` wrapper backed by `System.Text.RegularExpressions.Regex`
+- [ ] Register `new RegExp(pattern, flags?)` constructor (follows Date/Map/Set pattern)
+- [ ] `.test(str)` → bool
+- [ ] `.exec(str)` → match array or null
+- [ ] `.source`, `.flags`, `.global`, `.ignoreCase`, `.multiline` properties
 
 ---
 
-## Phase 10 — Error types (half a day)
+## Phase 8 — Buffer (1 day)
 
-Create `ErrorFunctionProvider`. Each error type is a constructor function that
-returns a plain object with `.name`, `.message`, and `.stack` properties.
-Register each under the global scope (`AppearAtRoot = true`).
+Create `BufferObject` backed by `byte[]`. Constructor registration follows Date/Map/Set pattern.
 
-- [ ] `Error(msg?)` — `{ name: "Error", message: msg, stack: "" }`
-- [ ] `TypeError(msg?)` — `{ name: "TypeError", message: msg, stack: "" }`
-- [ ] `RangeError(msg?)` — `{ name: "RangeError", message: msg, stack: "" }`
-- [ ] `ReferenceError(msg?)` — `{ name: "ReferenceError", message: msg, stack: "" }`
-- [ ] `SyntaxError(msg?)` — `{ name: "SyntaxError", message: msg, stack: "" }`
-- [ ] `URIError(msg?)` — `{ name: "URIError", message: msg, stack: "" }`
-- [ ] `EvalError(msg?)` — `{ name: "EvalError", message: msg, stack: "" }`
-- [ ] Make VM throw `ReferenceError`-shaped objects for undefined variable access
-  (currently throws a plain `ScriptException`)
+- [ ] `Buffer.from(str, enc?)` — encode string to bytes
+- [ ] `Buffer.from(array)` — from array of byte ints
+- [ ] `Buffer.alloc(size, fill?)` — zeroed (or filled) byte array
+- [ ] `Buffer.allocUnsafe(size)` — uninitialized byte array
+- [ ] `Buffer.isBuffer(val)` → bool
+- [ ] `Buffer.concat(list)` — concatenate multiple Buffers
+- [ ] `.toString(enc?)` — decode to string; default UTF-8
+- [ ] `.length` property
+- [ ] `.slice(start, end?)` → new Buffer (shared view)
+- [ ] `.copy(target, targetStart?)` — copy bytes into another Buffer
+- [ ] `.equals(other)` → bool
+- [ ] `.readUInt8(offset)` / `.writeUInt8(val, offset)` and common numeric variants
 
 ---
 
-## Phase 11 — process (half a day)
+## Phase 9 — EventEmitter (1 day)
 
-Create `ProcessFunctionProvider` with `[ScriptClass("process")]`.
+Create `EventEmitterFunctionProvider`. Instances are script-side objects; no native object backing needed.
 
-- [ ] `process.platform` property — `RuntimeInformation.OSDescription` mapped to
-  `"win32"` / `"linux"` / `"darwin"` / `"freebsd"`
-- [ ] `process.version` property — DScript version string constant
-- [ ] `process.argv` property — array set by host via `engine.SetArgv(string[])`;
-  defaults to empty array
-- [ ] `process.exit(code?)` — `Environment.Exit(code ?? 0)`
-- [ ] `process.env` — lazy object: `GetProp` handler reads `Environment.GetEnvironmentVariable(name)`
-  (requires a special `ScriptVar` backed by a C# dictionary getter, not a static
-  property; may need a small VM extension point or a pre-populated snapshot object)
+- [ ] Register `new EventEmitter()` constructor
+- [ ] `.on(event, fn)` / `.once(event, fn)` — register listener
+- [ ] `.off(event, fn)` / `.removeAllListeners(event?)` — unregister
+- [ ] `.emit(event, ...args)` → bool (true if any listeners called)
+- [ ] `.listeners(event)` → array of listener functions
+- [ ] `.listenerCount(event)` → int
+- [ ] `EventEmitter.defaultMaxListeners` property (default 10; warn if exceeded)
+
+---
+
+## Phase 10 — Timer functions (1–2 days)
+
+Requires new engine infrastructure: a scheduled-callback queue alongside `MicroTaskQueue`.
+
+- [ ] Add `TimerQueue` to VM — stores `(id, dueTime, interval, fn)` entries; driven by `engine.DrainTimers()`
+- [ ] `setTimeout(fn, delay?)` → int handle id
+- [ ] `clearTimeout(id)` — cancel pending callback
+- [ ] `setInterval(fn, interval?)` → int handle id
+- [ ] `clearInterval(id)` — cancel repeating callback
+- [ ] `engine.DrainTimers()` public API — host calls this on each tick to fire due callbacks
+
+---
+
+## Phase 11 — Promise combinators + static constructors (1 day)
+
+Extend the existing Promise implementation.
+
+- [ ] `Promise.resolve(val)` — return an already-resolved Promise
+- [ ] `Promise.reject(reason)` — return an already-rejected Promise
+- [ ] `Promise.all(arr)` — resolve when all resolve; reject on first rejection
+- [ ] `Promise.allSettled(arr)` — always resolve with `[{status, value/reason}]`
+- [ ] `Promise.race(arr)` — settle with the first to settle
+- [ ] `Promise.any(arr)` — resolve with first fulfillment; reject with `AggregateError` if all reject
+
+---
+
+## Phase 12 — fetch (1 day)
+
+Create `FetchFunctionProvider`. `HttpClient` should be a singleton.
+
+- [ ] `fetch(url, opts?)` — synchronous blocking implementation first; returns result object
+- [ ] `opts`: `{ method, headers, body }`
+- [ ] Response object: `.ok`, `.status`, `.statusText`, `.headers`
+- [ ] `.text()` → string
+- [ ] `.json()` → parsed object
+- [ ] `.arrayBuffer()` → Buffer (requires Phase 8)
+- [ ] Upgrade to async/Promise-returning once timer queue (Phase 10) exists
+
+---
+
+## Phase 13 — Sandboxing / permission model (1 day)
+
+- [ ] Define `EnginePermissions` flags enum: `FileSystem`, `Network`, `ProcessSpawn`, `ProcessExit`, `EnvironmentVariables`
+- [ ] Update `EngineFunctionLoader.RegisterFunctions(engine, permissions)` to accept permissions
+- [ ] `fs` provider checks `FileSystem` permission before each operation
+- [ ] `fetch` provider checks `Network` permission
+- [ ] `child_process` provider checks `ProcessSpawn` permission
+- [ ] `process.exit` checks `ProcessExit` permission
+- [ ] `process.getenv` / `process.env` checks `EnvironmentVariables` permission
+- [ ] All violations throw a `PermissionError` catchable by the script
+
+---
+
+## Phase 14 — Script timeout / resource limits (1 day)
+
+- [ ] `engine.SetTimeout(TimeSpan)` — cancels execution after wall-clock time elapses
+- [ ] `engine.SetInstructionLimit(long)` — cancels after N VM instructions
+- [ ] Add instruction counter to VM dispatch loop; check against limit each instruction
+- [ ] Both cancellation paths throw `ScriptTimeoutException` (catchable by host, not script)
+
+---
+
+## Phase 15 — child_process module (1 day)
+
+Create `ChildProcessFunctionProvider` registered under `child_process.*`.
+
+- [ ] `child_process.execSync(cmd, opts?)` → stdout string; throws on non-zero exit
+- [ ] `child_process.spawnSync(cmd, args?, opts?)` → `{ stdout, stderr, status, signal }`
+- [ ] `child_process.exec(cmd, cb)` — async; `cb(err, stdout, stderr)` (requires timer queue)
+- [ ] `child_process.spawn(cmd, args?, opts?)` — async; returns process object with `.on('exit', fn)`
+
+---
+
+## Phase 16 — readline module (half a day)
+
+Create `ReadlineFunctionProvider` registered under `readline.*`.
+
+- [ ] `readline.createInterface({ input, output })` → rl object
+- [ ] `rl.question(prompt, cb)` — print prompt, read one line, call `cb(answer)`
+- [ ] `rl.close()`
+- [ ] `rl.on('line', fn)` / `rl.on('close', fn)`
+
+---
+
+## Phase 17 — Module system (2–3 days)
+
+Core engine change. Requires VM support for loading and caching compiled chunks from disk.
+
+- [ ] Add chunk cache to engine keyed by resolved absolute path
+- [ ] `require(path)` global — resolve path relative to `__dirname`, load if not cached, return `module.exports`
+- [ ] `module` object per script — `module.exports`, `module.filename`, `module.loaded`
+- [ ] `exports` alias → `module.exports`
+- [ ] `__filename` global — absolute path of the current script
+- [ ] `__dirname` global — directory of the current script
+- [ ] Circular dependency handling — return partial exports if re-entered
+- [ ] Support `require('./relative')`, `require('/absolute')`, `require('name')` (search path configurable)
+
+---
+
+## Phase 18 — Host object injection (2+ days)
+
+Clean API for hosts to expose C# objects to scripts without hand-writing a provider.
+
+- [ ] `engine.SetGlobal(name, obj)` — exposes a C# object; public members become script-accessible
+- [ ] `[ScriptVisible]` attribute — opt-in for specific properties and methods
+- [ ] `[ScriptWritable]` attribute — allow script-side assignment (read-only by default)
+- [ ] Reflection-based dispatch or source-generated wrappers for method calls
+- [ ] Support primitive return types, string, and `ScriptVar` directly
+
+---
+
+## Phase 19 — http server (2+ days)
+
+Requires async I/O integration. Defer until timer queue (Phase 10) and Buffer (Phase 8) exist.
+
+- [ ] `http.createServer(fn)` → server object; `fn(req, res)` called per request
+- [ ] `server.listen(port, host?, cb?)`
+- [ ] `server.close()`
+- [ ] Request: `.method`, `.url`, `.headers`, `.on('data', fn)`, `.on('end', fn)`
+- [ ] Response: `.writeHead(status, headers?)`, `.write(data)`, `.end(data?)`
+
+---
+
+## Phase 20 — stream, net, zlib, URL, TextEncoder (deferred / niche)
+
+Defer until the foundational pieces (Buffer, EventEmitter, async I/O) are in place.
+
+- [ ] `stream` — simplified Readable/Writable/Transform
+- [ ] `net` — TCP client/server (`net.createServer`, `net.createConnection`)
+- [ ] `zlib` — `gzipSync`, `gunzipSync`, `deflateSync`, `inflateSync` (needs Buffer)
+- [ ] `URL` / `URLSearchParams` — constructor + property accessors backed by `System.Uri`
+- [ ] `TextEncoder` / `TextDecoder` — UTF-8 encode/decode to/from Buffer
