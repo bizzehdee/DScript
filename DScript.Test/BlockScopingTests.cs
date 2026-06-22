@@ -27,15 +27,17 @@ using NUnit.Framework;
 
 namespace DScript.Test
 {
-    /// <summary>Smoke tests for the Phase 3 feature set: block scoping, let, const.</summary>
-    public class Phase3Tests
+    /// <summary>
+    /// Tests for block-scoped <c>let</c> and <c>const</c> declarations,
+    /// shadowing, hoisting behaviour of <c>var</c>, and nested block scopes.
+    /// </summary>
+    public class BlockScopingTests
     {
         private static ScriptVar Run(string source, ScriptEngine engine = null)
         {
             engine ??= new ScriptEngine();
             var chunk = new DScriptCompiler().CompileProgram(source);
-            var vm = new VirtualMachine(engine);
-            vm.Run(chunk, new Vm.Environment(engine.Root, null));
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             return engine.Root;
         }
 
@@ -46,21 +48,21 @@ namespace DScript.Test
             return engine.Root.GetParameter("r").Int;
         }
 
-        private static string RunStr(string source)
+        // ── let basics ────────────────────────────────────────────────────────
+
+        [Test]
+        public void Let_Declaration_WorksLikeVar()
         {
-            var engine = new ScriptEngine();
-            Run(source, engine);
-            return engine.Root.GetParameter("r").String;
+            Assert.That(RunInt("let x = 42; var r = x;"), Is.EqualTo(42));
         }
 
-        private static bool RunBool(string source)
+        [Test]
+        public void Let_Declaration_MultipleBindings()
         {
-            var engine = new ScriptEngine();
-            Run(source, engine);
-            return engine.Root.GetParameter("r").Bool;
+            Assert.That(RunInt("let a = 1, b = 2; var r = a + b;"), Is.EqualTo(3));
         }
 
-        // ---- 1. let block scoping -------------------------------------------
+        // ── let block scoping ─────────────────────────────────────────────────
 
         [Test]
         public void Let_InsideBlock_IsVisibleInsideBlock()
@@ -69,31 +71,28 @@ namespace DScript.Test
         }
 
         [Test]
-        public void Let_InsideBlock_IsNotVisibleOutside()
+        public void Let_InsideBlock_AssignedValuePersistedBeforeLeave()
         {
-            // After the block, x should be undefined; r should get the fallback value
             var src = "var r = 0; { let x = 99; r = x; } r = r + 1;";
             Assert.That(RunInt(src), Is.EqualTo(100));
         }
 
         [Test]
-        public void Let_OuterVariableNotShadowed_WhenNoLetInBlock()
+        public void Let_BlockWithoutLetConst_DoesNotPushNewScope()
         {
-            // Plain block with no let/const should not push a new scope
+            // A block containing only var assignments should not push a new scope frame
             Assert.That(RunInt("var x = 5; { x = 10; } var r = x;"), Is.EqualTo(10));
         }
 
         [Test]
-        public void Let_ShadowsOuterVar()
+        public void Let_ShadowsOuterVar_OuterUnchanged()
         {
-            // Inside the block, let x shadows outer x; outer x is unchanged after
             Assert.That(RunInt("var x = 1; { let x = 99; } var r = x;"), Is.EqualTo(1));
         }
 
         [Test]
         public void Let_ShadowsOuterVar_InnerValueCorrect()
         {
-            // Inside the block, let x = 99 shadows outer x = 1; we capture inner value
             Assert.That(RunInt("var x = 1; var r = 0; { let x = 99; r = x; }"), Is.EqualTo(99));
         }
 
@@ -103,7 +102,7 @@ namespace DScript.Test
             Assert.That(RunInt("var r = 0; { let a = 3; let b = 7; r = a + b; }"), Is.EqualTo(10));
         }
 
-        // ---- 2. const immutability -----------------------------------------
+        // ── const immutability ────────────────────────────────────────────────
 
         [Test]
         public void Const_CanBeRead()
@@ -114,39 +113,30 @@ namespace DScript.Test
         [Test]
         public void Const_ThrowsOnReassignment()
         {
-            var src = "const x = 1; x = 2;";
-            Assert.Throws<JITException>(() => RunInt(src));
+            Assert.Throws<JITException>(() => RunInt("const x = 1; x = 2;"));
         }
 
         [Test]
         public void Const_BlockScoped_ThrowsOnReassignment()
         {
-            var src = "{ const x = 1; x = 2; }";
-            Assert.Throws<JITException>(() => Run(src));
+            Assert.Throws<JITException>(() => Run("{ const x = 1; x = 2; }"));
         }
 
         [Test]
         public void Const_InitialAssignmentAllowed()
         {
-            // DeclareConst + initial SetVar (first assignment) must work
             Assert.That(RunInt("const x = 55; var r = x;"), Is.EqualTo(55));
         }
 
-        // ---- 3. nested block scoping ----------------------------------------
+        // ── nested block scoping ──────────────────────────────────────────────
 
         [Test]
-        public void Let_NestedBlocks_InnerShadowsOuter()
+        public void Let_NestedBlocks_InnermostShadowsAll()
         {
             var src = @"
                 var r = 0;
                 let x = 1;
-                {
-                    let x = 2;
-                    {
-                        let x = 3;
-                        r = x;
-                    }
-                }
+                { let x = 2; { let x = 3; r = x; } }
             ";
             Assert.That(RunInt(src), Is.EqualTo(3));
         }
@@ -157,13 +147,7 @@ namespace DScript.Test
             var src = @"
                 var r = 0;
                 let x = 1;
-                {
-                    let x = 2;
-                    {
-                        let x = 3;
-                    }
-                    r = x;
-                }
+                { let x = 2; { let x = 3; } r = x; }
             ";
             Assert.That(RunInt(src), Is.EqualTo(2));
         }
@@ -173,62 +157,52 @@ namespace DScript.Test
         {
             var src = @"
                 let x = 1;
-                {
-                    let x = 2;
-                    {
-                        let x = 3;
-                    }
-                }
+                { let x = 2; { let x = 3; } }
                 var r = x;
             ";
             Assert.That(RunInt(src), Is.EqualTo(1));
         }
 
-        // ---- 4. for loop with let -------------------------------------------
+        // ── let in for loops ──────────────────────────────────────────────────
 
         [Test]
         public void Let_ForLoopInit_AccumulatesCorrectly()
         {
-            // let i declared in for init — loop runs, r accumulates
             Assert.That(RunInt("var r = 0; for (let i = 0; i < 5; i = i + 1) { r = r + i; }"), Is.EqualTo(10));
         }
 
         [Test]
         public void Let_InsideForBody_NewBindingEachIteration()
         {
-            // let declared inside loop body — each iteration gets its own binding
             Assert.That(RunInt("var r = 0; for (var i = 0; i < 3; i = i + 1) { let v = i * 2; r = r + v; }"), Is.EqualTo(6));
         }
 
-        // ---- 5. var still works (no regression) ----------------------------
+        // ── var still hoists past block scopes ────────────────────────────────
 
         [Test]
-        public void Var_StillWorksInBlock()
+        public void Var_StillVisibleOutsideBlock()
         {
-            // var is function-scoped; declared in block, visible outside
             Assert.That(RunInt("{ var x = 7; } var r = x;"), Is.EqualTo(7));
         }
 
         [Test]
-        public void Var_DeclarationInFor_StillFunctionScoped()
+        public void Var_ForLoopCounter_FunctionScoped()
         {
             Assert.That(RunInt("for (var i = 0; i < 3; i = i + 1) {} var r = i;"), Is.EqualTo(3));
         }
 
-        // ---- 6. let in if/else blocks ---------------------------------------
+        // ── let in if/else ────────────────────────────────────────────────────
 
         [Test]
         public void Let_InIfBlock_ScopedToIf()
         {
-            var src = "var r = 0; if (true) { let x = 5; r = x; }";
-            Assert.That(RunInt(src), Is.EqualTo(5));
+            Assert.That(RunInt("var r = 0; if (true) { let x = 5; r = x; }"), Is.EqualTo(5));
         }
 
         [Test]
         public void Let_InIfElse_EachBranchIndependent()
         {
-            var src = "var r = 0; if (false) { let x = 1; r = x; } else { let x = 2; r = x; }";
-            Assert.That(RunInt(src), Is.EqualTo(2));
+            Assert.That(RunInt("var r = 0; if (false) { let x = 1; r = x; } else { let x = 2; r = x; }"), Is.EqualTo(2));
         }
     }
 }

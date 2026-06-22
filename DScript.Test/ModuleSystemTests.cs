@@ -28,25 +28,19 @@ using NUnit.Framework;
 
 namespace DScript.Test
 {
-    /// <summary>Tests for Phase 9: module system (require / export / import).</summary>
-    public class Phase9Tests
+    /// <summary>
+    /// Tests for the module system: <c>require()</c>, module caching, <c>export</c>
+    /// declarations, <c>import</c> statements, module scope isolation, and circular requires.
+    /// </summary>
+    public class ModuleSystemTests
     {
-        // ------------------------------------------------------------------
-        // Helpers
-        // ------------------------------------------------------------------
-
-        private static ScriptEngine RunWithModules(string mainSource,
-            Dictionary<string, string> modules = null)
+        private static ScriptEngine RunWithModules(string mainSource, Dictionary<string, string> modules = null)
         {
             var engine = new ScriptEngine();
             if (modules != null)
-            {
-                engine.ModuleLoader = (path, _) =>
-                    modules.TryGetValue(path, out var src) ? src : null;
-            }
+                engine.ModuleLoader = (path, _) => modules.TryGetValue(path, out var src) ? src : null;
             var chunk = ScriptEngine.Compile(mainSource);
-            var vm = new VirtualMachine(engine);
-            vm.Run(chunk, new Vm.Environment(engine.Root, null));
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             return engine;
         }
 
@@ -56,20 +50,12 @@ namespace DScript.Test
         private static string RunStr(string mainSource, Dictionary<string, string> modules = null)
             => RunWithModules(mainSource, modules).Root.GetParameter("r").String;
 
-        private static bool RunBool(string mainSource, Dictionary<string, string> modules = null)
-            => RunWithModules(mainSource, modules).Root.GetParameter("r").Bool;
-
-        // ------------------------------------------------------------------
-        // 1. Basic require()
-        // ------------------------------------------------------------------
+        // ── require() ─────────────────────────────────────────────────────────
 
         [Test]
         public void Require_DirectExportsAssignment_ReturnsValue()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["math"] = "__exports__.x = 42;"
-            };
+            var modules = new Dictionary<string, string> { ["math"] = "__exports__.x = 42;" };
             Assert.That(RunInt("var r = require('math').x;", modules), Is.EqualTo(42));
         }
 
@@ -81,10 +67,9 @@ namespace DScript.Test
             engine.ModuleLoader = (path, _) => { callCount++; return "__exports__.x = 1;"; };
 
             var chunk = ScriptEngine.Compile("var a = require('m'); var b = require('m'); var r = (a === b) ? 1 : 0;");
-            var vm = new VirtualMachine(engine);
-            vm.Run(chunk, new Vm.Environment(engine.Root, null));
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
 
-            Assert.That(callCount, Is.EqualTo(1), "Module loader should be called exactly once");
+            Assert.That(callCount, Is.EqualTo(1), "module loader should be called exactly once");
             Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(1));
         }
 
@@ -94,150 +79,101 @@ namespace DScript.Test
             var engine = new ScriptEngine();
             engine.ModuleLoader = (_, __) => null;
             var chunk = ScriptEngine.Compile("require('missing');");
-            var vm = new VirtualMachine(engine);
             Assert.Throws<ScriptException>(() =>
-                vm.Run(chunk, new Vm.Environment(engine.Root, null)));
+                new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null)));
         }
 
         [Test]
         public void Require_NoModuleLoader_ThrowsScriptException()
         {
             var engine = new ScriptEngine();
-            // ModuleLoader is null by default
             var chunk = ScriptEngine.Compile("require('nope');");
-            var vm = new VirtualMachine(engine);
             Assert.Throws<ScriptException>(() =>
-                vm.Run(chunk, new Vm.Environment(engine.Root, null)));
+                new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null)));
         }
 
-        // ------------------------------------------------------------------
-        // 2. export var / function / default
-        // ------------------------------------------------------------------
+        // ── export declarations ───────────────────────────────────────────────
 
         [Test]
         public void Export_Var_ExposesValueOnExportsObject()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["vals"] = "export var PI = 314;"
-            };
+            var modules = new Dictionary<string, string> { ["vals"] = "export var PI = 314;" };
             Assert.That(RunInt("var r = require('vals').PI;", modules), Is.EqualTo(314));
         }
 
         [Test]
         public void Export_Const_ExposesValueOnExportsObject()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["c"] = "export const ANSWER = 42;"
-            };
+            var modules = new Dictionary<string, string> { ["c"] = "export const ANSWER = 42;" };
             Assert.That(RunInt("var r = require('c').ANSWER;", modules), Is.EqualTo(42));
         }
 
         [Test]
         public void Export_Function_ExposesCallableOnExportsObject()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["funcs"] = "export function add(a, b) { return a + b; }"
-            };
-            Assert.That(RunInt("var mod = require('funcs'); var r = mod.add(3, 4);", modules),
-                Is.EqualTo(7));
+            var modules = new Dictionary<string, string> { ["funcs"] = "export function add(a, b) { return a + b; }" };
+            Assert.That(RunInt("var mod = require('funcs'); var r = mod.add(3, 4);", modules), Is.EqualTo(7));
         }
 
         [Test]
         public void Export_Default_ExposesDefaultProperty()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["def"] = "export default 99;"
-            };
+            var modules = new Dictionary<string, string> { ["def"] = "export default 99;" };
             Assert.That(RunInt("var r = require('def').default;", modules), Is.EqualTo(99));
         }
 
         [Test]
-        public void Export_DefaultExpression_ExposesResult()
+        public void Export_DefaultExpression_ExposesComputedResult()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["expr"] = "export default 2 + 3;"
-            };
+            var modules = new Dictionary<string, string> { ["expr"] = "export default 2 + 3;" };
             Assert.That(RunInt("var r = require('expr').default;", modules), Is.EqualTo(5));
         }
 
-        // ------------------------------------------------------------------
-        // 3. import statement
-        // ------------------------------------------------------------------
+        // ── import statement ──────────────────────────────────────────────────
 
         [Test]
         public void Import_NamedBindings_BindsLocals()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["abc"] = "export var x = 10; export var y = 20;"
-            };
-            Assert.That(RunInt("import { x, y } from 'abc'; var r = x + y;", modules),
-                Is.EqualTo(30));
+            var modules = new Dictionary<string, string> { ["abc"] = "export var x = 10; export var y = 20;" };
+            Assert.That(RunInt("import { x, y } from 'abc'; var r = x + y;", modules), Is.EqualTo(30));
         }
 
         [Test]
         public void Import_NamedBindingWithAlias_BindsAlias()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["ab2"] = "export var foo = 7;"
-            };
-            Assert.That(RunInt("import { foo as bar } from 'ab2'; var r = bar;", modules),
-                Is.EqualTo(7));
+            var modules = new Dictionary<string, string> { ["ab2"] = "export var foo = 7;" };
+            Assert.That(RunInt("import { foo as bar } from 'ab2'; var r = bar;", modules), Is.EqualTo(7));
         }
 
         [Test]
         public void Import_StarAs_BindsNamespaceObject()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["ns"] = "export var a = 5; export var b = 6;"
-            };
-            Assert.That(RunInt("import * as ns from 'ns'; var r = ns.a + ns.b;", modules),
-                Is.EqualTo(11));
+            var modules = new Dictionary<string, string> { ["ns"] = "export var a = 5; export var b = 6;" };
+            Assert.That(RunInt("import * as ns from 'ns'; var r = ns.a + ns.b;", modules), Is.EqualTo(11));
         }
 
         [Test]
         public void Import_Default_BindsDefaultExport()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["dmod"] = "export default 77;"
-            };
+            var modules = new Dictionary<string, string> { ["dmod"] = "export default 77;" };
             Assert.That(RunInt("import dval from 'dmod'; var r = dval;", modules), Is.EqualTo(77));
         }
 
-        // ------------------------------------------------------------------
-        // 4. Module isolation
-        // ------------------------------------------------------------------
+        // ── module isolation ──────────────────────────────────────────────────
 
         [Test]
         public void Module_LocalVars_DoNotLeakIntoCallerScope()
         {
-            var modules = new Dictionary<string, string>
-            {
-                ["iso"] = "var secret = 'hidden'; __exports__.pub = 42;"
-            };
-            var engine = RunWithModules("require('iso'); var r = (typeof secret === 'undefined') ? 1 : 0;",
-                modules);
+            var modules = new Dictionary<string, string> { ["iso"] = "var secret = 'hidden'; __exports__.pub = 42;" };
+            var engine = RunWithModules("require('iso'); var r = (typeof secret === 'undefined') ? 1 : 0;", modules);
             Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(1));
         }
 
-        // ------------------------------------------------------------------
-        // 5. Circular require
-        // ------------------------------------------------------------------
+        // ── circular require ──────────────────────────────────────────────────
 
         [Test]
         public void Require_Circular_DoesNotInfiniteLoop()
         {
-            // circ_a exports done=true, then requires circ_b.
-            // circ_b requires circ_a (gets the pre-seeded, partially-filled exports) and
-            // then sets its own ok=1.  Neither module should loop forever.
             var modules = new Dictionary<string, string>
             {
                 ["circ_a"] = "__exports__.done = true; var b = require('circ_b');",
@@ -248,8 +184,7 @@ namespace DScript.Test
                 var engine = new ScriptEngine();
                 engine.ModuleLoader = (path, _) => modules.TryGetValue(path, out var s) ? s : null;
                 var chunk = ScriptEngine.Compile("var r = require('circ_b').ok;");
-                var vm = new VirtualMachine(engine);
-                vm.Run(chunk, new Vm.Environment(engine.Root, null));
+                new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
                 Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(1));
             });
         }

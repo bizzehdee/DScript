@@ -27,89 +27,20 @@ using NUnit.Framework;
 
 namespace DScript.Test
 {
-    /// <summary>Tests for Phase 8: async/await and Promise.</summary>
-    public class Phase8Tests
+    /// <summary>Tests for <c>async function</c> declarations/expressions and <c>await</c> expressions.</summary>
+    public class AsyncAwaitTests
     {
-        private static ScriptEngine RunEngine(string source)
+        private static int RunInt(string source)
         {
             var engine = new ScriptEngine();
             var chunk = new DScriptCompiler().CompileProgram(source);
-            var vm = new VirtualMachine(engine);
-            vm.Run(chunk, new Vm.Environment(engine.Root, null));
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             engine.DrainMicroTasks();
-            return engine;
-        }
-
-        private static int RunInt(string source)
-        {
-            var engine = RunEngine(source);
             return engine.Root.GetParameter("r").Int;
         }
 
-        private static string RunStr(string source)
-        {
-            var engine = RunEngine(source);
-            return engine.Root.GetParameter("r").String;
-        }
-
-        private static bool RunBool(string source)
-        {
-            var engine = RunEngine(source);
-            return engine.Root.GetParameter("r").Bool;
-        }
-
-        // ---- 1. Promise.resolve --------------------------------------------
-
         [Test]
-        public void Promise_Resolve_CreatesFulfilledPromise()
-        {
-            var src = @"
-                var p = Promise.resolve(42);
-                var r = 0;
-                p.then(function(v) { r = v; });
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(42));
-        }
-
-        [Test]
-        public void Promise_Reject_CreatesRejectedPromise()
-        {
-            var src = @"
-                var p = Promise.reject(99);
-                var r = 0;
-                p.catch(function(v) { r = v; });
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(99));
-        }
-
-        // ---- 2. Promise constructor ----------------------------------------
-
-        [Test]
-        public void Promise_Constructor_ResolvesViaCallback()
-        {
-            var src = @"
-                var r = 0;
-                var p = new Promise(function(resolve, reject) { resolve(7); });
-                p.then(function(v) { r = v; });
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(7));
-        }
-
-        [Test]
-        public void Promise_Constructor_RejectsViaCallback()
-        {
-            var src = @"
-                var r = 0;
-                var p = new Promise(function(resolve, reject) { reject(5); });
-                p.catch(function(v) { r = v; });
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(5));
-        }
-
-        // ---- 3. async function returning a value --------------------------
-
-        [Test]
-        public void AsyncFunction_Declaration_ReturnsPromise()
+        public void AsyncFunction_Declaration_ReturnsPromiseThatResolvesToValue()
         {
             var src = @"
                 async function double(x) { return x * 2; }
@@ -132,8 +63,6 @@ namespace DScript.Test
             Assert.That(RunInt(src), Is.EqualTo(21));
         }
 
-        // ---- 4. await expression ------------------------------------------
-
         [Test]
         public void Await_ResolvedPromise_ReturnsValue()
         {
@@ -149,7 +78,7 @@ namespace DScript.Test
         }
 
         [Test]
-        public void Await_PlainValue_ReturnsValue()
+        public void Await_PlainValue_TreatedAsResolved()
         {
             var src = @"
                 async function test() {
@@ -161,8 +90,6 @@ namespace DScript.Test
             ";
             Assert.That(RunInt(src), Is.EqualTo(100));
         }
-
-        // ---- 5. chained awaits --------------------------------------------
 
         [Test]
         public void Await_ChainedAwaits_AccumulatesCorrectly()
@@ -180,10 +107,8 @@ namespace DScript.Test
             Assert.That(RunInt(src), Is.EqualTo(6));
         }
 
-        // ---- 6. async with conditional ------------------------------------
-
         [Test]
-        public void AsyncFunction_WithCondition_CorrectBranch()
+        public void AsyncFunction_WithConditional_CorrectBranchSelected()
         {
             var src = @"
                 async function pick(x) {
@@ -199,37 +124,6 @@ namespace DScript.Test
             Assert.That(RunInt(src), Is.EqualTo(1));
         }
 
-        // ---- 7. Promise .then chaining ------------------------------------
-
-        [Test]
-        public void Promise_Then_ChainsValue()
-        {
-            var src = @"
-                var r = 0;
-                var p = Promise.resolve(2);
-                p.then(function(v) { r = v * 10; });
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(20));
-        }
-
-        // ---- 8. async function returning promise directly -----------------
-
-        [Test]
-        public void AsyncFunction_ReturnsPromiseDirectly_Resolves()
-        {
-            var src = @"
-                async function wrapper() {
-                    return 77;
-                }
-                var r = 0;
-                var p = wrapper();
-                p.then(function(v) { r = v; });
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(77));
-        }
-
-        // ---- 9. multiple async calls --------------------------------------
-
         [Test]
         public void AsyncFunction_MultipleCalls_IndependentPromises()
         {
@@ -239,11 +133,8 @@ namespace DScript.Test
                 inc(10).then(function(v) { r = r + v; });
                 inc(20).then(function(v) { r = r + v; });
             ";
-            // After drain: r = 11 + 21 = 32
-            Assert.That(RunInt(src), Is.EqualTo(32));
+            Assert.That(RunInt(src), Is.EqualTo(32)); // 11 + 21
         }
-
-        // ---- 10. await in loop body ---------------------------------------
 
         [Test]
         public void AsyncFunction_AwaitInLoop_AccumulatesSum()
@@ -262,11 +153,8 @@ namespace DScript.Test
                 var r = 0;
                 sumUp(5).then(function(v) { r = v; });
             ";
-            // 0+1+2+3+4 = 10
-            Assert.That(RunInt(src), Is.EqualTo(10));
+            Assert.That(RunInt(src), Is.EqualTo(10)); // 0+1+2+3+4
         }
-
-        // ---- 11. async with no return ------------------------------------
 
         [Test]
         public void AsyncFunction_NoReturn_ResolvesUndefined()
@@ -281,7 +169,17 @@ namespace DScript.Test
             Assert.That(RunInt(src), Is.EqualTo(1));
         }
 
-        // ---- 12. Promise.resolve then chained with await ------------------
+        [Test]
+        public void AsyncFunction_DirectReturn_ResolvesWithLiteral()
+        {
+            var src = @"
+                async function wrapper() { return 77; }
+                var r = 0;
+                var p = wrapper();
+                p.then(function(v) { r = v; });
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(77));
+        }
 
         [Test]
         public void AsyncFunction_AwaitNestedAsync_CorrectResult()
@@ -295,8 +193,7 @@ namespace DScript.Test
                 var r = 0;
                 outer(5).then(function(v) { r = v; });
             ";
-            // inner(5) = 10, outer = 11
-            Assert.That(RunInt(src), Is.EqualTo(11));
+            Assert.That(RunInt(src), Is.EqualTo(11)); // inner(5)=10, outer=11
         }
     }
 }

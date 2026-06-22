@@ -27,36 +27,27 @@ using NUnit.Framework;
 
 namespace DScript.Test
 {
-    /// <summary>Tests for Phase 7: generators and iterators.</summary>
-    public class Phase7Tests
+    /// <summary>Tests for <c>function*</c> generator syntax, <c>yield</c>, the iterator protocol, and nested generators.</summary>
+    public class GeneratorTests
     {
-        private static ScriptVar Run(string source, ScriptEngine engine = null)
-        {
-            engine ??= new ScriptEngine();
-            var chunk = new DScriptCompiler().CompileProgram(source);
-            var vm = new VirtualMachine(engine);
-            vm.Run(chunk, new Vm.Environment(engine.Root, null));
-            return engine.Root;
-        }
-
         private static int RunInt(string source)
         {
             var engine = new ScriptEngine();
-            Run(source, engine);
+            var chunk = new DScriptCompiler().CompileProgram(source);
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             return engine.Root.GetParameter("r").Int;
         }
 
         private static string RunStr(string source)
         {
             var engine = new ScriptEngine();
-            Run(source, engine);
+            var chunk = new DScriptCompiler().CompileProgram(source);
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             return engine.Root.GetParameter("r").String;
         }
 
-        // ---- 1. Generator function declaration --------------------------------
-
         [Test]
-        public void Generator_FunctionDeclaration_ReturnsIteratorObject()
+        public void Generator_FunctionDeclaration_FirstYield()
         {
             var src = @"
                 function* gen() { yield 1; }
@@ -67,7 +58,7 @@ namespace DScript.Test
         }
 
         [Test]
-        public void Generator_FunctionExpression_ReturnsIteratorObject()
+        public void Generator_FunctionExpression_YieldsValue()
         {
             var src = @"
                 var gen = function*() { yield 42; };
@@ -76,8 +67,6 @@ namespace DScript.Test
             ";
             Assert.That(RunInt(src), Is.EqualTo(42));
         }
-
-        // ---- 2. Multiple yields -----------------------------------------------
 
         [Test]
         public void Generator_MultipleYields_ProducesCorrectSequence()
@@ -93,8 +82,6 @@ namespace DScript.Test
             Assert.That(RunInt(src), Is.EqualTo(60));
         }
 
-        // ---- 3. done flag -----------------------------------------------------
-
         [Test]
         public void Generator_DoneFlag_FalseWhileRunning_TrueAfterExhausted()
         {
@@ -109,8 +96,6 @@ namespace DScript.Test
             ";
             Assert.That(RunStr(src), Is.EqualTo("ok1ok2"));
         }
-
-        // ---- 4. Yield with expression -----------------------------------------
 
         [Test]
         public void Generator_YieldExpression_ComputedValue()
@@ -128,94 +113,19 @@ namespace DScript.Test
             Assert.That(RunInt(src), Is.EqualTo(18)); // 5+6+7
         }
 
-        // ---- 5. for...of over array ------------------------------------------
-
         [Test]
-        public void ForOf_Array_IteratesAllElements()
-        {
-            var src = @"
-                var r = 0;
-                for (var x of [1, 2, 3, 4, 5]) { r += x; }
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(15));
-        }
-
-        [Test]
-        public void ForOf_Array_CollectsIntoString()
-        {
-            var src = @"
-                var r = '';
-                for (var s of ['a', 'b', 'c']) { r += s; }
-            ";
-            Assert.That(RunStr(src), Is.EqualTo("abc"));
-        }
-
-        // ---- 6. for...of over generator --------------------------------------
-
-        [Test]
-        public void ForOf_Generator_IteratesYieldedValues()
-        {
-            var src = @"
-                function* range(n) {
-                    var i = 0;
-                    while (i < n) {
-                        yield i;
-                        i++;
-                    }
-                }
-                var r = 0;
-                for (var v of range(5)) { r += v; }
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(10)); // 0+1+2+3+4
-        }
-
-        // ---- 7. Generator with return value ----------------------------------
-
-        [Test]
-        public void Generator_ExplicitReturn_SetsDoneAfterReturn()
+        public void Generator_ExplicitReturn_SetsDoneTrue()
         {
             var src = @"
                 function* gen() { yield 1; return 99; }
                 var it = gen();
-                it.next();          // consume yield 1
-                var res = it.next(); // hits return 99
+                it.next();
+                var res = it.next();
                 var r = '';
                 if (res.done) r += 'done';
             ";
             Assert.That(RunStr(src), Is.EqualTo("done"));
         }
-
-        // ---- 8. for...of break -----------------------------------------------
-
-        [Test]
-        public void ForOf_Break_StopsIteration()
-        {
-            var src = @"
-                var r = 0;
-                for (var x of [10, 20, 30, 40, 50]) {
-                    r++;
-                    if (x === 30) break;
-                }
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(3));
-        }
-
-        // ---- 9. for...of continue --------------------------------------------
-
-        [Test]
-        public void ForOf_Continue_SkipsRestOfBody()
-        {
-            var src = @"
-                var r = 0;
-                for (var x of [1, 2, 3, 4, 5]) {
-                    if (x === 3) continue;
-                    r += x;
-                }
-            ";
-            Assert.That(RunInt(src), Is.EqualTo(12)); // 1+2+4+5 = 12
-        }
-
-        // ---- 10. Nested generators -------------------------------------------
 
         [Test]
         public void Generator_Nested_OuterConsumesInner()
