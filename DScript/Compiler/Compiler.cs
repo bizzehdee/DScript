@@ -333,9 +333,9 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Int(value)));
         }
 
-        // Record the current lexer line into the active chunk so all bytes
+        // Record the current lexer line and column into the active chunk so all bytes
         // emitted for the upcoming statement/expression carry a source location.
-        private void SetLine() => chunk.SetCurrentLine(lexer.LineNumber);
+        private void SetLine() => chunk.SetCurrentLine(lexer.LineNumber, lexer.ColumnNumber);
 
         // delete obj.prop / obj[key] : the final member segment is removed.
         private void CompileDelete()

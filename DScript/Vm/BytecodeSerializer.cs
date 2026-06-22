@@ -20,7 +20,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
 
 namespace DScript.Vm
 {
@@ -74,6 +76,175 @@ namespace DScript.Vm
             using var ms = new MemoryStream(bytes);
             return Load(ms);
         }
+
+        // ------------------------------------------------------------------ //
+        // Source map support (.dsmap JSON sidecar)
+        // ------------------------------------------------------------------ //
+
+        /// <summary>
+        /// Save the compiled chunk as bytecode and also write a <c>.dsmap</c> JSON
+        /// sidecar file alongside <paramref name="path"/> that maps bytecode offsets
+        /// back to (source, line, col) triples.
+        /// </summary>
+        public static void SaveWithSourceMap(Chunk chunk, string path)
+        {
+            // Write main bytecode file
+            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+            {
+                Save(chunk, fs);
+            }
+
+            // Write sidecar .dsmap file
+            var mapPath = path + ".dsmap";
+            var json = BuildSourceMapJson(chunk);
+            File.WriteAllText(mapPath, json, Encoding.UTF8);
+        }
+
+        /// <summary>
+        /// Load a chunk from <paramref name="path"/> and, if a <c>.dsmap</c> sidecar
+        /// exists, restore column information from it into the chunk's <see cref="Chunk.Cols"/>
+        /// list.
+        /// </summary>
+        public static Chunk LoadWithSourceMap(string path)
+        {
+            Chunk chunk;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
+            {
+                chunk = Load(fs);
+            }
+
+            var mapPath = path + ".dsmap";
+            if (File.Exists(mapPath))
+            {
+                var json = File.ReadAllText(mapPath, Encoding.UTF8);
+                ApplySourceMap(chunk, json);
+            }
+
+            return chunk;
+        }
+
+        /// <summary>
+        /// Build a JSON source map string for the given chunk (and all nested function chunks).
+        /// The format is:
+        /// <code>
+        /// { "version": 1, "sources": ["name"], "mappings": [ { "offset": N, "line": L, "col": C }, ... ] }
+        /// </code>
+        /// </summary>
+        public static string BuildSourceMapJson(Chunk chunk)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"version\":1,\"sources\":[");
+            sb.Append(JsonString(chunk.Name ?? "<main>"));
+            sb.Append("],\"mappings\":[");
+            AppendMappings(sb, chunk);
+            sb.Append("]}");
+            return sb.ToString();
+        }
+
+        private static void AppendMappings(StringBuilder sb, Chunk chunk)
+        {
+            var first = true;
+            for (var i = 0; i < chunk.Lines.Count; i++)
+            {
+                var line = chunk.Lines[i];
+                var col = i < chunk.Cols.Count ? chunk.Cols[i] : 0;
+                if (line == 0 && col == 0) continue; // skip unknown
+
+                if (!first) sb.Append(',');
+                first = false;
+                sb.Append("{\"offset\":");
+                sb.Append(i);
+                sb.Append(",\"line\":");
+                sb.Append(line);
+                sb.Append(",\"col\":");
+                sb.Append(col);
+                sb.Append('}');
+            }
+        }
+
+        private static void ApplySourceMap(Chunk chunk, string json)
+        {
+            // Simple manual JSON parse — avoids taking a dependency on System.Text.Json
+            // or Newtonsoft in the core library.
+            var mappings = ParseMappings(json);
+            foreach (var (offset, line, col) in mappings)
+            {
+                // Extend Cols list to cover this offset if needed
+                while (chunk.Cols.Count <= offset)
+                    chunk.Cols.Add(0);
+                chunk.Cols[offset] = col;
+
+                // Also update Lines if out of range (shouldn't happen normally)
+                while (chunk.Lines.Count <= offset)
+                    chunk.Lines.Add(0);
+                chunk.Lines[offset] = line;
+            }
+        }
+
+        private static List<(int offset, int line, int col)> ParseMappings(string json)
+        {
+            var result = new List<(int, int, int)>();
+            // Find "mappings":[...]
+            var arrStart = json.IndexOf("\"mappings\":", System.StringComparison.Ordinal);
+            if (arrStart < 0) return result;
+            arrStart = json.IndexOf('[', arrStart);
+            if (arrStart < 0) return result;
+            var arrEnd = json.IndexOf(']', arrStart);
+            if (arrEnd < 0) return result;
+
+            var arr = json.Substring(arrStart + 1, arrEnd - arrStart - 1);
+            // Each entry looks like: {"offset":N,"line":L,"col":C}
+            var pos = 0;
+            while (pos < arr.Length)
+            {
+                var objStart = arr.IndexOf('{', pos);
+                if (objStart < 0) break;
+                var objEnd = arr.IndexOf('}', objStart);
+                if (objEnd < 0) break;
+                var entry = arr.Substring(objStart + 1, objEnd - objStart - 1);
+                var offset = ReadJsonInt(entry, "offset");
+                var line = ReadJsonInt(entry, "line");
+                var col = ReadJsonInt(entry, "col");
+                if (offset >= 0) result.Add((offset, line, col));
+                pos = objEnd + 1;
+            }
+
+            return result;
+        }
+
+        private static int ReadJsonInt(string obj, string key)
+        {
+            var search = "\"" + key + "\":";
+            var idx = obj.IndexOf(search, System.StringComparison.Ordinal);
+            if (idx < 0) return -1;
+            idx += search.Length;
+            var end = idx;
+            while (end < obj.Length && (char.IsDigit(obj[end]) || obj[end] == '-')) end++;
+            if (end == idx) return -1;
+            return int.TryParse(obj.Substring(idx, end - idx), out var v) ? v : -1;
+        }
+
+        private static string JsonString(string s)
+        {
+            var sb = new StringBuilder();
+            sb.Append('"');
+            foreach (var c in s)
+            {
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default: sb.Append(c); break;
+                }
+            }
+            sb.Append('"');
+            return sb.ToString();
+        }
+
+        // ------------------------------------------------------------------ //
 
         private static void WriteChunk(BinaryWriter writer, Chunk chunk)
         {

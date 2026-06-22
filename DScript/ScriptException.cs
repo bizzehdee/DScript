@@ -33,7 +33,7 @@ namespace DScript
     /// </summary>
     public class ScriptException : Exception
     {
-        private List<(string Source, int Line)> _frames;
+        private List<(string Source, int Line, int Col)> _frames;
 
         public ScriptException(string msg) : base(msg) { }
 
@@ -43,13 +43,13 @@ namespace DScript
         /// Script-level call stack at the point the error was raised.
         /// Index 0 is the innermost frame; subsequent entries are callers.
         /// </summary>
-        public IReadOnlyList<(string Source, int Line)> ScriptStackTrace =>
-            (IReadOnlyList<(string, int)>)_frames ?? Array.Empty<(string, int)>();
+        public IReadOnlyList<(string Source, int Line, int Col)> ScriptStackTrace =>
+            (IReadOnlyList<(string, int, int)>)_frames ?? Array.Empty<(string, int, int)>();
 
-        internal void PushFrame(string source, int line)
+        internal void PushFrame(string source, int line, int col = 0)
         {
             _frames ??= [];
-            _frames.Add((source, line));
+            _frames.Add((source, line, col));
         }
 
         /// <summary>

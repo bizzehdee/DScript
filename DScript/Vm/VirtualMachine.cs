@@ -945,7 +945,8 @@ namespace DScript.Vm
                 {
                     if (!DispatchException(ex, ref ip, env, chunk, savedTryDepth))
                     {
-                        ex.PushFrame(chunk.Name, chunk.GetLineForOffset(instrIp));
+                        var (jitLine, jitCol) = chunk.GetLineAndColForOffset(instrIp);
+                        ex.PushFrame(chunk.Name, jitLine, jitCol);
                         throw;
                     }
                     // handled: continue dispatch loop at new ip
@@ -954,7 +955,8 @@ namespace DScript.Vm
                 {
                     // Each Execute() frame adds itself to the script stack trace as
                     // the exception climbs through the call chain.
-                    ex.PushFrame(chunk.Name, chunk.GetLineForOffset(instrIp));
+                    var (seLine, seCol) = chunk.GetLineAndColForOffset(instrIp);
+                    ex.PushFrame(chunk.Name, seLine, seCol);
                     throw;
                 }
             }

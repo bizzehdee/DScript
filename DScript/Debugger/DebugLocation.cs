@@ -9,6 +9,9 @@ namespace DScript.Debugger
         /// <summary>1-based source line number; 0 if unavailable.</summary>
         public int Line { get; }
 
+        /// <summary>1-based source column number; 0 if unavailable.</summary>
+        public int Col { get; }
+
         /// <summary>Bytecode offset of the instruction being paused at.</summary>
         public int BytecodeOffset { get; }
 
@@ -16,9 +19,18 @@ namespace DScript.Debugger
         {
             Source = source;
             Line = line;
+            Col = 0;
             BytecodeOffset = offset;
         }
 
-        public override string ToString() => $"{Source}:{Line}";
+        internal DebugLocation(string source, int line, int col, int offset)
+        {
+            Source = source;
+            Line = line;
+            Col = col;
+            BytecodeOffset = offset;
+        }
+
+        public override string ToString() => Col > 0 ? $"{Source}:{Line}:{Col}" : $"{Source}:{Line}";
     }
 }

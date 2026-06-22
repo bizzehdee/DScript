@@ -41,8 +41,16 @@ namespace DScript.Vm
         /// </summary>
         public List<int> Lines { get; } = [];
 
-        // Current source line; set by the compiler before emitting each statement.
+        /// <summary>
+        /// Source-column number for each byte in <see cref="Code"/>, indexed in
+        /// parallel to <see cref="Lines"/>. <c>Cols[i]</c> is the 1-based column in
+        /// the original source that produced the byte at <c>Code[i]</c>. 0 means "unknown".
+        /// </summary>
+        public List<int> Cols { get; } = [];
+
+        // Current source line and column; set by the compiler before emitting each statement.
         private int currentLine;
+        private int currentCol;
 
         /// <summary>
         /// Record the source line that the compiler is currently emitting for.
@@ -51,11 +59,28 @@ namespace DScript.Vm
         public void SetCurrentLine(int line) => currentLine = line;
 
         /// <summary>
+        /// Record the source line and column that the compiler is currently emitting for.
+        /// All subsequent <c>Emit</c> calls will tag their bytes with this location.
+        /// </summary>
+        public void SetCurrentLine(int line, int col) { currentLine = line; currentCol = col; }
+
+        /// <summary>
         /// Return the 1-based source line for the instruction starting at
         /// <paramref name="offset"/>, or 0 if no line information is available.
         /// </summary>
         public int GetLineForOffset(int offset) =>
             offset >= 0 && offset < Lines.Count ? Lines[offset] : 0;
+
+        /// <summary>
+        /// Return the 1-based source line and column for the instruction at
+        /// <paramref name="offset"/>, or (0, 0) if no information is available.
+        /// </summary>
+        public (int line, int col) GetLineAndColForOffset(int offset)
+        {
+            if (offset >= 0 && offset < Lines.Count)
+                return (Lines[offset], offset < Cols.Count ? Cols[offset] : 0);
+            return (0, 0);
+        }
 
         // Contiguous copy of Code for fast indexed access during execution.
         // Cached lazily and invalidated by any emit/patch, so it is always
@@ -134,6 +159,7 @@ namespace DScript.Vm
             var at = Code.Count;
             Code.Add((byte)op);
             Lines.Add(currentLine);
+            Cols.Add(currentCol);
             codeArray = null;
             return at;
         }
@@ -187,6 +213,10 @@ namespace DScript.Vm
             Lines.Add(currentLine);
             Lines.Add(currentLine);
             Lines.Add(currentLine);
+            Cols.Add(currentCol);
+            Cols.Add(currentCol);
+            Cols.Add(currentCol);
+            Cols.Add(currentCol);
             codeArray = null;
         }
 
@@ -308,12 +338,16 @@ namespace DScript.Vm
                              | (Code[operandStart + 4] << 24);
 
             var savedLine = currentLine;
+            var savedCol = currentCol;
             currentLine = Lines[operandStart];
+            currentCol = operandStart < Cols.Count ? Cols[operandStart] : 0;
             Code.RemoveRange(operandStart, 5);
             Lines.RemoveRange(operandStart, 5);
+            Cols.RemoveRange(operandStart, 5);
             codeArray = null;
             Emit(OpCode.BinaryConst, op, constIndex);
             currentLine = savedLine;
+            currentCol = savedCol;
             return true;
         }
 
@@ -361,12 +395,16 @@ namespace DScript.Vm
                 if (folded == null) return false;
 
                 var savedLine = currentLine;
+                var savedCol = currentCol;
                 currentLine = Lines[cAt];
+                currentCol = cAt < Cols.Count ? Cols[cAt] : 0;
                 Code.RemoveRange(cAt, 14); // Constant(left):5 + BinaryConst:9
                 Lines.RemoveRange(cAt, 14);
+                Cols.RemoveRange(cAt, 14);
                 codeArray = null;
                 Emit(OpCode.Constant, AddConstant(folded));
                 currentLine = savedLine;
+                currentCol = savedCol;
                 return true;
             }
             catch { return false; }
@@ -463,12 +501,16 @@ namespace DScript.Vm
 
             var intValue = Constants[constIdx].IntValue;
             var savedLine = currentLine;
+            var savedCol = currentCol;
             currentLine = Lines[at];
+            currentCol = at < Cols.Count ? Cols[at] : 0;
             Code.RemoveRange(at, 9);
             Lines.RemoveRange(at, 9);
+            Cols.RemoveRange(at, 9);
             codeArray = null;
             Emit(OpCode.BinaryIntConst, op, intValue);
             currentLine = savedLine;
+            currentCol = savedCol;
             return true;
         }
 
@@ -623,9 +665,10 @@ namespace DScript.Vm
             }
 
             // Rebuild the code stream: copy live instructions, remapping jump targets.
-            // Build the parallel Lines list at the same time by filtering dead bytes.
+            // Build the parallel Lines and Cols lists at the same time by filtering dead bytes.
             var newCode = new List<byte>(Code.Count - deadCount);
             var newLines = new List<int>(Code.Count - deadCount);
+            var newCols = new List<int>(Code.Count - deadCount);
             {
                 var ip = 0;
                 while (ip < Code.Count)
@@ -641,6 +684,7 @@ namespace DScript.Vm
 
                     newCode.Add(Code[ip]); // opcode byte
                     newLines.Add(Lines[ip]);
+                    newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
 
                     var src = ip + 1;
                     if (op is OpCode.EnterTry)
@@ -648,12 +692,12 @@ namespace DScript.Vm
                         // catchPC — remap if not -1
                         var catchPC = ReadIntFromCode(src);
                         AppendInt(newCode, catchPC >= 0 ? remap[catchPC] : -1);
-                        for (var b = 0; b < 4; b++) newLines.Add(Lines[src + b]);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
                         src += 4;
                         // finallyPC — remap if not -1
                         var finallyPC = ReadIntFromCode(src);
                         AppendInt(newCode, finallyPC >= 0 ? remap[finallyPC] : -1);
-                        for (var b = 0; b < 4; b++) newLines.Add(Lines[src + b]);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
                         src += 4;
                         // catchVarIdx is a Names index, not a jump target — falls to verbatim loop below
                     }
@@ -664,6 +708,10 @@ namespace DScript.Vm
                         newLines.Add(Lines[src + 1]);
                         newLines.Add(Lines[src + 2]);
                         newLines.Add(Lines[src + 3]);
+                        newCols.Add(src < Cols.Count ? Cols[src] : 0);
+                        newCols.Add((src + 1) < Cols.Count ? Cols[src + 1] : 0);
+                        newCols.Add((src + 2) < Cols.Count ? Cols[src + 2] : 0);
+                        newCols.Add((src + 3) < Cols.Count ? Cols[src + 3] : 0);
                         src += 4;
                     }
 
@@ -671,6 +719,7 @@ namespace DScript.Vm
                     {
                         newCode.Add(Code[src]);
                         newLines.Add(Lines[src]);
+                        newCols.Add(src < Cols.Count ? Cols[src] : 0);
                         src++;
                     }
 
@@ -682,6 +731,8 @@ namespace DScript.Vm
             Code.AddRange(newCode);
             Lines.Clear();
             Lines.AddRange(newLines);
+            Cols.Clear();
+            Cols.AddRange(newCols);
             codeArray = null;
             inlineCache = null; // offsets have shifted
 

@@ -34,7 +34,7 @@ namespace DScript
     /// </summary>
     public class JITException : Exception
     {
-        private List<(string Source, int Line)> _frames;
+        private List<(string Source, int Line, int Col)> _frames;
 
         public JITException() { }
 
@@ -53,13 +53,13 @@ namespace DScript
         /// Index 0 is the innermost frame (where the <c>throw</c> occurred);
         /// subsequent entries are caller frames in order.
         /// </summary>
-        public IReadOnlyList<(string Source, int Line)> ScriptStackTrace =>
-            (IReadOnlyList<(string, int)>)_frames ?? Array.Empty<(string, int)>();
+        public IReadOnlyList<(string Source, int Line, int Col)> ScriptStackTrace =>
+            (IReadOnlyList<(string, int, int)>)_frames ?? Array.Empty<(string, int, int)>();
 
-        internal void PushFrame(string source, int line)
+        internal void PushFrame(string source, int line, int col = 0)
         {
             _frames ??= [];
-            _frames.Add((source, line));
+            _frames.Add((source, line, col));
         }
 
         /// <summary>
@@ -75,14 +75,19 @@ namespace DScript
             return sb.ToString();
         }
 
-        internal static void AppendFrames(StringBuilder sb, List<(string Source, int Line)> frames)
+        internal static void AppendFrames(StringBuilder sb, List<(string Source, int Line, int Col)> frames)
         {
             if (frames == null) return;
-            foreach (var (source, line) in frames)
+            foreach (var (source, line, col) in frames)
             {
                 sb.AppendLine();
                 sb.Append("    at ").Append(source);
-                if (line > 0) sb.Append(" (line ").Append(line).Append(')');
+                if (line > 0)
+                {
+                    sb.Append(" (line ").Append(line);
+                    if (col > 0) sb.Append(", col ").Append(col);
+                    sb.Append(')');
+                }
             }
         }
     }
