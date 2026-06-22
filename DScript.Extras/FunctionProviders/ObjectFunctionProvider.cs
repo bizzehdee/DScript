@@ -66,5 +66,116 @@ namespace DScript.Extras.FunctionProviders
 
             var.ReturnVar.Int = obj.FindChild(name) != null ? 1 : 0;
         }
+
+        [ScriptMethod("values", "obj")]
+        public static void ObjectValuesImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            var.ReturnVar.SetArray();
+            var idx = 0;
+            var link = obj.FirstChild;
+            while (link != null)
+            {
+                if (link.Name != ScriptVar.PrototypeClassName)
+                    var.ReturnVar.SetArrayIndex(idx++, link.Var.DeepCopy());
+                link = link.Next;
+            }
+        }
+
+        [ScriptMethod("entries", "obj")]
+        public static void ObjectEntriesImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            var.ReturnVar.SetArray();
+            var idx = 0;
+            var link = obj.FirstChild;
+            while (link != null)
+            {
+                if (link.Name != ScriptVar.PrototypeClassName)
+                {
+                    var pair = new ScriptVar();
+                    pair.SetArray();
+                    pair.SetArrayIndex(0, new ScriptVar(link.Name));
+                    pair.SetArrayIndex(1, link.Var.DeepCopy());
+                    var.ReturnVar.SetArrayIndex(idx++, pair);
+                }
+                link = link.Next;
+            }
+        }
+
+        [ScriptMethod("assign", "target", "source")]
+        public static void ObjectAssignImpl(ScriptVar var, object userData)
+        {
+            var target = var.GetParameter("target");
+            var source = var.GetParameter("source");
+            if (!source.IsUndefined && !source.IsNull)
+            {
+                var link = source.FirstChild;
+                while (link != null)
+                {
+                    if (link.Name != ScriptVar.PrototypeClassName)
+                        target.AddChildNoDup(link.Name, link.Var.DeepCopy());
+                    link = link.Next;
+                }
+            }
+            var.ReturnVar = target;
+        }
+
+        [ScriptMethod("fromEntries", "entries")]
+        public static void ObjectFromEntriesImpl(ScriptVar var, object userData)
+        {
+            var entries = var.GetParameter("entries");
+            var result = new ScriptVar();
+            var len = entries.GetArrayLength();
+            for (var i = 0; i < len; i++)
+            {
+                var pair = entries.GetArrayIndex(i);
+                var key = pair.GetArrayIndex(0).String;
+                var val = pair.GetArrayIndex(1).DeepCopy();
+                result.AddChildNoDup(key, val);
+            }
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("freeze", "obj")]
+        public static void ObjectFreezeImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            obj.AddChildNoDup("__frozen__", new ScriptVar(1));
+            var.ReturnVar = obj;
+        }
+
+        [ScriptMethod("isFrozen", "obj")]
+        public static void ObjectIsFrozenImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            var frozen = obj.FindChild("__frozen__");
+            var.ReturnVar.Int = (frozen != null && frozen.Var.Bool) ? 1 : 0;
+        }
+
+        [ScriptMethod("create", "proto")]
+        public static void ObjectCreateImpl(ScriptVar var, object userData)
+        {
+            var proto = var.GetParameter("proto");
+            var result = new ScriptVar();
+            if (!proto.IsNull && !proto.IsUndefined)
+                result.AddChildNoDup(ScriptVar.PrototypeClassName, proto);
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("getOwnPropertyNames", "obj")]
+        public static void ObjectGetOwnPropertyNamesImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            var.ReturnVar.SetArray();
+            var idx = 0;
+            var link = obj.FirstChild;
+            while (link != null)
+            {
+                if (link.Name != ScriptVar.PrototypeClassName)
+                    var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name));
+                link = link.Next;
+            }
+        }
     }
 }
