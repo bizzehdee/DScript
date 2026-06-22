@@ -39,6 +39,15 @@ namespace DScript.Compiler
         private ScriptLex lexer;
         private Chunk chunk;
 
+        /// <summary>
+        /// When false, skips the new peephole passes (constant folding,
+        /// BinaryIntConst specialisation, jump-chain collapsing, dead-code
+        /// elimination) so only the original BinaryConst fusion runs.
+        /// Intended for benchmarking and disassembly comparisons; always
+        /// leave at the default (<c>true</c>) in production.
+        /// </summary>
+        public bool EnableOptimizer { get; set; } = true;
+
         public void Dispose()
         {
             lexer?.Dispose();
@@ -53,6 +62,11 @@ namespace DScript.Compiler
             CompileBase();
             chunk.Emit(OpCode.Return);
 
+            if (EnableOptimizer)
+            {
+                chunk.CollapseJumpChains();
+                chunk.EliminateDeadCode();
+            }
             return chunk;
         }
 
@@ -70,6 +84,11 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
 
+            if (EnableOptimizer)
+            {
+                chunk.CollapseJumpChains();
+                chunk.EliminateDeadCode();
+            }
             return chunk;
         }
 
@@ -173,14 +192,20 @@ namespace DScript.Compiler
             }
         }
 
-        // Emit a Binary op, fusing a single-literal right operand into BinaryConst
-        // when possible (see Chunk.TryFuseConstantBinary).
+        // Emit a Binary op. Applies optimizations in priority order:
+        //   1. Fuse lone Constant right operand → BinaryConst (pool-indexed)     [always on]
+        //   2. If left is also Constant → fold entirely to single Constant        [EnableOptimizer]
+        //   3. If right constant is an int → upgrade to BinaryIntConst (inline)  [EnableOptimizer]
         private void EmitBinary(int op, int operandStart)
         {
             if (!chunk.TryFuseConstantBinary(operandStart, op))
             {
                 chunk.Emit(OpCode.Binary, op);
+                return;
             }
+            if (!EnableOptimizer) return;
+            if (chunk.TryFoldBinaryConst()) return;
+            chunk.TryUpgradeBinaryConstToInt();
         }
 
         private void CompileShift(bool canAssign)

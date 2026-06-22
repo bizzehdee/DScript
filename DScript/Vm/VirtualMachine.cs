@@ -312,6 +312,20 @@ namespace DScript.Vm
                         }
                         break;
                     }
+                    case OpCode.BinaryIntConst:
+                    {
+                        // Like BinaryConst but the integer value is stored inline in
+                        // the instruction stream, skipping the constant-pool lookup.
+                        // Emitted when the right operand is a known integer literal.
+                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
+                        var intValue = ReadOperand(code, ref ip);
+                        var a = Pop();
+                        if (a.IsInt && IntBinary(a.Int, intValue, operatorCode, out var fast))
+                            Push(fast);
+                        else
+                            Push(a.MathsOp(new ScriptVar(intValue), operatorCode));
+                        break;
+                    }
                     case OpCode.Shift:
                     {
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);

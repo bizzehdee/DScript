@@ -232,7 +232,7 @@ namespace DScript.Vm
             return Functions.Count - 1;
         }
 
-        // --- peephole fusion -------------------------------------------------
+        // --- peephole fusion and folding ------------------------------------
 
         /// <summary>
         /// If the just-compiled binary right operand (everything emitted since
@@ -261,6 +261,270 @@ namespace DScript.Vm
             codeArray = null;
             Emit(OpCode.BinaryConst, op, constIndex);
             return true;
+        }
+
+        /// <summary>
+        /// After a successful <see cref="TryFuseConstantBinary"/>, check whether the
+        /// instruction immediately before the fused <see cref="OpCode.BinaryConst"/> is
+        /// also a <see cref="OpCode.Constant"/>. If so, compute the result at compile
+        /// time and replace both with a single <see cref="OpCode.Constant"/>.
+        ///
+        /// Only numeric results (int, double) are folded; string concatenation is left
+        /// for the runtime. Returns true if folding happened.
+        /// </summary>
+        public bool TryFoldBinaryConst()
+        {
+            // Code ends with BinaryConst(op:4, constIdx:4) = 9 bytes
+            if (Code.Count < 14) return false;
+            var bcAt = Code.Count - 9;
+            if ((OpCode)Code[bcAt] != OpCode.BinaryConst) return false;
+
+            // The instruction before BinaryConst must be Constant(leftIdx) = 5 bytes
+            var cAt = bcAt - 5;
+            if (cAt < 0 || (OpCode)Code[cAt] != OpCode.Constant) return false;
+
+            var op = (ScriptLex.LexTypes)ReadIntFromCode(bcAt + 1);
+            var leftIdx  = ReadIntFromCode(cAt + 1);
+            var rightIdx = ReadIntFromCode(bcAt + 5);
+
+            try
+            {
+                var lv = Constants[leftIdx].Materialize();
+                var rv = Constants[rightIdx].Materialize();
+                var result = lv.MathsOp(rv, op);
+                var folded = ScriptVarToConstant(result);
+                if (folded == null) return false;
+
+                Code.RemoveRange(cAt, 14); // Constant(left):5 + BinaryConst:9
+                codeArray = null;
+                Emit(OpCode.Constant, AddConstant(folded));
+                return true;
+            }
+            catch { return false; }
+        }
+
+        // Read a 4-byte little-endian int directly from the mutable Code list
+        // (used by peephole passes before the codeArray cache is rebuilt).
+        private int ReadIntFromCode(int offset) =>
+            Code[offset]
+            | (Code[offset + 1] << 8)
+            | (Code[offset + 2] << 16)
+            | (Code[offset + 3] << 24);
+
+        // Convert a ScriptVar result to a storable ConstantValue.
+        // Returns null for types we don't fold (strings, objects, …).
+        private static ConstantValue ScriptVarToConstant(ScriptVar v)
+        {
+            if (v.IsInt)    return ConstantValue.Int(v.Int);
+            if (v.IsDouble) return ConstantValue.Double(v.Float);
+            return null;
+        }
+
+        // --- post-compilation passes ----------------------------------------
+
+        // Total byte size of an instruction (opcode byte + 4 bytes per operand).
+        internal static int InstructionSize(OpCode op) => op switch
+        {
+            OpCode.Try             => 17, // 1 + 4*4
+            OpCode.BinaryConst     =>  9, // 1 + 4*2
+            OpCode.BinaryIntConst  =>  9, // 1 + 4*2
+            OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
+            OpCode.DeclareVar   or OpCode.DeclareConst or
+            OpCode.GetProp      or OpCode.SetProp      or OpCode.DeleteProp or
+            OpCode.Binary       or OpCode.Shift        or
+            OpCode.Jump         or OpCode.JumpIfFalse  or OpCode.JumpIfTrue or
+            OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop             or
+            OpCode.MakeClosure  or OpCode.Call         or OpCode.CallMethod or
+            OpCode.New          or OpCode.InitProp      or OpCode.InitElem  =>  5, // 1 + 4*1
+            _                   =>  1, // no operands
+        };
+
+        /// <summary>
+        /// If the last emitted instruction is <see cref="OpCode.BinaryConst"/> and its
+        /// constant is an integer, replace it with <see cref="OpCode.BinaryIntConst"/>
+        /// that stores the integer value directly in the instruction stream, eliminating
+        /// the constant-pool lookup on every execution of that instruction.
+        /// </summary>
+        public bool TryUpgradeBinaryConstToInt()
+        {
+            if (Code.Count < 9) return false;
+            var at = Code.Count - 9;
+            if ((OpCode)Code[at] != OpCode.BinaryConst) return false;
+
+            var op       = ReadIntFromCode(at + 1);
+            var constIdx = ReadIntFromCode(at + 5);
+            if (Constants[constIdx].Kind != ConstantKind.Int) return false;
+
+            var intValue = Constants[constIdx].IntValue;
+            Code.RemoveRange(at, 9);
+            codeArray = null;
+            Emit(OpCode.BinaryIntConst, op, intValue);
+            return true;
+        }
+
+        /// <summary>
+        /// Walk every jump in this chunk (and all nested function chunks) and
+        /// collapse any chain of unconditional <see cref="OpCode.Jump"/>s so that
+        /// each jump points directly at the final destination.
+        ///
+        /// Example: <c>JumpIfFalse → A; [A] Jump → B</c> becomes
+        /// <c>JumpIfFalse → B</c>, saving one extra dispatch per branch.
+        /// Only unconditional <see cref="OpCode.Jump"/> targets are chased: they
+        /// cannot change stack depth, so the collapse is always semantics-preserving.
+        /// </summary>
+        public void CollapseJumpChains()
+        {
+            var ip = 0;
+            while (ip < Code.Count)
+            {
+                var op = (OpCode)Code[ip];
+                if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                         or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop)
+                {
+                    var operandAt = ip + 1;
+                    var target = ReadIntFromCode(operandAt);
+                    var resolved = ChaseUnconditionalJumps(target);
+                    if (resolved != target)
+                        PatchJumpTo(operandAt, resolved);
+                }
+                ip += InstructionSize(op);
+            }
+
+            foreach (var fn in Functions)
+                fn.CollapseJumpChains();
+        }
+
+        // Follow a chain of unconditional Jump instructions to their final target.
+        // The seen set prevents infinite loops on self-referencing bytecode.
+        private int ChaseUnconditionalJumps(int target)
+        {
+            var seen = new HashSet<int>();
+            while (target < Code.Count && seen.Add(target))
+            {
+                if ((OpCode)Code[target] != OpCode.Jump) break;
+                target = ReadIntFromCode(target + 1);
+            }
+            return target;
+        }
+
+        /// <summary>
+        /// Remove bytecode that can never be reached: instructions that follow an
+        /// unconditional exit (<see cref="OpCode.Jump"/>, <see cref="OpCode.Return"/>,
+        /// <see cref="OpCode.Halt"/>, <see cref="OpCode.Throw"/>) and are not the
+        /// target of any jump elsewhere in the same chunk.
+        ///
+        /// Operates in one linear pass: dead bytes are identified, an old→new offset
+        /// remap table is built, and the live bytes are copied to a new stream with
+        /// all jump targets adjusted. Recurses into nested function chunks.
+        /// </summary>
+        public void EliminateDeadCode()
+        {
+            // Pass 1: collect all jump targets (always reachable entry points).
+            var jumpTargets = new HashSet<int>();
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op = (OpCode)Code[ip];
+                    if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                             or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop)
+                    {
+                        jumpTargets.Add(ReadIntFromCode(ip + 1));
+                    }
+                    ip += InstructionSize(op);
+                }
+            }
+
+            // Pass 2: mark dead bytes — those after a terminator that are not a
+            // jump target (landing points end the dead region).
+            var dead = new bool[Code.Count];
+            {
+                var ip = 0;
+                var inDead = false;
+                while (ip < Code.Count)
+                {
+                    if (jumpTargets.Contains(ip)) inDead = false;
+
+                    var op = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+
+                    if (inDead)
+                    {
+                        for (var k = ip; k < ip + size; k++) dead[k] = true;
+                    }
+                    else if (op is OpCode.Jump or OpCode.Return or OpCode.Halt or OpCode.Throw)
+                    {
+                        inDead = true;
+                    }
+
+                    ip += size;
+                }
+            }
+
+            var deadCount = 0;
+            foreach (var d in dead) if (d) deadCount++;
+
+            if (deadCount == 0)
+            {
+                foreach (var fn in Functions) fn.EliminateDeadCode();
+                return;
+            }
+
+            // Build an old-byte-offset → new-byte-offset remap. For a live byte at
+            // old position i, remap[i] is its position in the rebuilt stream.
+            var remap = new int[Code.Count + 1];
+            {
+                var newOff = 0;
+                for (var i = 0; i <= Code.Count; i++)
+                {
+                    remap[i] = newOff;
+                    if (i < Code.Count && !dead[i]) newOff++;
+                }
+            }
+
+            // Rebuild the code stream: copy live instructions, remapping jump targets.
+            var newCode = new List<byte>(Code.Count - deadCount);
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    if (dead[ip]) { ip++; continue; }
+
+                    var op = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+                    var isJump = op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                                        or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop;
+
+                    newCode.Add(Code[ip]); // opcode byte
+
+                    var src = ip + 1;
+                    if (isJump)
+                    {
+                        AppendInt(newCode, remap[ReadIntFromCode(src)]); // remapped target
+                        src += 4;
+                    }
+
+                    while (src < ip + size) // remaining operands verbatim
+                        newCode.Add(Code[src++]);
+
+                    ip += size;
+                }
+            }
+
+            Code.Clear();
+            Code.AddRange(newCode);
+            codeArray = null;
+            inlineCache = null; // offsets have shifted
+
+            foreach (var fn in Functions) fn.EliminateDeadCode();
+        }
+
+        private static void AppendInt(List<byte> list, int value)
+        {
+            list.Add((byte)(value & 0xFF));
+            list.Add((byte)((value >> 8) & 0xFF));
+            list.Add((byte)((value >> 16) & 0xFF));
+            list.Add((byte)((value >> 24) & 0xFF));
         }
     }
 }

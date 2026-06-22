@@ -40,6 +40,7 @@ namespace DScript.Vm
                     return 4;
 
                 case OpCode.BinaryConst:
+                case OpCode.BinaryIntConst:
                     return 2;
 
                 case OpCode.Constant:
@@ -134,9 +135,11 @@ namespace DScript.Vm
                 case OpCode.Shift:
                     return $" ({ScriptLex.LexTypesToString((ScriptLex.LexTypes)value)})";
                 case OpCode.BinaryConst when operandIndex == 0:
+                case OpCode.BinaryIntConst when operandIndex == 0:
                     return $" ({ScriptLex.LexTypesToString((ScriptLex.LexTypes)value)})";
                 case OpCode.BinaryConst when operandIndex == 1 && value >= 0 && value < chunk.Constants.Count:
                     return $" ({chunk.Constants[value]})";
+                // BinaryIntConst operand 1 is a raw int — the value shown is already the int literal
             }
 
             return string.Empty;
