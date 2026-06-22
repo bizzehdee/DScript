@@ -386,7 +386,7 @@ namespace DScript
                 }
                 baseVar = link.Var;
                 funcName = lexer.TokenString;
-                lexer.Match(ScriptLex.LexTypes.Id);
+                lexer.MatchPropertyName();
             }
 
             var funcVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
@@ -416,7 +416,7 @@ namespace DScript
                 }
                 baseVar = link.Var;
                 propName = lexer.TokenString;
-                lexer.Match(ScriptLex.LexTypes.Id);
+                lexer.MatchPropertyName();
             }
 
             var propVar = new ScriptVar();
