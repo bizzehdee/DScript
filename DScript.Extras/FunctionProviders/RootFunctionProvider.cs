@@ -59,5 +59,20 @@ namespace DScript.Extras.FunctionProviders
             var charAsInt = Convert.ToInt32(charParam);
             var.ReturnVar.Int = charAsInt;
         }
+
+        [ScriptMethod("structuredClone", "val", AppearAtRoot = true)]
+        public static void StructuredCloneImpl(ScriptVar var, object userData)
+        {
+            var val = var.GetParameter("val");
+            var.ReturnVar.CopyValue(val);
+        }
+
+        [ScriptMethod("queueMicrotask", "fn", AppearAtRoot = true)]
+        public static void QueueMicrotaskImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var fn = var.GetParameter("fn");
+            engine.QueueMicrotask(() => engine.CallFunction(fn, null));
+        }
     }
 }

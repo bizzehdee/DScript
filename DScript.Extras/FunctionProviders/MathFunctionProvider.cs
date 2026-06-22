@@ -268,5 +268,72 @@ namespace DScript.Extras.FunctionProviders
         {
             var.Float = (Math.Log10(Math.E));
         }
+
+        [ScriptMethod("trunc", "val")]
+        public static void MathTruncImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.Float = Math.Truncate(var.GetParameter("val").Float);
+        }
+
+        [ScriptMethod("sign", "val")]
+        public static void MathSignImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.Int = Math.Sign(var.GetParameter("val").Float);
+        }
+
+        [ScriptMethod("hypot", "vals")]
+        public static void MathHypotImpl(ScriptVar var, object userData)
+        {
+            var vals = var.GetParameter("vals");
+            var sum = 0.0;
+            var len = vals.GetArrayLength();
+            for (var i = 0; i < len; i++)
+            {
+                var v = vals.GetArrayIndex(i).Float;
+                sum += v * v;
+            }
+            var.ReturnVar.Float = Math.Sqrt(sum);
+        }
+
+        [ScriptMethod("log2", "val")]
+        public static void MathLog2Impl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.Float = Math.Log2(var.GetParameter("val").Float);
+        }
+
+        [ScriptMethod("log10", "val")]
+        public static void MathLog10Impl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.Float = Math.Log10(var.GetParameter("val").Float);
+        }
+
+        [ScriptMethod("cbrt", "val")]
+        public static void MathCbrtImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.Float = Math.Cbrt(var.GetParameter("val").Float);
+        }
+
+        [ScriptMethod("clamp", "x", "lo", "hi")]
+        public static void MathClampImpl(ScriptVar var, object userData)
+        {
+            var x  = var.GetParameter("x").Float;
+            var lo = var.GetParameter("lo").Float;
+            var hi = var.GetParameter("hi").Float;
+            var.ReturnVar.Float = Math.Clamp(x, lo, hi);
+        }
+
+        [ScriptMethod("fround", "val")]
+        public static void MathFroundImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.Float = (double)(float)var.GetParameter("val").Float;
+        }
+
+        [ScriptMethod("imul", "a", "b")]
+        public static void MathImulImpl(ScriptVar var, object userData)
+        {
+            var a = (int)var.GetParameter("a").Float;
+            var b = (int)var.GetParameter("b").Float;
+            var.ReturnVar.Int = unchecked(a * b);
+        }
     }
 }

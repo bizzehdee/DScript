@@ -351,6 +351,11 @@ namespace DScript
         public void DrainMicroTasks() => Vm.MicroTaskQueue.DrainAll();
 
         /// <summary>
+        /// Enqueue a microtask to run on the next <see cref="DrainMicroTasks"/> call.
+        /// </summary>
+        public void QueueMicrotask(Action task) => Vm.MicroTaskQueue.Enqueue(task);
+
+        /// <summary>
         /// Invoke a script (or native) function programmatically. Lets native and
         /// host code call back into script — e.g. Array map/filter/forEach/reduce
         /// callbacks and sort comparators.
