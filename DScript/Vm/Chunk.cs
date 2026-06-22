@@ -34,6 +34,29 @@ namespace DScript.Vm
         /// <summary>Raw instruction bytes (opcodes interleaved with operands).</summary>
         public List<byte> Code { get; } = [];
 
+        /// <summary>
+        /// Source-line number for each byte in <see cref="Code"/>, indexed in
+        /// parallel. <c>Lines[i]</c> is the 1-based line in the original source
+        /// that produced the byte at <c>Code[i]</c>. 0 means "unknown".
+        /// </summary>
+        public List<int> Lines { get; } = [];
+
+        // Current source line; set by the compiler before emitting each statement.
+        private int currentLine;
+
+        /// <summary>
+        /// Record the source line that the compiler is currently emitting for.
+        /// All subsequent <c>Emit</c> calls will tag their bytes with this line.
+        /// </summary>
+        public void SetCurrentLine(int line) => currentLine = line;
+
+        /// <summary>
+        /// Return the 1-based source line for the instruction starting at
+        /// <paramref name="offset"/>, or 0 if no line information is available.
+        /// </summary>
+        public int GetLineForOffset(int offset) =>
+            offset >= 0 && offset < Lines.Count ? Lines[offset] : 0;
+
         // Contiguous copy of Code for fast indexed access during execution.
         // Cached lazily and invalidated by any emit/patch, so it is always
         // rebuilt once after compilation completes and reused across runs.
@@ -104,6 +127,7 @@ namespace DScript.Vm
         {
             var at = Code.Count;
             Code.Add((byte)op);
+            Lines.Add(currentLine);
             codeArray = null;
             return at;
         }
@@ -143,6 +167,10 @@ namespace DScript.Vm
             Code.Add((byte)((value >> 8) & 0xFF));
             Code.Add((byte)((value >> 16) & 0xFF));
             Code.Add((byte)((value >> 24) & 0xFF));
+            Lines.Add(currentLine);
+            Lines.Add(currentLine);
+            Lines.Add(currentLine);
+            Lines.Add(currentLine);
             codeArray = null;
         }
 
@@ -257,9 +285,13 @@ namespace DScript.Vm
                              | (Code[operandStart + 3] << 16)
                              | (Code[operandStart + 4] << 24);
 
+            var savedLine = currentLine;
+            currentLine = Lines[operandStart];
             Code.RemoveRange(operandStart, 5);
+            Lines.RemoveRange(operandStart, 5);
             codeArray = null;
             Emit(OpCode.BinaryConst, op, constIndex);
+            currentLine = savedLine;
             return true;
         }
 
@@ -295,9 +327,13 @@ namespace DScript.Vm
                 var folded = ScriptVarToConstant(result);
                 if (folded == null) return false;
 
+                var savedLine = currentLine;
+                currentLine = Lines[cAt];
                 Code.RemoveRange(cAt, 14); // Constant(left):5 + BinaryConst:9
+                Lines.RemoveRange(cAt, 14);
                 codeArray = null;
                 Emit(OpCode.Constant, AddConstant(folded));
+                currentLine = savedLine;
                 return true;
             }
             catch { return false; }
@@ -356,9 +392,13 @@ namespace DScript.Vm
             if (Constants[constIdx].Kind != ConstantKind.Int) return false;
 
             var intValue = Constants[constIdx].IntValue;
+            var savedLine = currentLine;
+            currentLine = Lines[at];
             Code.RemoveRange(at, 9);
+            Lines.RemoveRange(at, 9);
             codeArray = null;
             Emit(OpCode.BinaryIntConst, op, intValue);
+            currentLine = savedLine;
             return true;
         }
 
@@ -483,7 +523,9 @@ namespace DScript.Vm
             }
 
             // Rebuild the code stream: copy live instructions, remapping jump targets.
+            // Build the parallel Lines list at the same time by filtering dead bytes.
             var newCode = new List<byte>(Code.Count - deadCount);
+            var newLines = new List<int>(Code.Count - deadCount);
             {
                 var ip = 0;
                 while (ip < Code.Count)
@@ -496,16 +538,25 @@ namespace DScript.Vm
                                         or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop;
 
                     newCode.Add(Code[ip]); // opcode byte
+                    newLines.Add(Lines[ip]);
 
                     var src = ip + 1;
                     if (isJump)
                     {
                         AppendInt(newCode, remap[ReadIntFromCode(src)]); // remapped target
+                        newLines.Add(Lines[src]);
+                        newLines.Add(Lines[src + 1]);
+                        newLines.Add(Lines[src + 2]);
+                        newLines.Add(Lines[src + 3]);
                         src += 4;
                     }
 
                     while (src < ip + size) // remaining operands verbatim
-                        newCode.Add(Code[src++]);
+                    {
+                        newCode.Add(Code[src]);
+                        newLines.Add(Lines[src]);
+                        src++;
+                    }
 
                     ip += size;
                 }
@@ -513,6 +564,8 @@ namespace DScript.Vm
 
             Code.Clear();
             Code.AddRange(newCode);
+            Lines.Clear();
+            Lines.AddRange(newLines);
             codeArray = null;
             inlineCache = null; // offsets have shifted
 

@@ -114,9 +114,12 @@ namespace DScript.Vm
 
             while (ip < code.Length)
             {
+                var instrIp = ip; // capture before advancing — used for line lookup on error
                 var op = (OpCode)code[ip];
                 ip++;
 
+                try
+                {
                 switch (op)
                 {
                     case OpCode.Constant:
@@ -502,6 +505,15 @@ namespace DScript.Vm
 
                     default:
                         throw new ScriptException($"VM opcode not yet implemented: {op}");
+                }
+                } // end try
+                catch (JITException) { throw; } // script-level throw: let it propagate as-is
+                catch (ScriptException ex) when (ex.InnerException == null)
+                {
+                    // First VM frame to see this exception — annotate with source line.
+                    var line = chunk.GetLineForOffset(instrIp);
+                    var msg = line > 0 ? $"{ex.Message} (line {line})" : ex.Message;
+                    throw new ScriptException(msg, ex);
                 }
             }
 

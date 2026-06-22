@@ -76,10 +76,11 @@ namespace DScript.Vm
             var sb = new StringBuilder();
             sb.AppendLine($"== {chunk.Name} ==");
 
+            var lastLine = -1;
             var offset = 0;
             while (offset < chunk.Count)
             {
-                offset = DisassembleInstruction(chunk, offset, sb);
+                offset = DisassembleInstruction(chunk, offset, sb, ref lastLine);
             }
 
             // recurse into nested function chunks for completeness
@@ -98,8 +99,25 @@ namespace DScript.Vm
         /// </summary>
         public static int DisassembleInstruction(Chunk chunk, int offset, StringBuilder sb)
         {
+            var lastLine = -1;
+            return DisassembleInstruction(chunk, offset, sb, ref lastLine);
+        }
+
+        private static int DisassembleInstruction(Chunk chunk, int offset, StringBuilder sb, ref int lastLine)
+        {
+            var line = chunk.GetLineForOffset(offset);
+            if (line != lastLine)
+            {
+                sb.Append($"{offset:0000} {line,4} ");
+                lastLine = line;
+            }
+            else
+            {
+                sb.Append($"{offset:0000}    | ");
+            }
+
             var op = (OpCode)chunk.Code[offset];
-            sb.Append($"{offset:0000} {op}");
+            sb.Append(op);
 
             var operands = OperandCount(op);
             var next = offset + 1;

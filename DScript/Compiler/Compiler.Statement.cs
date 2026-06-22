@@ -38,6 +38,7 @@ namespace DScript.Compiler
 
         private void CompileStatement()
         {
+            SetLine();
             switch (lexer.TokenType)
             {
                 case (ScriptLex.LexTypes)'{':
