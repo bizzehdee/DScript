@@ -29,8 +29,11 @@ namespace DScript.Compiler
     {
         private sealed class LoopContext
         {
+            public readonly bool IsSwitch;
             public List<int> BreakJumps { get; } = [];
             public List<int> ContinueJumps { get; } = [];
+
+            public LoopContext(bool isSwitch = false) => IsSwitch = isSwitch;
         }
 
         private readonly Stack<LoopContext> loops = new();
@@ -83,7 +86,11 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.RContinue:
                     lexer.Match(ScriptLex.LexTypes.RContinue);
                     lexer.Match((ScriptLex.LexTypes)';');
-                    if (loops.Count > 0) loops.Peek().ContinueJumps.Add(chunk.EmitJump(OpCode.Jump));
+                    // `continue` skips switch contexts and targets the nearest real loop.
+                    foreach (var loopCtx in loops)
+                    {
+                        if (!loopCtx.IsSwitch) { loopCtx.ContinueJumps.Add(chunk.EmitJump(OpCode.Jump)); break; }
+                    }
                     break;
                 case ScriptLex.LexTypes.RSwitch:
                     CompileSwitch();
@@ -379,43 +386,93 @@ namespace DScript.Compiler
         {
             lexer.Match(ScriptLex.LexTypes.RSwitch);
             lexer.Match((ScriptLex.LexTypes)'(');
-            CompileBase();              // discriminant stays on the stack
+            CompileBase();                  // discriminant → [D]
             lexer.Match((ScriptLex.LexTypes)')');
             lexer.Match((ScriptLex.LexTypes)'{');
 
-            var endJumps = new List<int>();
+            // Use a switch-flavoured context so that `continue` inside the body
+            // skips over this frame and targets the enclosing loop instead.
+            var ctx = new LoopContext(isSwitch: true);
+            loops.Push(ctx);
+
+            // When `default:` appears anywhere (not necessarily last), we defer
+            // its body: save a clone of the lexer at that point, skip past the
+            // body tokens now, and replay after all `case` tests have been emitted.
+            ScriptLex defaultBodyLexer = null;
 
             while (lexer.TokenType is ScriptLex.LexTypes.RCase or ScriptLex.LexTypes.RDefault)
             {
                 if (lexer.TokenType == ScriptLex.LexTypes.RCase)
                 {
                     lexer.Match(ScriptLex.LexTypes.RCase);
-                    chunk.Emit(OpCode.Dup);          // duplicate discriminant
-                    CompileBase();                   // case value
+                    chunk.Emit(OpCode.Dup);          // [D, D]
+                    CompileBase();                   // [D, D, V]
                     lexer.Match((ScriptLex.LexTypes)':');
-                    chunk.Emit(OpCode.Binary, (int)ScriptLex.LexTypes.Equal);
-                    var skip = chunk.EmitJump(OpCode.JumpIfFalse);
-                    CompileStatement();              // case body (single statement)
-                    lexer.Match(ScriptLex.LexTypes.RBreak);
-                    lexer.Match((ScriptLex.LexTypes)';');
-                    endJumps.Add(chunk.EmitJump(OpCode.Jump));
-                    chunk.PatchJump(skip);
+                    chunk.Emit(OpCode.Binary, (int)ScriptLex.LexTypes.Equal);  // [D, cmp]
+                    var skipBody = chunk.EmitJump(OpCode.JumpIfFalse);          // [D]
+
+                    // Case matched: discard the discriminant copy, run body.
+                    chunk.Emit(OpCode.Pop);                    // []
+                    CompileSwitchBody();                       // statements until next case/default/}
+                    ctx.BreakJumps.Add(chunk.EmitJump(OpCode.Jump)); // end-of-case → end
+
+                    chunk.PatchJump(skipBody);                 // no-match: fall to next test
                 }
                 else
                 {
                     lexer.Match(ScriptLex.LexTypes.RDefault);
                     lexer.Match((ScriptLex.LexTypes)':');
-                    CompileStatement();
-                    lexer.Match(ScriptLex.LexTypes.RBreak);
-                    lexer.Match((ScriptLex.LexTypes)';');
-                    endJumps.Add(chunk.EmitJump(OpCode.Jump));
+                    // Clone lexer here so we can compile the body after all cases.
+                    defaultBodyLexer = lexer.CloneToEnd(lexer.TokenStart);
+                    SkipSwitchBody();                          // advance main lexer past body
                 }
+            }
+
+            // No case matched: pop discriminant, then run default body (if any).
+            chunk.Emit(OpCode.Pop);                            // []
+            if (defaultBodyLexer != null)
+            {
+                var savedLexer = lexer;
+                lexer = defaultBodyLexer;
+                CompileSwitchBody();
+                lexer = savedLexer;
             }
 
             lexer.Match((ScriptLex.LexTypes)'}');
 
-            PatchJumps(endJumps, chunk.Count);
-            chunk.Emit(OpCode.Pop); // discard the discriminant
+            // Patch all explicit `break` jumps and implicit end-of-case jumps here.
+            PatchJumps(ctx.BreakJumps, chunk.Count);
+            loops.Pop();
+        }
+
+        // Compile zero or more statements up to the next `case`, `default`, `}`, or EOF.
+        private void CompileSwitchBody()
+        {
+            while (lexer.TokenType is not ScriptLex.LexTypes.RCase
+                                   and not ScriptLex.LexTypes.RDefault
+                                   and not (ScriptLex.LexTypes)'}'
+                                   and not ScriptLex.LexTypes.Eof)
+            {
+                CompileStatement();
+            }
+        }
+
+        // Advance the lexer past a switch body without emitting bytecode.
+        // Stops when `case`, `default`, or `}` is reached at nesting depth 0.
+        private void SkipSwitchBody()
+        {
+            var depth = 0;
+            while (lexer.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = lexer.TokenType;
+                if (depth == 0 && t is ScriptLex.LexTypes.RCase
+                                    or ScriptLex.LexTypes.RDefault
+                                    or (ScriptLex.LexTypes)'}')
+                    break;
+                if (t == (ScriptLex.LexTypes)'{') depth++;
+                else if (t == (ScriptLex.LexTypes)'}') depth--;
+                lexer.GetNextToken();
+            }
         }
 
         private void CompileThrow()

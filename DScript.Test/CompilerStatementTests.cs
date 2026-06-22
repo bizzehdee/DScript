@@ -103,10 +103,99 @@ namespace DScript.Test
         }
 
         [Test]
-        public void Switch()
+        public void SwitchMatchesCorrectCase()
         {
-            Assert.That(IntOf("var s; switch (2) { case 1: s = 10; break; case 2: s = 20; break; default: s = 30; break; }", "s"), Is.EqualTo(20));
-            Assert.That(IntOf("var s; switch (9) { case 1: s = 10; break; default: s = 30; break; }", "s"), Is.EqualTo(30));
+            Assert.That(IntOf("var s; switch (2) { case 1: s = 10; break; case 2: s = 20; break; default: s = 30; }", "s"), Is.EqualTo(20));
+            Assert.That(IntOf("var s; switch (1) { case 1: s = 10; break; case 2: s = 20; break; default: s = 30; }", "s"), Is.EqualTo(10));
+        }
+
+        [Test]
+        public void SwitchDefaultWhenNoMatch()
+        {
+            Assert.That(IntOf("var s; switch (9) { case 1: s = 10; break; default: s = 30; }", "s"), Is.EqualTo(30));
+            Assert.That(IntOf("var s; switch (9) { case 1: s = 10; case 2: s = 20; default: s = 99; }", "s"), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void SwitchNoMatchNoDefault()
+        {
+            // No case matches and no default — s stays at its initial value.
+            Assert.That(IntOf("var s = 42; switch (9) { case 1: s = 1; case 2: s = 2; }", "s"), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void SwitchMultiStatementBody()
+        {
+            // Case body with multiple statements (no block required).
+            const string src = "var s = 0; var t = 0; switch (1) { case 1: s = 10; t = 20; break; case 2: s = 99; }";
+            var globals = RunProgram(src);
+            Assert.That(globals.GetParameter("s").Int, Is.EqualTo(10));
+            Assert.That(globals.GetParameter("t").Int, Is.EqualTo(20));
+        }
+
+        [Test]
+        public void SwitchBreakIsOptional()
+        {
+            // Without `break`, case body ends at the next `case` keyword — no fallthrough.
+            Assert.That(IntOf("var s; switch (1) { case 1: s = 10; case 2: s = 20; }", "s"), Is.EqualTo(10));
+            Assert.That(IntOf("var s; switch (2) { case 1: s = 10; case 2: s = 20; }", "s"), Is.EqualTo(20));
+        }
+
+        [Test]
+        public void SwitchDefaultAnywhere()
+        {
+            // default clause appearing before case clauses.
+            Assert.That(IntOf("var s; switch (2) { default: s = 99; case 1: s = 10; case 2: s = 20; }", "s"), Is.EqualTo(20));
+            Assert.That(IntOf("var s; switch (9) { default: s = 99; case 1: s = 10; case 2: s = 20; }", "s"), Is.EqualTo(99));
+
+            // default clause between two case clauses.
+            Assert.That(IntOf("var s; switch (2) { case 1: s = 10; default: s = 99; case 2: s = 20; }", "s"), Is.EqualTo(20));
+            Assert.That(IntOf("var s; switch (9) { case 1: s = 10; default: s = 99; case 2: s = 20; }", "s"), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void SwitchContinueTargetsOuterLoop()
+        {
+            // `continue` inside a switch should continue the enclosing loop, not the switch.
+            const string src = @"
+var count = 0;
+var i = 0;
+while (i < 3) {
+    i = i + 1;
+    switch (i) {
+        case 2: count = count + 10; continue;
+        default: count = count + 1;
+    }
+    count = count + 100;
+}";
+            // i=1: default → count+=1, then count+=100  → count=101
+            // i=2: case 2 → count+=10, continue (skips count+=100) → count=111
+            // i=3: default → count+=1, then count+=100  → count=212
+            Assert.That(IntOf(src, "count"), Is.EqualTo(212));
+        }
+
+        [Test]
+        public void SwitchStringDiscriminant()
+        {
+            Assert.That(IntOf(@"var s; switch (""b"") { case ""a"": s = 1; break; case ""b"": s = 2; break; default: s = 3; }", "s"), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void SwitchNestedInLoop()
+        {
+            const string src = @"
+var total = 0;
+var i = 0;
+while (i < 4) {
+    i = i + 1;
+    switch (i) {
+        case 2: total = total + 20; break;
+        case 3: total = total + 30; break;
+        default: total = total + 1;
+    }
+}";
+            // i=1 → default +1; i=2 → +20; i=3 → +30; i=4 → default +1  → total = 52
+            Assert.That(IntOf(src, "total"), Is.EqualTo(52));
         }
 
         [Test]
