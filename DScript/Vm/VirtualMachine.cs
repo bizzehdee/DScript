@@ -91,7 +91,7 @@ namespace DScript.Vm
         }
 
         // Per-VM inline property cache: a direct-mapped array of 256 slots, indexed
-        // by (nameIndex & 0xFF). Each slot stores the last object seen at that site,
+        // by Fibonacci hash ((uint)nameIndex * 2654435761u >> 24). Each slot stores the last object seen at that site,
         // its shape version at cache-fill time, the interned property name, and the
         // cached link. A hit requires both reference equality of the object and a
         // matching shape version (ensuring no structural changes since fill time).
@@ -389,13 +389,11 @@ namespace DScript.Vm
                         var name = chunk.Names[nameIdx];
                         var obj = Pop();
 
-                        // Inline property cache: direct-mapped by (nameIdx & 0xFF).
-                        // Valid when the cached object is the same instance and the
-                        // shape has not changed (no adds/removes since cache fill).
-                        // We cache the ScriptVarLink rather than the value so that
-                        // mutations via ReplaceWith on existing properties are always
-                        // visible through ce.Link.Var without requiring invalidation.
-                        var cacheSlot = nameIdx & 0xFF;
+                        // Inline property cache: 256-slot direct-mapped, hashed via
+                        // Fibonacci/multiplicative hashing so that names whose indices
+                        // share the same low byte are spread across distinct slots rather
+                        // than evicting each other on every access.
+                        var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
                         if (ReferenceEquals(ce.Object, obj) &&
                             ce.ShapeVersion == obj.ShapeVersion &&
