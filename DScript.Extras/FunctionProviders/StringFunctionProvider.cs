@@ -238,5 +238,162 @@ namespace DScript.Extras.FunctionProviders
 
             var.ReturnVar.Int = lastIndex;
         }
+
+        [ScriptMethod("startsWith", "prefix", "pos")]
+        public static void StringStartsWithImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var prefix = var.GetParameter("prefix").String;
+            var posVar = var.GetParameter("pos");
+            var pos = posVar.IsUndefined ? 0 : posVar.Int;
+            if (pos < 0) pos = 0;
+            if (pos > str.Length) pos = str.Length;
+            var.ReturnVar.Int = str.IndexOf(prefix, pos, StringComparison.Ordinal) == pos ? 1 : 0;
+        }
+
+        [ScriptMethod("endsWith", "suffix", "len")]
+        public static void StringEndsWithImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var suffix = var.GetParameter("suffix").String;
+            var lenVar = var.GetParameter("len");
+            var end = lenVar.IsUndefined ? str.Length : Math.Min(Math.Max(lenVar.Int, 0), str.Length);
+            if (suffix.Length > end)
+            {
+                var.ReturnVar.Int = 0;
+                return;
+            }
+            var start = end - suffix.Length;
+            var.ReturnVar.Int = str.IndexOf(suffix, start, StringComparison.Ordinal) == start ? 1 : 0;
+        }
+
+        [ScriptMethod("includes", "search", "pos")]
+        public static void StringIncludesImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var search = var.GetParameter("search").String;
+            var posVar = var.GetParameter("pos");
+            var pos = posVar.IsUndefined ? 0 : posVar.Int;
+            if (pos < 0) pos = 0;
+            if (pos > str.Length) pos = str.Length;
+            var.ReturnVar.Int = str.IndexOf(search, pos, StringComparison.Ordinal) >= 0 ? 1 : 0;
+        }
+
+        [ScriptMethod("repeat", "n")]
+        public static void StringRepeatImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var n = var.GetParameter("n").Int;
+            if (n <= 0 || str.Length == 0) { var.ReturnVar.String = ""; return; }
+            var sb = new System.Text.StringBuilder(str.Length * n);
+            for (var i = 0; i < n; i++) sb.Append(str);
+            var.ReturnVar.String = sb.ToString();
+        }
+
+        [ScriptMethod("padStart", "len", "fill")]
+        public static void StringPadStartImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var len = var.GetParameter("len").Int;
+            var fillVar = var.GetParameter("fill");
+            var fill = fillVar.IsUndefined ? " " : fillVar.String;
+            if (fill.Length == 0 || str.Length >= len) { var.ReturnVar.String = str; return; }
+            var needed = len - str.Length;
+            var repeated = string.Concat(System.Linq.Enumerable.Repeat(fill, (needed / fill.Length) + 1))
+                                 .Substring(0, needed);
+            var.ReturnVar.String = repeated + str;
+        }
+
+        [ScriptMethod("padEnd", "len", "fill")]
+        public static void StringPadEndImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var len = var.GetParameter("len").Int;
+            var fillVar = var.GetParameter("fill");
+            var fill = fillVar.IsUndefined ? " " : fillVar.String;
+            if (fill.Length == 0 || str.Length >= len) { var.ReturnVar.String = str; return; }
+            var needed = len - str.Length;
+            var repeated = string.Concat(System.Linq.Enumerable.Repeat(fill, (needed / fill.Length) + 1))
+                                 .Substring(0, needed);
+            var.ReturnVar.String = str + repeated;
+        }
+
+        [ScriptMethod("slice", "start", "end")]
+        public static void StringSliceImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var startVar = var.GetParameter("start");
+            var endVar = var.GetParameter("end");
+            var len = str.Length;
+
+            var start = startVar.IsUndefined ? 0 : startVar.Int;
+            var end = endVar.IsUndefined ? len : endVar.Int;
+
+            if (start < 0) start = Math.Max(len + start, 0);
+            if (end < 0) end = Math.Max(len + end, 0);
+            if (start > len) start = len;
+            if (end > len) end = len;
+            if (end <= start) { var.ReturnVar.String = ""; return; }
+
+            var.ReturnVar.String = str.Substring(start, end - start);
+        }
+
+        [ScriptMethod("trimStart")]
+        public static void StringTrimStartImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.String = var.GetParameter("this").String.TrimStart();
+        }
+
+        [ScriptMethod("trimEnd")]
+        public static void StringTrimEndImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.String = var.GetParameter("this").String.TrimEnd();
+        }
+
+        [ScriptMethod("replaceAll", "what", "with")]
+        public static void StringReplaceAllImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var what = var.GetParameter("what").String;
+            var with = var.GetParameter("with").String;
+            var.ReturnVar.String = str.Replace(what, with);
+        }
+
+        [ScriptMethod("at", "index")]
+        public static void StringAtImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var index = var.GetParameter("index").Int;
+            if (index < 0) index = str.Length + index;
+            if (index < 0 || index >= str.Length) { var.ReturnVar.String = ""; return; }
+            var.ReturnVar.String = str[index].ToString();
+        }
+
+        [ScriptMethod("search", "regex")]
+        public static void StringSearchImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var regex = (Regex)var.GetParameter("regex").GetData();
+            var match = regex.Match(str);
+            var.ReturnVar.Int = match.Success ? match.Index : -1;
+        }
+
+        [ScriptMethod("matchAll", "regex")]
+        public static void StringMatchAllImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var regex = (Regex)var.GetParameter("regex").GetData();
+            var matches = regex.Matches(str);
+            var.ReturnVar.SetArray();
+            for (var i = 0; i < matches.Count; i++)
+            {
+                var matchArr = new ScriptVar();
+                matchArr.SetArray();
+                var groups = matches[i].Groups;
+                for (var g = 0; g < groups.Count; g++)
+                    matchArr.SetArrayIndex(g, new ScriptVar(groups[g].Value));
+                var.ReturnVar.SetArrayIndex(i, matchArr);
+            }
+        }
     }
 }
