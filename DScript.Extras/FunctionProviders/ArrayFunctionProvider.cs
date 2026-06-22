@@ -383,5 +383,342 @@ namespace DScript.Extras.FunctionProviders
 
             var.ReturnVar = accumulator;
         }
+
+        // ── ES2015+ instance methods ──────────────────────────────────────────
+
+        [ScriptMethod("find", "callback")]
+        public static void ArrayFindImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+            for (var x = 0; x < len; x++)
+            {
+                var elem = arr.GetArrayIndex(x);
+                if (engine.CallFunction(callback, null, elem, new ScriptVar(x), arr).Bool)
+                {
+                    var.ReturnVar = elem;
+                    return;
+                }
+            }
+            var.ReturnVar.SetUndefined();
+        }
+
+        [ScriptMethod("findIndex", "callback")]
+        public static void ArrayFindIndexImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+            for (var x = 0; x < len; x++)
+            {
+                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr).Bool)
+                {
+                    var.ReturnVar.Int = x;
+                    return;
+                }
+            }
+            var.ReturnVar.Int = -1;
+        }
+
+        [ScriptMethod("findLast", "callback")]
+        public static void ArrayFindLastImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+            for (var x = len - 1; x >= 0; x--)
+            {
+                var elem = arr.GetArrayIndex(x);
+                if (engine.CallFunction(callback, null, elem, new ScriptVar(x), arr).Bool)
+                {
+                    var.ReturnVar = elem;
+                    return;
+                }
+            }
+            var.ReturnVar.SetUndefined();
+        }
+
+        [ScriptMethod("findLastIndex", "callback")]
+        public static void ArrayFindLastIndexImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+            for (var x = len - 1; x >= 0; x--)
+            {
+                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr).Bool)
+                {
+                    var.ReturnVar.Int = x;
+                    return;
+                }
+            }
+            var.ReturnVar.Int = -1;
+        }
+
+        [ScriptMethod("some", "callback")]
+        public static void ArraySomeImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+            for (var x = 0; x < len; x++)
+            {
+                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr).Bool)
+                {
+                    var.ReturnVar.Int = 1;
+                    return;
+                }
+            }
+            var.ReturnVar.Int = 0;
+        }
+
+        [ScriptMethod("every", "callback")]
+        public static void ArrayEveryImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+            for (var x = 0; x < len; x++)
+            {
+                if (!engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr).Bool)
+                {
+                    var.ReturnVar.Int = 0;
+                    return;
+                }
+            }
+            var.ReturnVar.Int = 1;
+        }
+
+        [ScriptMethod("includes", "val")]
+        public static void ArrayIncludesImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var val = var.GetParameter("val");
+            var len = arr.GetArrayLength();
+            for (var x = 0; x < len; x++)
+            {
+                if (arr.GetArrayIndex(x).Equal(val)) { var.ReturnVar.Int = 1; return; }
+            }
+            var.ReturnVar.Int = 0;
+        }
+
+        [ScriptMethod("flat", "depth")]
+        public static void ArrayFlatImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var depthVar = var.GetParameter("depth");
+            var depth = depthVar.IsUndefined ? 1 : depthVar.Int;
+            var result = new ScriptVar();
+            result.SetArray();
+            FlattenInto(result, arr, depth);
+            var.ReturnVar = result;
+        }
+
+        private static void FlattenInto(ScriptVar target, ScriptVar src, int depth)
+        {
+            var len = src.GetArrayLength();
+            var outIdx = target.GetArrayLength();
+            for (var i = 0; i < len; i++)
+            {
+                var elem = src.GetArrayIndex(i);
+                if (depth > 0 && elem.IsArray)
+                    FlattenInto(target, elem, depth - 1);
+                else
+                    target.SetArrayIndex(outIdx++, elem.DeepCopy());
+            }
+        }
+
+        [ScriptMethod("flatMap", "callback")]
+        public static void ArrayFlatMapImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+            var mapped = new ScriptVar();
+            mapped.SetArray();
+            for (var x = 0; x < len; x++)
+                mapped.SetArrayIndex(x, engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr));
+            var result = new ScriptVar();
+            result.SetArray();
+            FlattenInto(result, mapped, 1);
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("fill", "val", "start", "end")]
+        public static void ArrayFillImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var val = var.GetParameter("val");
+            var len = arr.GetArrayLength();
+            var startVar = var.GetParameter("start");
+            var endVar = var.GetParameter("end");
+            var start = startVar.IsUndefined ? 0 : startVar.Int;
+            var end = endVar.IsUndefined ? len : endVar.Int;
+            if (start < 0) start = Math.Max(len + start, 0);
+            if (end < 0) end = Math.Max(len + end, 0);
+            if (start > len) start = len;
+            if (end > len) end = len;
+            for (var x = start; x < end; x++)
+                arr.SetArrayIndex(x, val.DeepCopy());
+            var.ReturnVar = arr;
+        }
+
+        [ScriptMethod("concat", "other")]
+        public static void ArrayConcatImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var other = var.GetParameter("other");
+            var result = new ScriptVar();
+            result.SetArray();
+            var outIdx = 0;
+            var lenA = arr.GetArrayLength();
+            for (var x = 0; x < lenA; x++)
+                result.SetArrayIndex(outIdx++, arr.GetArrayIndex(x).DeepCopy());
+            var lenB = other.GetArrayLength();
+            for (var x = 0; x < lenB; x++)
+                result.SetArrayIndex(outIdx++, other.GetArrayIndex(x).DeepCopy());
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("splice", "start", "deleteCount", "item")]
+        public static void ArraySpliceImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var len = arr.GetArrayLength();
+            var startVar = var.GetParameter("start");
+            var deleteCountVar = var.GetParameter("deleteCount");
+            var item = var.GetParameter("item");
+
+            var start = startVar.IsUndefined ? 0 : startVar.Int;
+            if (start < 0) start = Math.Max(len + start, 0);
+            if (start > len) start = len;
+
+            var deleteCount = deleteCountVar.IsUndefined ? len - start : Math.Min(Math.Max(deleteCountVar.Int, 0), len - start);
+
+            // Build removed array
+            var removed = new ScriptVar();
+            removed.SetArray();
+            for (var i = 0; i < deleteCount; i++)
+                removed.SetArrayIndex(i, arr.GetArrayIndex(start + i).DeepCopy());
+
+            // Collect remaining elements
+            var items = new System.Collections.Generic.List<ScriptVar>();
+            for (var i = 0; i < start; i++)
+                items.Add(arr.GetArrayIndex(i).DeepCopy());
+            if (!item.IsUndefined)
+                items.Add(item.DeepCopy());
+            for (var i = start + deleteCount; i < len; i++)
+                items.Add(arr.GetArrayIndex(i).DeepCopy());
+
+            // Rebuild array
+            for (var i = 0; i < items.Count; i++)
+                arr.SetArrayIndex(i, items[i]);
+            // Remove trailing slots if array shrank
+            for (var i = items.Count; i < len; i++)
+            {
+                var link = arr.FindChild(i.ToString());
+                if (link != null) arr.RemoveLink(link);
+            }
+
+            var.ReturnVar = removed;
+        }
+
+        [ScriptMethod("at", "index")]
+        public static void ArrayAtImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var index = var.GetParameter("index").Int;
+            var len = arr.GetArrayLength();
+            if (index < 0) index = len + index;
+            if (index < 0 || index >= len) { var.ReturnVar.SetUndefined(); return; }
+            var.ReturnVar = arr.GetArrayIndex(index);
+        }
+
+        [ScriptMethod("entries")]
+        public static void ArrayEntriesImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var len = arr.GetArrayLength();
+            var result = new ScriptVar();
+            result.SetArray();
+            for (var i = 0; i < len; i++)
+            {
+                var pair = new ScriptVar();
+                pair.SetArray();
+                pair.SetArrayIndex(0, new ScriptVar(i));
+                pair.SetArrayIndex(1, arr.GetArrayIndex(i).DeepCopy());
+                result.SetArrayIndex(i, pair);
+            }
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("keys")]
+        public static void ArrayKeysImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var len = arr.GetArrayLength();
+            var result = new ScriptVar();
+            result.SetArray();
+            for (var i = 0; i < len; i++)
+                result.SetArrayIndex(i, new ScriptVar(i));
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("values")]
+        public static void ArrayValuesImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var len = arr.GetArrayLength();
+            var result = new ScriptVar();
+            result.SetArray();
+            for (var i = 0; i < len; i++)
+                result.SetArrayIndex(i, arr.GetArrayIndex(i).DeepCopy());
+            var.ReturnVar = result;
+        }
+
+        // ── Static methods ────────────────────────────────────────────────────
+
+        [ScriptMethod("isArray", "val")]
+        public static void ArrayIsArrayImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.Int = var.GetParameter("val").IsArray ? 1 : 0;
+        }
+
+        [ScriptMethod("from", "iterable", "mapFn")]
+        public static void ArrayFromImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var iterable = var.GetParameter("iterable");
+            var mapFn = var.GetParameter("mapFn");
+            var result = new ScriptVar();
+            result.SetArray();
+            var len = iterable.GetArrayLength();
+            for (var i = 0; i < len; i++)
+            {
+                var elem = iterable.GetArrayIndex(i);
+                var mapped = mapFn.IsFunction ? engine.CallFunction(mapFn, null, elem, new ScriptVar(i)) : elem.DeepCopy();
+                result.SetArrayIndex(i, mapped);
+            }
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("of", "val")]
+        public static void ArrayOfImpl(ScriptVar var, object userData)
+        {
+            var val = var.GetParameter("val");
+            var result = new ScriptVar();
+            result.SetArray();
+            if (!val.IsUndefined)
+                result.SetArrayIndex(0, val.DeepCopy());
+            var.ReturnVar = result;
+        }
     }
 }
