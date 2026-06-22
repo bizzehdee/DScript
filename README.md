@@ -18,7 +18,7 @@ saved and re-run later. Functions are **lexically scoped closures**.
 
     // methods placed on the constructor are shared by every instance
     Animal.speak = function () {
-        return this.name + " makes a sound";
+        return `${this.name} makes a sound`;
     };
 
     var dog = new Animal("dog");
@@ -112,16 +112,18 @@ them — a loaded program just needs the host to register the same natives befor
 - Constructor functions (`new`), prototype chains and `instanceof`
 - Class methods and instance methods
 - Global, class, and method scope
-- Functions: named, anonymous, and nested; callable with fewer or more arguments than declared
+- Functions: named, anonymous, nested, and arrow functions (`=>`)
 - Arithmetic, comparison, bitwise and boolean operators
 - `if` / `else`, `while`, `do` / `while`, `for`, `for...in`, `switch` / `case` / `default`, `return`
 - `break` and `continue` within loops
 - Ternary (`?:`) expressions
 - `typeof`, `instanceof`, `in`, `delete`
 - Regular-expression literals (`/pattern/flags`)
+- Template literals (`` `Hello, ${name}!` ``)
 - Eval / Exec
-- Basic exception handling (`try` / `catch` / `finally` / `throw`)
+- Exception handling (`try` / `catch` / `finally` / `throw`) with rich script stack traces
 - Engine state serialization (save / restore)
+- Step debugger with breakpoints (`IDebugger`)
 - ...more
 
 Classes and objects
@@ -162,6 +164,60 @@ update an *own* property on the target object, so instances never share each oth
 state. `new Ctor` may be written with or without parentheses, and a constructor that
 returns an object uses that object as the result of the `new` expression.
 
+Arrow functions
+---------------
+
+Arrow functions provide a concise syntax for function expressions. All three forms
+are supported — no-parameter, single-parameter (no parentheses needed), and
+multi-parameter — for both expression bodies (implicit return) and block bodies.
+
+    // expression body — value is returned implicitly
+    var double  = x => x * 2;
+    var add     = (a, b) => a + b;
+    var getZero = () => 0;
+
+    double(5);    // 10
+    add(3, 4);    // 7
+
+    // block body — requires an explicit return
+    var clamp = (val, lo, hi) => {
+        if (val < lo) return lo;
+        if (val > hi) return hi;
+        return val;
+    };
+
+Arrow functions are closures and capture variables from the enclosing scope:
+
+    var factor = 3;
+    var triple = x => x * factor;
+    triple(7);    // 21
+
+They are particularly useful as callbacks to higher-order array methods:
+
+    var nums    = [1, 2, 3, 4, 5];
+    var doubled = nums.map(n => n * 2);         // [2, 4, 6, 8, 10]
+    var evens   = nums.filter(n => n % 2 == 0); // [2, 4]
+    var sum     = nums.reduce((acc, n) => acc + n, 0); // 15
+
+Template literals
+-----------------
+
+Template literals are backtick-delimited strings that support multi-character escape
+sequences and `${expression}` interpolation. Any expression — variable read, arithmetic,
+function call — may appear inside `${}`.
+
+    var name = "Alice";
+    var age  = 30;
+
+    console.log(`Hello, ${name}!`);             // Hello, Alice!
+    console.log(`In 10 years you'll be ${age + 10}.`);
+
+    function greet(n) { return `Hi, ${n}!`; }
+    greet("Bob");   // "Hi, Bob!"
+
+Escape sequences follow the same rules as regular strings (`\n`, `\t`, `\\`, etc.).
+Use `\$` to include a literal `$` without triggering interpolation.
+
 Iteration
 ---------
 
@@ -170,12 +226,87 @@ member names (and an array's index keys).
 
     var obj = { a: 1, b: 2, c: 3 };
     for (var key in obj) {
-        console.log(key + " = " + obj[key]);
+        console.log(`${key} = ${obj[key]}`);
     }
 
     var nums = [1, 2, 3, 4];
-    var doubled = nums.map(function (n) { return n * 2; });   // [2, 4, 6, 8]
-    var evens   = nums.filter(function (n) { return n % 2 == 0; });
+    var doubled = nums.map(n => n * 2);
+    var evens   = nums.filter(n => n % 2 == 0);
+
+Switch statements
+-----------------
+
+`switch` matches a discriminant against `case` values with strict equality. `default`
+may appear anywhere in the block. Unlike C, there is no fallthrough — each `case` body
+is independent. `break` is accepted (and does nothing extra) for compatibility. `continue`
+inside a `switch` that is itself inside a loop targets the enclosing loop, not the switch.
+
+    switch (status) {
+        case "ok":    return "all good";
+        case "warn":  return "check logs";
+        default:      return "unknown";
+    }
+
+Exception handling
+------------------
+
+`try` / `catch` / `finally` / `throw` work as in standard JavaScript. When an exception
+propagates out of a script call, the thrown `JITException` or `ScriptException` carries
+a `ScriptStackTrace` property — a list of `(Source, Line)` pairs — and its `ToString()`
+includes those frames for easy diagnostics.
+
+    try {
+        throw "something went wrong";
+    } catch (e) {
+        console.log(e);
+    } finally {
+        // always runs
+    }
+
+From C#:
+
+    try
+    {
+        engine.Run(program);
+    }
+    catch (JITException ex)
+    {
+        // ex.ScriptStackTrace — IReadOnlyList<(string Source, int Line)>
+        // ex.ToString()       — formatted with "at <fn> (line N)" frames
+        Console.Error.WriteLine(ex.ToString());
+    }
+
+Step debugger
+-------------
+
+Attach an `IDebugger` to pause execution at each source line, step over/into/out of
+calls, and inspect locals. The debugger fires before each new source line is executed
+and receives the current call stack with local variable snapshots.
+
+    using DScript.Debugger;
+
+    class MyDebugger : IDebugger
+    {
+        public DebugAction OnPause(DebugEvent ev)
+        {
+            var loc = ev.Location;
+            Console.WriteLine($"Paused at {loc.Source}:{loc.Line}");
+
+            foreach (var frame in ev.CallStack)
+            {
+                Console.WriteLine($"  in {frame.FunctionName}");
+                foreach (var (name, val) in frame.Locals)
+                    Console.WriteLine($"    {name} = {val}");
+            }
+
+            return DebugAction.StepIn;   // Continue / StepIn / StepOver / StepOut
+        }
+    }
+
+    engine.AttachDebugger(new MyDebugger(), initialAction: DebugAction.StepIn);
+    engine.AddBreakpoint("<main>", 5);   // break at line 5 of the main chunk
+    engine.Run(program);
+    engine.DetachDebugger();
 
 ***Arithmetic operators***
 +, -, *, /, %, ++, --  (and unary +, -)
