@@ -43,7 +43,7 @@ namespace DScript.Vm
         /// resolved against and re-resolves if it changes, so a freshly declared
         /// variable that shadows an outer one is never served stale from the cache.
         /// </summary>
-        public int Version;
+        public int Version { get; set; }
 
         public Environment(ScriptVar vars, Environment parent)
         {

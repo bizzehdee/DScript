@@ -309,10 +309,7 @@ namespace DScript
         /// </summary>
         public void DeserializeState(VMState state)
         {
-            if (state == null)
-            {
-                throw new ArgumentNullException(nameof(state));
-            }
+            ArgumentNullException.ThrowIfNull(state);
 
             using var ms = new System.IO.MemoryStream(state.RootState);
             using var reader = new System.IO.BinaryReader(ms);

@@ -76,9 +76,9 @@ namespace DScript.Vm
         /// </summary>
         public struct InlineCacheEntry
         {
-            public Environment Env;
-            public ScriptVarLink Link;
-            public int Version;
+            public Environment Env { get; set; }
+            public ScriptVarLink Link { get; set; }
+            public int Version { get; set; }
         }
 
         private InlineCacheEntry[] inlineCache;

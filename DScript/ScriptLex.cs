@@ -672,13 +672,13 @@ namespace DScript
         {
             if (TokenType != type)
             {
-                var expectedName = Enum.GetName(typeof(LexTypes), type);
+                var expectedName = Enum.GetName<LexTypes>(type);
                 if (string.IsNullOrEmpty(expectedName))
                 {
                     expectedName = $"{(char)type}";
                 }
 
-                var foundName = Enum.GetName(typeof(LexTypes), TokenType);
+                var foundName = Enum.GetName<LexTypes>(TokenType);
                 if (string.IsNullOrEmpty(foundName))
                 {
                     foundName = $"{(char)TokenType}";

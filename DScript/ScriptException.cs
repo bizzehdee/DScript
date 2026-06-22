@@ -21,11 +21,9 @@ SOFTWARE.
 */
 
 using System;
-using System.Runtime.Serialization;
 
 namespace DScript
 {
-    [Serializable]
     public class ScriptException : Exception
     {
         public ScriptException(string msg)
@@ -40,10 +38,5 @@ namespace DScript
 
         }
 
-        protected ScriptException(SerializationInfo serializationInfo, StreamingContext streamingContext)
-            : base(serializationInfo, streamingContext)
-        {
-            
-        }
     }
 }
