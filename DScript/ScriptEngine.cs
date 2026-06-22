@@ -348,12 +348,12 @@ namespace DScript
         /// Drain the micro-task queue, running all pending Promise callbacks.
         /// Call this after running async code to ensure all awaited work completes.
         /// </summary>
-        public void DrainMicroTasks() => Vm.MicroTaskQueue.DrainAll();
+        public static void DrainMicroTasks() => Vm.MicroTaskQueue.DrainAll();
 
         /// <summary>
         /// Enqueue a microtask to run on the next <see cref="DrainMicroTasks"/> call.
         /// </summary>
-        public void QueueMicrotask(Action task) => Vm.MicroTaskQueue.Enqueue(task);
+        public static void QueueMicrotask(Action task) => Vm.MicroTaskQueue.Enqueue(task);
 
         /// <summary>
         /// Invoke a script (or native) function programmatically. Lets native and

@@ -13,8 +13,6 @@ sealed class LspServer
     private readonly Stream _in;
     private readonly Stream _out;
     private readonly DocumentManager _docs;
-    private bool _initialized;
-
     public LspServer(Stream @in, Stream @out)
     {
         _in = @in;
@@ -72,7 +70,6 @@ sealed class LspServer
 
     private void HandleInitialize(RpcMessage msg)
     {
-        _initialized = true;
         JsonRpc.Write(_out, msg.Id!.Value, new
         {
             capabilities = new

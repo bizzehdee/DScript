@@ -72,7 +72,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var engine = (ScriptEngine)userData;
             var fn = var.GetParameter("fn");
-            engine.QueueMicrotask(() => engine.CallFunction(fn, null));
+            ScriptEngine.QueueMicrotask(() => engine.CallFunction(fn, null));
         }
     }
 }

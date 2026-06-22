@@ -29,7 +29,7 @@ namespace DScript.Vm
     /// Implements the generator protocol using two semaphores to synchronise
     /// the caller thread with the generator body thread.
     /// </summary>
-    internal sealed class GeneratorObject
+    internal sealed class GeneratorObject : IDisposable
     {
         private Thread _thread;
         private readonly SemaphoreSlim _callerReady = new(0, 1);
@@ -39,6 +39,12 @@ namespace DScript.Vm
         private bool _done;
         private Exception _error;
         private bool _started;
+
+        public void Dispose()
+        {
+            _callerReady.Dispose();
+            _generatorReady.Dispose();
+        }
 
         /// <summary>
         /// Called from within the generator body (VM Yield opcode handler).

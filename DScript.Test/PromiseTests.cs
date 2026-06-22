@@ -35,7 +35,7 @@ namespace DScript.Test
             var engine = new ScriptEngine();
             var chunk = new DScriptCompiler().CompileProgram(source);
             new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
-            engine.DrainMicroTasks();
+            ScriptEngine.DrainMicroTasks();
             return engine.Root.GetParameter("r").Int;
         }
 

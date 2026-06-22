@@ -1283,7 +1283,7 @@ namespace DScript.Vm
 
         // Build a call environment for a VmFunction from a ScriptVar[] args array.
         // Used by the generator path to capture args before starting the body thread.
-        private Environment BuildCallEnvironment(VmFunction vmfn, ScriptVar thisArg, ScriptVar[] args)
+        private static Environment BuildCallEnvironment(VmFunction vmfn, ScriptVar thisArg, ScriptVar[] args)
         {
             var vars = new ScriptVar(ScriptVar.Flags.Object); // generators never recycle frames
             var env = new Environment(vars, vmfn.Captured);

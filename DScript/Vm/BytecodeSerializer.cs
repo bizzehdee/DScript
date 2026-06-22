@@ -20,6 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -221,7 +222,7 @@ namespace DScript.Vm
             var end = idx;
             while (end < obj.Length && (char.IsDigit(obj[end]) || obj[end] == '-')) end++;
             if (end == idx) return -1;
-            return int.TryParse(obj.Substring(idx, end - idx), out var v) ? v : -1;
+            return int.TryParse(obj.AsSpan(idx, end - idx), out var v) ? v : -1;
         }
 
         private static string JsonString(string s)
