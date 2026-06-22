@@ -214,6 +214,10 @@ namespace DScript.Vm
             var cache = chunk.InlineCache;
             var ip = 0;
 
+            // Block-scope env stack: EnterBlock pushes the outer env here and
+            // switches to a new child env; LeaveBlock restores the saved env.
+            Stack<Environment> blockEnvStack = null;
+
             // Save handler-stack depth so any unclosed frames from this invocation
             // (e.g. `return` mid-try without finally) are cleaned up on all exit paths.
             var savedTryDepth = tryStack.Count;
@@ -328,14 +332,27 @@ namespace DScript.Vm
                     case OpCode.DeclareVar:
                     {
                         var name = chunk.Names[ReadOperand(code, ref ip)];
-                        env.Vars.FindChildOrCreate(name);
-                        env.Version++; // a new binding may shadow a cached outer resolution
+                        // `var` is function-scoped: skip any block scopes pushed by
+                        // EnterBlock and declare in the nearest non-block environment.
+                        var declEnv = env;
+                        while (declEnv.IsBlockScope && declEnv.Parent != null)
+                            declEnv = declEnv.Parent;
+                        declEnv.Vars.FindChildOrCreate(name);
+                        declEnv.Version++; // a new binding may shadow a cached outer resolution
                         break;
                     }
                     case OpCode.DeclareConst:
                     {
                         var name = chunk.Names[ReadOperand(code, ref ip)];
                         env.Vars.FindChildOrCreate(name, ScriptVar.Flags.Undefined, readOnly: true);
+                        env.Version++; // a new binding may shadow a cached outer resolution
+                        break;
+                    }
+                    case OpCode.DeclareLocal:
+                    {
+                        // `let`: declare in the innermost scope (no hoisting past blocks).
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
+                        env.Vars.FindChildOrCreate(name);
                         env.Version++; // a new binding may shadow a cached outer resolution
                         break;
                     }
@@ -722,6 +739,19 @@ namespace DScript.Vm
                         pendingReturnValue = Pop();
                         hasPendingReturn = true;
                         break;
+
+                    case OpCode.EnterBlock:
+                    {
+                        blockEnvStack ??= new Stack<Environment>();
+                        blockEnvStack.Push(env);
+                        env = new Environment(new ScriptVar(ScriptVar.Flags.Object), env, isBlockScope: true);
+                        break;
+                    }
+                    case OpCode.LeaveBlock:
+                    {
+                        env = blockEnvStack.Pop();
+                        break;
+                    }
 
                     case OpCode.Return:
                         return Pop();

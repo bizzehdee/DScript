@@ -48,6 +48,7 @@ namespace DScript.Vm
                 case OpCode.SetVar:
                 case OpCode.DeclareVar:
                 case OpCode.DeclareConst:
+                case OpCode.DeclareLocal:
                 case OpCode.GetProp:
                 case OpCode.SetProp:
                 case OpCode.DeleteProp:
@@ -145,6 +146,7 @@ namespace DScript.Vm
                 case OpCode.SetVar:
                 case OpCode.DeclareVar:
                 case OpCode.DeclareConst:
+                case OpCode.DeclareLocal:
                 case OpCode.GetProp:
                 case OpCode.SetProp:
                 case OpCode.DeleteProp:

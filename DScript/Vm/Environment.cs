@@ -45,10 +45,19 @@ namespace DScript.Vm
         /// </summary>
         public int Version { get; set; }
 
-        public Environment(ScriptVar vars, Environment parent)
+        /// <summary>
+        /// True for synthetic scopes created by <see cref="OpCode.EnterBlock"/>.
+        /// <c>var</c> declarations (as opposed to <c>let</c>/<c>const</c>) skip
+        /// block scopes and hoist into the nearest enclosing non-block environment,
+        /// preserving JavaScript's function-scoped <c>var</c> semantics.
+        /// </summary>
+        public bool IsBlockScope { get; }
+
+        public Environment(ScriptVar vars, Environment parent, bool isBlockScope = false)
         {
             Vars = vars;
             Parent = parent;
+            IsBlockScope = isBlockScope;
         }
 
         /// <summary>Find the binding for <paramref name="name"/>, or null.</summary>

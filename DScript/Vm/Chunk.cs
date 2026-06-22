@@ -242,6 +242,12 @@ namespace DScript.Vm
         /// <summary>Intern an identifier/property name, returning its index.</summary>
         public int AddName(string name)
         {
+            // Canonicalise the string via the runtime intern table so that all
+            // references to the same name share a single string instance. This
+            // allows future property-lookup hot paths to use ReferenceEquals
+            // instead of character-by-character comparison.
+            name = string.Intern(name);
+
             if (nameToIndex == null)
             {
                 // Seed from any names already present (e.g. populated directly by
@@ -387,7 +393,7 @@ namespace DScript.Vm
             OpCode.BinaryConst     =>  9, // 1 + 4*2
             OpCode.BinaryIntConst  =>  9, // 1 + 4*2
             OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
-            OpCode.DeclareVar   or OpCode.DeclareConst or
+            OpCode.DeclareVar   or OpCode.DeclareConst or OpCode.DeclareLocal or
             OpCode.GetProp      or OpCode.SetProp      or OpCode.DeleteProp or
             OpCode.Binary       or OpCode.Shift        or
             OpCode.Jump         or OpCode.JumpIfFalse  or OpCode.JumpIfTrue or

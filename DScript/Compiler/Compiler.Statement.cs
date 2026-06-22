@@ -120,16 +120,45 @@ namespace DScript.Compiler
         private void CompileBlock()
         {
             lexer.Match((ScriptLex.LexTypes)'{');
+
+            // If the block contains any `let` or `const` declarations at the top
+            // level of this block (depth 0), we need a dedicated scope frame so
+            // those bindings are invisible outside the braces.
+            var needsBlockScope = PeekHasLetOrConst();
+            if (needsBlockScope) chunk.Emit(OpCode.EnterBlock);
+
             while (lexer.TokenType != (ScriptLex.LexTypes)'}' && lexer.TokenType != ScriptLex.LexTypes.Eof)
             {
                 CompileStatement();
             }
+
+            if (needsBlockScope) chunk.Emit(OpCode.LeaveBlock);
             lexer.Match((ScriptLex.LexTypes)'}');
+        }
+
+        // Lookahead: does the current block (starting just after '{') contain any
+        // `let` or `const` declaration at depth 0 (not nested in inner braces)?
+        private bool PeekHasLetOrConst()
+        {
+            var clone = lexer.CloneToEnd(lexer.TokenStart);
+            var depth = 0;
+            while (clone.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = clone.TokenType;
+                if (t == (ScriptLex.LexTypes)'}' && depth == 0) break;
+                if (depth == 0 && (t == ScriptLex.LexTypes.RLet || t == ScriptLex.LexTypes.RConst))
+                    return true;
+                if (t == (ScriptLex.LexTypes)'{') depth++;
+                else if (t == (ScriptLex.LexTypes)'}') depth--;
+                clone.GetNextToken();
+            }
+            return false;
         }
 
         private void CompileVarDeclaration()
         {
             var readOnly = lexer.TokenType == ScriptLex.LexTypes.RConst;
+            var isLet    = lexer.TokenType == ScriptLex.LexTypes.RLet;
             lexer.Match(lexer.TokenType);
 
             while (lexer.TokenType != (ScriptLex.LexTypes)';')
@@ -138,7 +167,13 @@ namespace DScript.Compiler
                 lexer.Match(ScriptLex.LexTypes.Id);
                 var nameIndex = chunk.AddName(name);
 
-                chunk.Emit(readOnly ? OpCode.DeclareConst : OpCode.DeclareVar, nameIndex);
+                // `const` → DeclareConst (read-only binding in innermost scope)
+                // `let`   → DeclareLocal (mutable binding in innermost scope, no hoisting)
+                // `var`   → DeclareVar   (mutable binding hoisted past block scopes)
+                OpCode declOp = readOnly ? OpCode.DeclareConst
+                                         : isLet ? OpCode.DeclareLocal
+                                                 : OpCode.DeclareVar;
+                chunk.Emit(declOp, nameIndex);
 
                 if (lexer.TokenType == (ScriptLex.LexTypes)'=')
                 {
@@ -324,7 +359,7 @@ namespace DScript.Compiler
 
         private void CompileForIn()
         {
-            if (lexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst)
+            if (lexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst or ScriptLex.LexTypes.RLet)
             {
                 lexer.Match(lexer.TokenType);
             }

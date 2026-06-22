@@ -133,5 +133,11 @@ namespace DScript.Vm
                          //                 propagate pending return, or fall through
         SaveReturn,      //                 pop top of stack, save as pending return value
                          //                 (used when `return` appears inside try-with-finally)
+
+        // --- block scoping --------------------------------------------------
+        EnterBlock,      //                 push a new child scope frame (for `let`/`const` blocks)
+        LeaveBlock,      //                 pop the innermost scope frame (restore parent)
+        DeclareLocal,    // [i nameIndex]   declare a block-local variable in the innermost
+                         //                 scope (used for `let`; does NOT hoist past blocks)
     }
 }
