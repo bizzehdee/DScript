@@ -37,6 +37,9 @@ namespace DScript.Extras
         public void RegisterFunctions(ScriptEngine engine)
         {
             GeneratedFunctionRegistrar.RegisterAll(engine, engine);
+            DateRegistrar.Register(engine);
+            MapRegistrar.Register(engine);
+            SetRegistrar.Register(engine);
         }
 
         /// <summary>

@@ -1047,7 +1047,7 @@ namespace DScript
             return $"{GetObjectType()} , {String}";
         }
 
-        internal void SetData(object data)
+        public void SetData(object data)
         {
             scriptData = data;
         }
