@@ -19,11 +19,15 @@ old engine is too slow for the full workload.
 
 Sections
 --------
-  workloads           Execute() timings comparable across both engines.
-  compile-once        Demonstrates compile-once / run-many advantage.
-  optimizer impact    Optimised bytecode vs baseline (fusion only);
-                      shows byte/instruction savings and speedup.
-  bytecode showcase   Disassembly of key patterns before and after.
+  workloads               Execute() timings comparable across both engines.
+  compile-once            Demonstrates compile-once / run-many advantage.
+  optimizer impact        Optimised bytecode vs baseline (fusion only);
+                          shows byte/instruction savings and speedup.
+  optimisation candidates One workload per plan.md item (§1–§6); each
+                          measured as average of 3 runs after 1 warm-up.
+                          These are the baselines to beat once each
+                          optimisation is implemented.
+  bytecode showcase       Disassembly of key patterns before and after.
 */
 
 using System;
@@ -107,6 +111,7 @@ internal static class Program
 
         CompileOnceDemo();
         OptimizerImpactSection(scale);
+        OptimisationCandidatesSection(scale);
         BytecodeShowcase();
     }
 
@@ -408,5 +413,128 @@ internal static class Program
             if (trimmed.Length > 0)
                 Console.WriteLine(prefix + trimmed);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Average-of-3 helper (1 warm-up run discarded)
+
+    private static (double avgMs, double avgAllocMb, string result) AverageOf3(string code)
+    {
+        TimeExecute(code, out _, out _); // discard warm-up
+
+        var totalMs    = 0.0;
+        var totalAlloc = 0L;
+        string result  = null;
+        for (var run = 0; run < 3; run++)
+        {
+            var ms = TimeExecute(code, out result, out var alloc);
+            totalMs    += ms;
+            totalAlloc += alloc;
+        }
+        return (totalMs / 3.0, totalAlloc / 3.0 / (1024.0 * 1024.0), result);
+    }
+
+    // -------------------------------------------------------------------------
+    // Optimisation candidates — one workload per plan.md §1–§6.
+    // Measured as average of 3 runs after 1 warm-up so variance is visible.
+    // Run this section before and after each optimisation is implemented to
+    // verify improvement.
+
+    private static void OptimisationCandidatesSection(double scale)
+    {
+        // Scale the inner repetition counts so each workload takes a
+        // measurable but not excessive time at the default scale=1.
+        var compoundN   = (int)(500_000 * scale);   // §1 compound assign
+        var propStressN = (int)(200_000 * scale);   // §2 GetProp cache
+        var spreadN     = (int)(Math.Max(10,  100 * scale));  // §3 spread array size
+        var spreadReps  = (int)(Math.Max(1,   300 * scale));  // §3 spread reps
+        var forOfN      = (int)(Math.Max(10, 1000 * scale));  // §4 for..of array size
+        var forOfReps   = (int)(Math.Max(1,   500 * scale));  // §4 for..of reps
+        var litReps     = (int)(Math.Max(1, 30_000 * scale)); // §5 literal spread reps
+        var genN        = (int)(Math.Max(10,  300 * scale));  // §6 generator range size
+        var genReps     = (int)(Math.Max(1,    50 * scale));  // §6 generator reps
+
+        var candidates = new (string label, string code)[]
+        {
+            // §1 — Compound-assignment BinaryIntConst peephole
+            //      i++ and s+=i bypass TryUpgradeBinaryConstToInt today;
+            //      every iteration pays a pool-lookup + kind-check overhead.
+            ($"§1 compound assign i++ (n={compoundN})",
+                $"var s=0; for(var i=0;i<{compoundN};i++){{s+=i;}} result=s;"),
+
+            // §2 — GetProp cache hash improvement
+            //      8 properties whose name-index low bytes may alias under
+            //      the current & 0xFF mapping, causing repeated evictions.
+            ($"§2 getprop cache 8-key stress (n={propStressN})",
+                $"var o={{aa:1,bb:2,cc:3,dd:4,ee:5,ff:6,gg:7,hh:8}};" +
+                $"var s=0;" +
+                $"for(var i=0;i<{propStressN};i++){{" +
+                $"  s=s+o.aa+o.bb+o.cc+o.dd+o.ee+o.ff+o.gg+o.hh;" +
+                $"}}" +
+                $"result=s;"),
+
+            // §3 — Spread single-pass helper
+            //      [...a,...a] walks the linked list O(n) times per element
+            //      today, making the total cost O(n²); ExtractArrayElements
+            //      reduces it to O(n).
+            ($"§3 spread array n={spreadN} ×{spreadReps}",
+                $"var a=[];" +
+                $"for(var i=0;i<{spreadN};i++){{a[i]=i;}}" +
+                $"var s=0;" +
+                $"for(var r=0;r<{spreadReps};r++){{var b=[...a,...a];s=s+b.length;}}" +
+                $"result=s;"),
+
+            // §4 — for..of ForOfStep fused opcode
+            //      Each iteration currently dispatches 5+ opcodes
+            //      (GetVar/GetProp next/Call/GetProp done/GetProp value).
+            ($"§4 for..of array n={forOfN} ×{forOfReps}",
+                $"var arr=[];" +
+                $"for(var i=0;i<{forOfN};i++){{arr[i]=i;}}" +
+                $"var s=0;" +
+                $"for(var r=0;r<{forOfReps};r++){{for(var x of arr){{s+=x;}}}}" +
+                $"result=s;"),
+
+            // §5 — Array literal spread: eliminate double-parse + per-element GetProp length
+            //      Each array literal with a spread clones the lexer for a
+            //      pre-scan today; runtime also re-reads .length per static
+            //      element following a spread.
+            ($"§5 array literal spread (×{litReps})",
+                $"var a=[1,2,3,4,5];var b=[6,7,8,9,10];" +
+                $"var s=0;" +
+                $"for(var r=0;r<{litReps};r++){{" +
+                $"  var c=[...a,11,12,...b,13,14];" +
+                $"  s=s+c.length;" +
+                $"}}" +
+                $"result=s;"),
+
+            // §6 — Stackless generator state machine
+            //      Each invocation of range() spawns an OS thread + two
+            //      SemaphoreSlims today; every yield costs a signal+wait pair.
+            //      The stackless path eliminates all thread overhead.
+            ($"§6 generator for..of n={genN} ×{genReps}",
+                $"function* range(n){{var i=0;while(i<n){{yield i;i++;}}}}" +
+                $"var s=0;" +
+                $"for(var r=0;r<{genReps};r++){{" +
+                $"  for(var v of range({genN})){{s+=v;}}" +
+                $"}}" +
+                $"result=s;"),
+        };
+
+        Console.WriteLine();
+        Console.WriteLine($"optimisation candidates  (average of 3 runs, scale={scale.ToString(CultureInfo.InvariantCulture)})");
+        Console.WriteLine(new string('-', 76));
+        Console.WriteLine($"{"workload",-42}{"avg ms",10}{"alloc MB",10}{"result",14}");
+        Console.WriteLine(new string('-', 76));
+
+        var sectionTotal = 0.0;
+        foreach (var (label, code) in candidates)
+        {
+            var (avgMs, avgAllocMb, result) = AverageOf3(code);
+            sectionTotal += avgMs;
+            Console.WriteLine($"{label,-42}{avgMs,10:F2}{avgAllocMb,10:F1}{result,14}");
+        }
+
+        Console.WriteLine(new string('-', 76));
+        Console.WriteLine($"{"total",-42}{sectionTotal,10:F2}");
     }
 }
