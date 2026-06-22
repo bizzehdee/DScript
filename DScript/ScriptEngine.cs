@@ -104,7 +104,7 @@ namespace DScript
             }
             catch (Exception ex) when (ex is ScriptException || ex is JITException)
             {
-                Console.Error.WriteLine($"ERROR [{ex.Message}]");
+                Console.Error.WriteLine(ex.ToString());
             }
         }
 

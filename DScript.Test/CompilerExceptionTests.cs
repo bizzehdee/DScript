@@ -61,5 +61,71 @@ namespace DScript.Test
         {
             Assert.That(() => Run("function boom() { throw \"x\"; } boom();"), Throws.TypeOf<JITException>());
         }
+
+        // ── stack trace ───────────────────────────────────────────────────
+
+        [Test]
+        public void UncaughtThrowCarriesInnermostFrame()
+        {
+            var ex = Assert.Throws<JITException>(() =>
+                Run("throw \"oops\";"));
+
+            Assert.That(ex.ScriptStackTrace.Count, Is.GreaterThanOrEqualTo(1));
+            Assert.That(ex.ScriptStackTrace[0].Line, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void StackTraceBuildsAcrossCallFrames()
+        {
+            // boom() is on line 1, the call is on line 2.
+            var ex = Assert.Throws<JITException>(() =>
+                Run("function boom() { throw \"x\"; }\nboom();"));
+
+            // Innermost frame: inside boom (line 1).
+            Assert.That(ex.ScriptStackTrace[0].Source, Is.EqualTo("boom"));
+            Assert.That(ex.ScriptStackTrace[0].Line, Is.EqualTo(1));
+
+            // Outer frame: <main> at the call site (line 2).
+            Assert.That(ex.ScriptStackTrace[1].Source, Is.EqualTo("<main>"));
+            Assert.That(ex.ScriptStackTrace[1].Line, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void StackTraceIncludesNestedCalls()
+        {
+            const string src =
+                "function inner() { throw \"deep\"; }\n" +   // line 1
+                "function outer() { inner(); }\n" +           // line 2
+                "outer();";                                   // line 3
+
+            var ex = Assert.Throws<JITException>(() => Run(src));
+
+            Assert.That(ex.ScriptStackTrace.Count, Is.EqualTo(3));
+            Assert.That(ex.ScriptStackTrace[0].Source, Is.EqualTo("inner"));
+            Assert.That(ex.ScriptStackTrace[1].Source, Is.EqualTo("outer"));
+            Assert.That(ex.ScriptStackTrace[2].Source, Is.EqualTo("<main>"));
+        }
+
+        [Test]
+        public void ScriptExceptionCarriesStackTrace()
+        {
+            // Calling a non-function raises a ScriptException from the VM.
+            var ex = Assert.Throws<ScriptException>(() =>
+                Run("function call_nonfunction() { var x = 1; x(); }\ncall_nonfunction();"));
+
+            Assert.That(ex.ScriptStackTrace.Count, Is.GreaterThanOrEqualTo(1));
+            Assert.That(ex.ScriptStackTrace[0].Source, Is.EqualTo("call_nonfunction"));
+        }
+
+        [Test]
+        public void ToStringIncludesFrames()
+        {
+            var ex = Assert.Throws<JITException>(() =>
+                Run("function f() { throw \"err\"; }\nf();"));
+
+            var text = ex.ToString();
+            Assert.That(text, Does.Contain("at f"));
+            Assert.That(text, Does.Contain("at <main>"));
+        }
     }
 }

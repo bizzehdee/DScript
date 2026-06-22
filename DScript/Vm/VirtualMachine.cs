@@ -706,15 +706,18 @@ namespace DScript.Vm
                 catch (JITException ex)
                 {
                     if (!DispatchException(ex, ref ip, env, chunk, savedTryDepth))
-                        throw; // no handler in this frame, propagate to caller
+                    {
+                        ex.PushFrame(chunk.Name, chunk.GetLineForOffset(instrIp));
+                        throw;
+                    }
                     // handled: continue dispatch loop at new ip
                 }
-                catch (ScriptException ex) when (ex.InnerException == null)
+                catch (ScriptException ex)
                 {
-                    // First VM frame to see this exception — annotate with source line.
-                    var line = chunk.GetLineForOffset(instrIp);
-                    var msg = line > 0 ? $"{ex.Message} (line {line})" : ex.Message;
-                    throw new ScriptException(msg, ex);
+                    // Each Execute() frame adds itself to the script stack trace as
+                    // the exception climbs through the call chain.
+                    ex.PushFrame(chunk.Name, chunk.GetLineForOffset(instrIp));
+                    throw;
                 }
             }
 
