@@ -374,6 +374,7 @@ namespace DScript.Vm
         {
             if (v.IsInt)    return ConstantValue.Int(v.Int);
             if (v.IsDouble) return ConstantValue.Double(v.Float);
+            if (v.IsString) return ConstantValue.String(v.String);
             return null;
         }
 
@@ -390,7 +391,8 @@ namespace DScript.Vm
             OpCode.GetProp      or OpCode.SetProp      or OpCode.DeleteProp or
             OpCode.Binary       or OpCode.Shift        or
             OpCode.Jump         or OpCode.JumpIfFalse  or OpCode.JumpIfTrue or
-            OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop             or
+            OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop              or
+            OpCode.JumpIfDefined or
             OpCode.MakeClosure  or OpCode.Call         or OpCode.CallMethod or
             OpCode.New          or OpCode.InitProp      or OpCode.InitElem  or
             OpCode.LeaveTry     or OpCode.LeaveCatch                        =>  5, // 1 + 4*1
@@ -442,6 +444,7 @@ namespace DScript.Vm
                 var op = (OpCode)Code[ip];
                 if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
                          or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                         or OpCode.JumpIfDefined
                          or OpCode.LeaveTry or OpCode.LeaveCatch)
                 {
                     var operandAt = ip + 1;
@@ -508,6 +511,7 @@ namespace DScript.Vm
                     var op = (OpCode)Code[ip];
                     if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
                              or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                             or OpCode.JumpIfDefined
                              or OpCode.LeaveTry or OpCode.LeaveCatch)
                     {
                         jumpTargets.Add(ReadIntFromCode(ip + 1));
@@ -585,6 +589,7 @@ namespace DScript.Vm
                     var size = InstructionSize(op);
                     var isJump = op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
                                         or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                                        or OpCode.JumpIfDefined
                                         or OpCode.LeaveTry or OpCode.LeaveCatch;
 
                     newCode.Add(Code[ip]); // opcode byte

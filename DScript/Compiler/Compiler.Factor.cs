@@ -130,6 +130,10 @@ namespace DScript.Compiler
                     CompileNew();
                     return;
 
+                case ScriptLex.LexTypes.RSuper:
+                    CompileSuper();
+                    return;
+
                 case ScriptLex.LexTypes.Id:
                     CompileIdentifierChain(canAssign);
                     return;
@@ -348,21 +352,36 @@ namespace DScript.Compiler
             // text by JSON.stringify / GetParsableString and re-parsed by eval
             var sourceStart = lexer.TokenStart;
 
+            // Parse parameter list, collecting default expressions as source strings.
+            var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
+
             lexer.Match((ScriptLex.LexTypes)'(');
             while (lexer.TokenType != (ScriptLex.LexTypes)')')
             {
-                fnChunk.Parameters.Add(lexer.TokenString);
+                var paramName = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Id);
-                if (lexer.TokenType != (ScriptLex.LexTypes)')')
+                fnChunk.Parameters.Add(paramName);
+
+                string defaultSrc = null;
+                if (lexer.TokenType == (ScriptLex.LexTypes)'=')
                 {
-                    lexer.Match((ScriptLex.LexTypes)',');
+                    lexer.Match((ScriptLex.LexTypes)'=');
+                    defaultSrc = ReadDefaultExpression();
                 }
+                paramDefaults.Add((paramName, defaultSrc));
+
+                if (lexer.TokenType != (ScriptLex.LexTypes)')')
+                    lexer.Match((ScriptLex.LexTypes)',');
             }
             lexer.Match((ScriptLex.LexTypes)')');
 
             var saved = chunk;
             chunk = fnChunk;
             EnterFunctionBody(out var savedLoops, out var savedFinally);
+
+            // Emit default-value guards at the start of the function body.
+            EmitDefaultParamGuards(paramDefaults);
+
             CompileBlock();
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
@@ -372,6 +391,50 @@ namespace DScript.Compiler
             fnChunk.Source = "function " + name + lexer.GetSubString(sourceStart);
 
             return saved.AddFunction(fnChunk);
+        }
+
+        // Emit default-value guards for any parameters that carry a default expression.
+        // Pattern: GetVar name; JumpIfDefined → skip; <default expr>; SetVar name; Pop; skip:
+        private void EmitDefaultParamGuards(List<(string ParamName, string DefaultSrc)> paramDefaults)
+        {
+            foreach (var (paramName, defaultSrc) in paramDefaults)
+            {
+                if (defaultSrc == null) continue;
+
+                var nameIdx = chunk.AddName(paramName);
+                chunk.Emit(OpCode.GetVar, nameIdx);
+                var jumpToSkip = chunk.EmitJump(OpCode.JumpIfDefined);
+
+                var savedLexer = lexer;
+                using var defaultLexer = new ScriptLex(defaultSrc);
+                lexer = defaultLexer;
+                CompileBase();
+                lexer = savedLexer;
+
+                chunk.Emit(OpCode.SetVar, nameIdx);
+                chunk.Emit(OpCode.Pop);
+                chunk.PatchJump(jumpToSkip);
+            }
+        }
+
+        // Skip tokens for a default parameter expression (stopping at ',' or ')' at depth 0).
+        // Returns the captured source text of the expression.
+        private string ReadDefaultExpression()
+        {
+            var start = lexer.TokenStart;
+            var depth = 0;
+            while (lexer.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = lexer.TokenType;
+                if (depth == 0 && (t == (ScriptLex.LexTypes)',' || t == (ScriptLex.LexTypes)')'))
+                    break;
+                if (t == (ScriptLex.LexTypes)'(' || t == (ScriptLex.LexTypes)'[' || t == (ScriptLex.LexTypes)'{')
+                    depth++;
+                else if (t == (ScriptLex.LexTypes)')' || t == (ScriptLex.LexTypes)']' || t == (ScriptLex.LexTypes)'}')
+                    depth--;
+                lexer.GetNextToken();
+            }
+            return lexer.GetSubString(start);
         }
 
         // Returns true if the current token sequence starts an arrow function
@@ -413,11 +476,13 @@ namespace DScript.Compiler
         {
             var fnChunk = new Chunk { Name = "<arrow>" };
             var sourceStart = lexer.TokenStart;
+            var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
 
             if (lexer.TokenType == ScriptLex.LexTypes.Id)
             {
-                // Single unparenthesised param: x => body
+                // Single unparenthesised param: x => body (no default supported here)
                 fnChunk.Parameters.Add(lexer.TokenString);
+                paramDefaults.Add((lexer.TokenString, null));
                 lexer.Match(ScriptLex.LexTypes.Id);
             }
             else
@@ -426,8 +491,18 @@ namespace DScript.Compiler
                 lexer.Match((ScriptLex.LexTypes)'(');
                 while (lexer.TokenType != (ScriptLex.LexTypes)')')
                 {
-                    fnChunk.Parameters.Add(lexer.TokenString);
+                    var paramName = lexer.TokenString;
                     lexer.Match(ScriptLex.LexTypes.Id);
+                    fnChunk.Parameters.Add(paramName);
+
+                    string defaultSrc = null;
+                    if (lexer.TokenType == (ScriptLex.LexTypes)'=')
+                    {
+                        lexer.Match((ScriptLex.LexTypes)'=');
+                        defaultSrc = ReadDefaultExpression();
+                    }
+                    paramDefaults.Add((paramName, defaultSrc));
+
                     if (lexer.TokenType != (ScriptLex.LexTypes)')')
                         lexer.Match((ScriptLex.LexTypes)',');
                 }
@@ -439,6 +514,9 @@ namespace DScript.Compiler
             var saved = chunk;
             chunk = fnChunk;
             EnterFunctionBody(out var savedLoops, out var savedFinally);
+
+            // Emit default-value guards at the start of the function body.
+            EmitDefaultParamGuards(paramDefaults);
 
             if (lexer.TokenType == (ScriptLex.LexTypes)'{')
             {
@@ -585,9 +663,17 @@ namespace DScript.Compiler
                     lexer.Match(ScriptLex.LexTypes.Id);
                 }
 
-                lexer.Match((ScriptLex.LexTypes)':');
+                // Shorthand property: `{ x, y }` — no colon, use var with same name as key
+                if (lexer.TokenType == (ScriptLex.LexTypes)',' || lexer.TokenType == (ScriptLex.LexTypes)'}')
+                {
+                    chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+                }
+                else
+                {
+                    lexer.Match((ScriptLex.LexTypes)':');
+                    CompileBase();
+                }
 
-                CompileBase();
                 chunk.Emit(OpCode.InitProp, chunk.AddName(name));
 
                 if (lexer.TokenType != (ScriptLex.LexTypes)'}')

@@ -546,6 +546,13 @@ namespace DScript.Vm
                         if (Peek().Bool) ip = target; else Pop();
                         break;
                     }
+                    case OpCode.JumpIfDefined:
+                    {
+                        var target = ReadOperand(code, ref ip);
+                        var val = Pop();
+                        if (!val.IsUndefined) ip = target;
+                        break;
+                    }
 
                     case OpCode.MakeClosure:
                     {

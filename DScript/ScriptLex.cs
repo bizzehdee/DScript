@@ -142,7 +142,11 @@ namespace DScript
             RDelete,
             Arrow,          // =>
             TemplateLiteral, // `...`
-
+            RClass,
+            RExtends,
+            RSuper,
+            RStatic,
+            RLet,
         }
 
         public ScriptLex(string input)
@@ -299,6 +303,11 @@ namespace DScript
                     case "instanceof": TokenType = LexTypes.RInstanceOf; break;
                     case "in": TokenType = LexTypes.RIn; break;
                     case "delete": TokenType = LexTypes.RDelete; break;
+                    case "class": TokenType = LexTypes.RClass; break;
+                    case "extends": TokenType = LexTypes.RExtends; break;
+                    case "super": TokenType = LexTypes.RSuper; break;
+                    case "static": TokenType = LexTypes.RStatic; break;
+                    case "let": TokenType = LexTypes.RLet; break;
                 }
             }
             else if (CurrentChar.IsNumeric()) //Numbers

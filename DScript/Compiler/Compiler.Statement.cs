@@ -61,7 +61,11 @@ namespace DScript.Compiler
                     break;
                 case ScriptLex.LexTypes.RVar:
                 case ScriptLex.LexTypes.RConst:
+                case ScriptLex.LexTypes.RLet:
                     CompileVarDeclaration();
+                    break;
+                case ScriptLex.LexTypes.RClass:
+                    CompileClass();
                     break;
                 case ScriptLex.LexTypes.RIf:
                     CompileIf();

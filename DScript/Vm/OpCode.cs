@@ -76,6 +76,7 @@ namespace DScript.Vm
         JumpIfTrue,      // [i target]      pop; jump if truthy
         JumpIfFalseOrPop,// [i target]      peek; if falsy jump (keep), else pop  (for &&)
         JumpIfTrueOrPop, // [i target]      peek; if truthy jump (keep), else pop (for ||)
+        JumpIfDefined,   // [i target]      pop; jump if NOT undefined (i.e. value is defined)
         Return,          //                 return top of stack from the current frame
 
         // --- functions / objects -------------------------------------------
