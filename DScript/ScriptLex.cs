@@ -141,6 +141,7 @@ namespace DScript
             RIn,
             RDelete,
             Arrow,          // =>
+            TemplateLiteral, // `...`
 
         }
 
@@ -355,6 +356,36 @@ namespace DScript
                 }
                 
                 TokenString = tokenBuilder.ToString();
+            }
+            else if (CurrentChar == '`') // Template literal — store raw content, compiler handles interpolation
+            {
+                tokenBuilder.Clear();
+                GetNextChar(); // consume opening `
+                while (CurrentChar != '\0')
+                {
+                    if (CurrentChar == '\\')
+                    {
+                        tokenBuilder.Append('\\');
+                        GetNextChar();
+                        if (CurrentChar != '\0')
+                        {
+                            tokenBuilder.Append(CurrentChar);
+                            GetNextChar();
+                        }
+                    }
+                    else if (CurrentChar == '`')
+                    {
+                        GetNextChar(); // consume closing `
+                        break;
+                    }
+                    else
+                    {
+                        tokenBuilder.Append(CurrentChar);
+                        GetNextChar();
+                    }
+                }
+                TokenString = tokenBuilder.ToString();
+                TokenType = LexTypes.TemplateLiteral;
             }
             else if (CurrentChar == '\'' || CurrentChar == '\"') //Strings again
             {

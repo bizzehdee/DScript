@@ -99,6 +99,10 @@ namespace DScript.Compiler
                     return;
                 }
 
+                case ScriptLex.LexTypes.TemplateLiteral:
+                    CompileTemplateLiteral();
+                    return;
+
                 case (ScriptLex.LexTypes)'{':
                     CompileObjectLiteral();
                     return;
@@ -477,6 +481,90 @@ namespace DScript.Compiler
         {
             loops        = savedLoops;
             finallyStack = savedFinally;
+        }
+
+        // Compile a template literal `...${expr}...` into a sequence of string
+        // constants and expressions joined by the + (string-concatenation) operator.
+        private void CompileTemplateLiteral()
+        {
+            var raw = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.TemplateLiteral);
+
+            // Split raw into alternating literal/expression segments and collect them.
+            var parts = new System.Collections.Generic.List<(bool IsExpr, string Text)>();
+            var sb = new System.Text.StringBuilder();
+            var i = 0;
+
+            while (i < raw.Length)
+            {
+                if (raw[i] == '\\' && i + 1 < raw.Length)
+                {
+                    switch (raw[i + 1])
+                    {
+                        case 'n':  sb.Append('\n'); break;
+                        case 'r':  sb.Append('\r'); break;
+                        case 't':  sb.Append('\t'); break;
+                        case '\\': sb.Append('\\'); break;
+                        case '`':  sb.Append('`');  break;
+                        case '$':  sb.Append('$');  break; // \$ → literal, no interpolation
+                        default:   sb.Append('\\'); sb.Append(raw[i + 1]); break;
+                    }
+                    i += 2;
+                }
+                else if (raw[i] == '$' && i + 1 < raw.Length && raw[i + 1] == '{')
+                {
+                    parts.Add((false, sb.ToString()));
+                    sb.Clear();
+                    i += 2; // skip '${'
+
+                    // Find matching '}', tracking { } depth.
+                    int depth = 1, exprStart = i;
+                    while (i < raw.Length && depth > 0)
+                    {
+                        if (raw[i] == '{') depth++;
+                        else if (raw[i] == '}') { if (--depth == 0) break; }
+                        i++;
+                    }
+                    parts.Add((true, raw.Substring(exprStart, i - exprStart)));
+                    if (i < raw.Length) i++; // skip '}'
+                }
+                else
+                {
+                    sb.Append(raw[i]);
+                    i++;
+                }
+            }
+            parts.Add((false, sb.ToString())); // trailing literal (possibly empty)
+
+            // Emit code: push each part; concatenate all with Binary '+'.
+            // Skip leading/trailing empty literal strings where possible.
+            var emitted = 0;
+            foreach (var (isExpr, text) in parts)
+            {
+                if (isExpr)
+                {
+                    var savedLexer = lexer;
+                    using var subLexer = new ScriptLex(text);
+                    lexer = subLexer;
+                    CompileBase();
+                    lexer = savedLexer;
+                }
+                else if (emitted == 0 || text.Length > 0)
+                {
+                    // Always emit the first part (even if empty) to guarantee a string
+                    // is on the stack; skip subsequent empty literal segments.
+                    chunk.Emit(OpCode.Constant,
+                        chunk.AddConstant(ConstantValue.String(text)));
+                }
+                else
+                {
+                    // Empty literal segment between/after expressions: skip it.
+                    continue;
+                }
+
+                if (emitted > 0) chunk.Emit(OpCode.Binary, (int)(ScriptLex.LexTypes)'+');
+                emitted++;
+            }
         }
 
         private void CompileObjectLiteral()
