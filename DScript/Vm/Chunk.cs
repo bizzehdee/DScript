@@ -232,7 +232,7 @@ namespace DScript.Vm
             return Functions.Count - 1;
         }
 
-        // --- peephole fusion -------------------------------------------------
+        // --- peephole fusion and folding ------------------------------------
 
         /// <summary>
         /// If the just-compiled binary right operand (everything emitted since
@@ -261,6 +261,63 @@ namespace DScript.Vm
             codeArray = null;
             Emit(OpCode.BinaryConst, op, constIndex);
             return true;
+        }
+
+        /// <summary>
+        /// After a successful <see cref="TryFuseConstantBinary"/>, check whether the
+        /// instruction immediately before the fused <see cref="OpCode.BinaryConst"/> is
+        /// also a <see cref="OpCode.Constant"/>. If so, compute the result at compile
+        /// time and replace both with a single <see cref="OpCode.Constant"/>.
+        ///
+        /// Only numeric results (int, double) are folded; string concatenation is left
+        /// for the runtime. Returns true if folding happened.
+        /// </summary>
+        public bool TryFoldBinaryConst()
+        {
+            // Code ends with BinaryConst(op:4, constIdx:4) = 9 bytes
+            if (Code.Count < 14) return false;
+            var bcAt = Code.Count - 9;
+            if ((OpCode)Code[bcAt] != OpCode.BinaryConst) return false;
+
+            // The instruction before BinaryConst must be Constant(leftIdx) = 5 bytes
+            var cAt = bcAt - 5;
+            if (cAt < 0 || (OpCode)Code[cAt] != OpCode.Constant) return false;
+
+            var op = (ScriptLex.LexTypes)ReadIntFromCode(bcAt + 1);
+            var leftIdx  = ReadIntFromCode(cAt + 1);
+            var rightIdx = ReadIntFromCode(bcAt + 5);
+
+            try
+            {
+                var lv = Constants[leftIdx].Materialize();
+                var rv = Constants[rightIdx].Materialize();
+                var result = lv.MathsOp(rv, op);
+                var folded = ScriptVarToConstant(result);
+                if (folded == null) return false;
+
+                Code.RemoveRange(cAt, 14); // Constant(left):5 + BinaryConst:9
+                codeArray = null;
+                Emit(OpCode.Constant, AddConstant(folded));
+                return true;
+            }
+            catch { return false; }
+        }
+
+        // Read a 4-byte little-endian int directly from the mutable Code list
+        // (used by peephole passes before the codeArray cache is rebuilt).
+        private int ReadIntFromCode(int offset) =>
+            Code[offset]
+            | (Code[offset + 1] << 8)
+            | (Code[offset + 2] << 16)
+            | (Code[offset + 3] << 24);
+
+        // Convert a ScriptVar result to a storable ConstantValue.
+        // Returns null for types we don't fold (strings, objects, …).
+        private static ConstantValue ScriptVarToConstant(ScriptVar v)
+        {
+            if (v.IsInt)    return ConstantValue.Int(v.Int);
+            if (v.IsDouble) return ConstantValue.Double(v.Float);
+            return null;
         }
     }
 }
