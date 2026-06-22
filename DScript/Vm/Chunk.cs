@@ -325,8 +325,9 @@ namespace DScript.Vm
         // Total byte size of an instruction (opcode byte + 4 bytes per operand).
         internal static int InstructionSize(OpCode op) => op switch
         {
-            OpCode.Try          => 17, // 1 + 4*4
-            OpCode.BinaryConst  =>  9, // 1 + 4*2
+            OpCode.Try             => 17, // 1 + 4*4
+            OpCode.BinaryConst     =>  9, // 1 + 4*2
+            OpCode.BinaryIntConst  =>  9, // 1 + 4*2
             OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
             OpCode.DeclareVar   or OpCode.DeclareConst or
             OpCode.GetProp      or OpCode.SetProp      or OpCode.DeleteProp or
@@ -337,6 +338,29 @@ namespace DScript.Vm
             OpCode.New          or OpCode.InitProp      or OpCode.InitElem  =>  5, // 1 + 4*1
             _                   =>  1, // no operands
         };
+
+        /// <summary>
+        /// If the last emitted instruction is <see cref="OpCode.BinaryConst"/> and its
+        /// constant is an integer, replace it with <see cref="OpCode.BinaryIntConst"/>
+        /// that stores the integer value directly in the instruction stream, eliminating
+        /// the constant-pool lookup on every execution of that instruction.
+        /// </summary>
+        public bool TryUpgradeBinaryConstToInt()
+        {
+            if (Code.Count < 9) return false;
+            var at = Code.Count - 9;
+            if ((OpCode)Code[at] != OpCode.BinaryConst) return false;
+
+            var op       = ReadIntFromCode(at + 1);
+            var constIdx = ReadIntFromCode(at + 5);
+            if (Constants[constIdx].Kind != ConstantKind.Int) return false;
+
+            var intValue = Constants[constIdx].IntValue;
+            Code.RemoveRange(at, 9);
+            codeArray = null;
+            Emit(OpCode.BinaryIntConst, op, intValue);
+            return true;
+        }
 
         /// <summary>
         /// Walk every jump in this chunk (and all nested function chunks) and

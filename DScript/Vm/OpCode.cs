@@ -99,10 +99,16 @@ namespace DScript.Vm
         Halt,            //                 stop execution of the top-level chunk
 
         // --- fused forms (appended to preserve existing opcode byte values) --
-        BinaryConst      // [i op][i constIndex]  a -> (a op constants[i])
+        BinaryConst,     // [i op][i constIndex]  a -> (a op constants[i])
                          //                 fuses a Constant push with the Binary
                          //                 that consumes it, when the right operand
                          //                 is a single literal (saves an opcode
                          //                 dispatch + a push/pop per use)
+
+        BinaryIntConst   // [i op][i intValue]    a -> (a op intValue)
+                         //                 like BinaryConst but stores the integer
+                         //                 value inline rather than as a constant-pool
+                         //                 index, eliminating the pool lookup on the
+                         //                 hot path (e.g. i < n; i + 1 in tight loops)
     }
 }

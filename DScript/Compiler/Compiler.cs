@@ -177,9 +177,10 @@ namespace DScript.Compiler
             }
         }
 
-        // Emit a Binary op. When the right operand is a lone Constant, fuse into
-        // BinaryConst. If the left operand is also a Constant, fold the whole
-        // expression to a single Constant at compile time (constant folding).
+        // Emit a Binary op. Applies optimizations in priority order:
+        //   1. Fuse lone Constant right operand → BinaryConst (pool-indexed)
+        //   2. If left is also Constant → fold entirely to single Constant
+        //   3. If right constant is an int → upgrade to BinaryIntConst (inline value)
         private void EmitBinary(int op, int operandStart)
         {
             if (!chunk.TryFuseConstantBinary(operandStart, op))
@@ -187,7 +188,8 @@ namespace DScript.Compiler
                 chunk.Emit(OpCode.Binary, op);
                 return;
             }
-            chunk.TryFoldBinaryConst();
+            if (chunk.TryFoldBinaryConst()) return;
+            chunk.TryUpgradeBinaryConstToInt();
         }
 
         private void CompileShift(bool canAssign)
