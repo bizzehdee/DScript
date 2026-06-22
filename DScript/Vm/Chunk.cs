@@ -155,6 +155,19 @@ namespace DScript.Vm
         /// <summary>True when this function chunk was compiled as an async function.</summary>
         public bool IsAsync { get; set; }
 
+        /// <summary>
+        /// Returns true when this generator body can use the stackless execution path:
+        /// no try/catch blocks, no awaits. Generators not meeting these criteria fall
+        /// back to the thread-based <see cref="GeneratorObject"/> path.
+        /// </summary>
+        public bool IsSimpleGenerator()
+        {
+            if (!IsGenerator || IsAsync) return false;
+            for (var i = 0; i < Code.Count; i += InstructionSize((OpCode)Code[i]))
+                if ((OpCode)Code[i] == OpCode.EnterTry) return false;
+            return true;
+        }
+
         public int Count => Code.Count;
 
         // --- emit helpers (distinct by arity to avoid overload ambiguity) ---

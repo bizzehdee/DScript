@@ -232,13 +232,20 @@ namespace DScript.Vm
             return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
-        private ScriptVar Execute(Chunk chunk, Environment env, GeneratorObject genObj = null)
+        private ScriptVar Execute(Chunk chunk, Environment env, GeneratorObject genObj = null, GeneratorState gsState = null)
         {
             var code = chunk.CodeBytes;
             // Hoist the inline-cache array once so each GetVar/SetVar avoids the
             // property's lazy null-check on every resolution.
             var cache = chunk.InlineCache;
-            var ip = 0;
+            var ip = gsState != null && gsState.Started ? gsState.SavedIp : 0;
+
+            // Stackless generator resume: push the input value passed to .next(v).
+            if (gsState != null && gsState.Started && gsState.ResumeValue != null)
+            {
+                Push(gsState.ResumeValue);
+                gsState.ResumeValue = null;
+            }
 
             // Block-scope env stack: EnterBlock pushes the outer env here and
             // switches to a new child env; LeaveBlock restores the saved env.
@@ -256,10 +263,12 @@ namespace DScript.Vm
                 _callFrames.Add(callFrame);
             }
 
+            var generatorYielded = false; // set when stackless Yield breaks the loop
+
             try
             {
 
-            while (ip < code.Length)
+            while (ip < code.Length && !generatorYielded)
             {
                 var instrIp = ip; // capture before advancing — used for line lookup on error
                 var op = (OpCode)code[ip];
@@ -756,9 +765,17 @@ namespace DScript.Vm
                     }
                     case OpCode.Yield:
                     {
+                        var yieldVal = Pop();
+                        if (gsState != null)
+                        {
+                            // Stackless path: save ip (already advanced past Yield) and exit the loop.
+                            gsState.YieldedValue = yieldVal;
+                            gsState.SavedIp = ip;
+                            generatorYielded = true;
+                            break; // exits switch; while condition !generatorYielded exits loop
+                        }
                         if (genObj == null)
                             throw new ScriptException("yield used outside generator");
-                        var yieldVal = Pop();
                         var resumeVal = genObj.Yield(yieldVal);
                         Push(resumeVal);
                         break;
@@ -992,8 +1009,13 @@ namespace DScript.Vm
                     }
 
                     case OpCode.Return:
-                        return Pop();
+                    {
+                        var retVal = Pop();
+                        if (gsState != null) gsState.Done = true;
+                        return retVal;
+                    }
                     case OpCode.Halt:
+                        if (gsState != null) gsState.Done = true;
                         return null;
 
                     default:
@@ -1020,19 +1042,24 @@ namespace DScript.Vm
                 }
             }
 
+            // Normal completion (loop exhausted or Return/Halt): mark generator done.
+            if (gsState != null && !generatorYielded)
+                gsState.Done = true;
+
             return null;
 
             } // end outer try
             finally
             {
-                // Clean up any handler frames belonging to this Execute() invocation
-                // that were not closed normally (e.g. `return` inside try without finally).
-                while (tryStack.Count > savedTryDepth) tryStack.Pop();
-                // Clear pending-return state if this frame is unwinding due to an exception
-                // so it does not bleed into an enclosing Execute() invocation.
-                hasPendingReturn = false;
-                // Pop the debugger call frame.
-                if (callFrame != null) _callFrames.RemoveAt(_callFrames.Count - 1);
+                // When a stackless generator yields, this Execute() call will be resumed later.
+                // Leave all state (tryStack depth, callFrame) intact so the next call can continue.
+                if (!generatorYielded)
+                {
+                    // Normal completion or exception: clean up handler frames and debugger frame.
+                    while (tryStack.Count > savedTryDepth) tryStack.Pop();
+                    hasPendingReturn = false;
+                    if (callFrame != null) _callFrames.RemoveAt(_callFrames.Count - 1);
+                }
             }
         }
 
@@ -1280,11 +1307,14 @@ namespace DScript.Vm
             return env;
         }
 
-        // Create an iterator object for a generator function. The iterator has a
-        // .next() native method that drives the generator body on a background thread,
-        // suspending/resuming via GeneratorObject.
+        // Create an iterator object for a generator function. Routes to the stackless
+        // path for simple generators (no try/catch), falling back to the thread-based
+        // GeneratorObject path for generators that use try/catch or await.
         private ScriptVar CreateGeneratorIterator(VmFunction vmfn, Environment callEnv)
         {
+            if (vmfn.Body.IsSimpleGenerator())
+                return CreateStacklessGeneratorIterator(vmfn, callEnv);
+
             var genObj = new GeneratorObject();
 
             var iterObj = new ScriptVar(ScriptVar.Flags.Object);
@@ -1309,6 +1339,52 @@ namespace DScript.Vm
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(resultObj);
             }, null);
 
+            iterObj.AddChild("next", nextFn);
+            return iterObj;
+        }
+
+        // Stackless generator: runs the body synchronously on THIS vm (no OS thread).
+        // Each .next() call resumes Execute() from the saved instruction pointer;
+        // Execute() returns when it hits Yield (via the generatorYielded break) or
+        // when the body completes normally.
+        private ScriptVar CreateStacklessGeneratorIterator(VmFunction vmfn, Environment callEnv)
+        {
+            var gs = new GeneratorState();
+            var genVm = new VirtualMachine(engine);
+
+            var iterObj = new ScriptVar(ScriptVar.Flags.Object);
+            var nextFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            nextFn.AddChild("value", new ScriptVar());
+            nextFn.SetCallback((scope, _) =>
+            {
+                var inputLink = scope.FindChild("value");
+                var input = inputLink?.Var ?? new ScriptVar();
+
+                var resultObj = new ScriptVar(ScriptVar.Flags.Object);
+                if (gs.Done)
+                {
+                    resultObj.AddChild("value", new ScriptVar());
+                    resultObj.AddChild("done", new ScriptVar(true));
+                }
+                else
+                {
+                    if (gs.Started)
+                        gs.ResumeValue = input; // pushed by Execute at resume start
+                    gs.Started = true;
+                    genVm.Execute(vmfn.Body, callEnv, null, gs);
+                    if (!gs.Done)
+                    {
+                        resultObj.AddChild("value", gs.YieldedValue ?? new ScriptVar());
+                        resultObj.AddChild("done", new ScriptVar(false));
+                    }
+                    else
+                    {
+                        resultObj.AddChild("value", new ScriptVar());
+                        resultObj.AddChild("done", new ScriptVar(true));
+                    }
+                }
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(resultObj);
+            }, null);
             iterObj.AddChild("next", nextFn);
             return iterObj;
         }
