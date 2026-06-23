@@ -183,5 +183,69 @@ namespace DScript.Test
             ");
             Assert.That(r, Is.EqualTo(88));
         }
+
+        [Test]
+        public void Promise_Any_AllReject_RejectsWithAggregateError_HasErrorsArray()
+        {
+            var r = RunInt(@"
+                var r = 0;
+                Promise.any([Promise.reject('a'), Promise.reject('b')])
+                    .catch(function(e) { r = e.errors.length; });
+            ");
+            Assert.That(r, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Promise_Any_AllReject_AggregateError_HasNameProperty()
+        {
+            var r = RunStr(@"
+                var r = '';
+                Promise.any([Promise.reject('x')])
+                    .catch(function(e) { r = e.name; });
+            ");
+            Assert.That(r, Is.EqualTo("AggregateError"));
+        }
+
+        // --- Promise.prototype.finally ---
+
+        [Test]
+        public void Promise_Finally_RunsOnFulfillment()
+        {
+            var r = RunInt(@"
+                var r = 0;
+                Promise.resolve(42).finally(function() { r = 1; });
+            ");
+            Assert.That(r, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Promise_Finally_RunsOnRejection()
+        {
+            var r = RunInt(@"
+                var r = 0;
+                Promise.reject('fail').finally(function() { r = 2; }).catch(function() {});
+            ");
+            Assert.That(r, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Promise_Finally_PropagatesOriginalFulfilledValue()
+        {
+            var r = RunInt(@"
+                var r = 0;
+                Promise.resolve(99).finally(function() {}).then(function(v) { r = v; });
+            ");
+            Assert.That(r, Is.EqualTo(99));
+        }
+
+        [Test]
+        public void Promise_Finally_PropagatesOriginalRejectionReason()
+        {
+            var r = RunInt(@"
+                var r = 0;
+                Promise.reject('boom').finally(function() {}).catch(function(e) { r = 77; });
+            ");
+            Assert.That(r, Is.EqualTo(77));
+        }
     }
 }

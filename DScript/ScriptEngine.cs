@@ -224,6 +224,18 @@ namespace DScript
             return sep > 0 ? path[..sep] : ".";
         }
 
+        private static ScriptVar MakeAggregateError(ScriptVar[] reasons, int len)
+        {
+            var errorsArr = new ScriptVar(); errorsArr.SetArray();
+            for (var j = 0; j < len; j++)
+                errorsArr.SetArrayIndex(j, reasons[j] ?? new ScriptVar(ScriptVar.Flags.Undefined));
+            var err = new ScriptVar(ScriptVar.Flags.Object);
+            err.AddChild("name", new ScriptVar("AggregateError"));
+            err.AddChild("message", new ScriptVar("All promises were rejected"));
+            err.AddChild("errors", errorsArr);
+            return err;
+        }
+
         private void RegisterPromiseBuiltin()
         {
             // Promise constructor: new Promise(function(resolve, reject) { ... })
@@ -386,12 +398,20 @@ namespace DScript
                 var len = arr.IsArray ? arr.GetArrayLength() : 0;
                 var result = new Vm.PromiseObject();
                 var rejectedCount = new[] { 0 };
+                var reasons = new ScriptVar[len];
+                if (len == 0) { result.Reject(MakeAggregateError(reasons, 0)); }
                 for (var i = 0; i < len; i++)
                 {
+                    var idx = i;
                     var p = Vm.PromiseObject.Wrap(arr.GetArrayIndex(i));
-                    p.Then(v => result.Resolve(v), r => { rejectedCount[0]++; if (rejectedCount[0] == len) result.Reject(new ScriptVar("All promises were rejected")); });
+                    p.Then(v => result.Resolve(v), r =>
+                    {
+                        reasons[idx] = r;
+                        rejectedCount[0]++;
+                        if (rejectedCount[0] == len)
+                            result.Reject(MakeAggregateError(reasons, len));
+                    });
                 }
-                if (len == 0) result.Reject(new ScriptVar("All promises were rejected"));
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result.ToScriptVar(vm2));
             }, null);
             promiseVar.AddChild("any", anyFn);

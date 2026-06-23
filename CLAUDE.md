@@ -124,6 +124,17 @@ New opcodes **must be appended to the end** of the opcode enum. Never insert the
 
 Inserting an opcode anywhere other than the end changes the integer values of all subsequent opcodes, silently breaking any saved bytecode files and any external tooling that encodes opcodes as integers.
 
+## Platform compatibility
+
+DScript must run on **Windows, Linux, and macOS**. This applies to all code in every project in the solution.
+
+- Do not use Windows-only APIs (`Registry`, `Environment.SpecialFolder` values that don't exist on Linux, `cmd.exe`, Win32 P/Invoke, etc.)
+- Path separators: always use `Path.Combine` / `Path.DirectorySeparatorChar` — never hardcode `/` or `\`
+- Line endings: use `Environment.NewLine` or `\n` consistently; never hardcode `\r\n`
+- Process spawning: use `ArgumentList.Add()` (not `Arguments` string) so the OS does not re-parse the command line
+- Every unit test must pass on all three platforms. If a test is inherently platform-specific (e.g. Windows registry, macOS-only syscall), mark it `[Platform("Win")]` / skip it explicitly — do not let it fail silently on other platforms
+- CI runs on all three platforms; a test that passes on Windows but fails on Linux or macOS is a bug
+
 ## Build command
 
 ```

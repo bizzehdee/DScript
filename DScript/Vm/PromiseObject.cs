@@ -141,6 +141,46 @@ namespace DScript.Vm
         }
 
         /// <summary>
+        /// Attach a handler that runs on both fulfillment and rejection.
+        /// The original value/reason is propagated regardless of the handler's return.
+        /// If the handler throws, the returned Promise rejects with that error.
+        /// </summary>
+        public PromiseObject Finally(Action onFinally)
+        {
+            var next = new PromiseObject();
+
+            Action<ScriptVar> fulfilled = v =>
+            {
+                try { onFinally?.Invoke(); next.Resolve(v); }
+                catch (Exception ex) { next.Reject(new ScriptVar(ex.Message)); }
+            };
+
+            Action<ScriptVar> rejected = r =>
+            {
+                try { onFinally?.Invoke(); next.Reject(r); }
+                catch (Exception ex) { next.Reject(new ScriptVar(ex.Message)); }
+            };
+
+            switch (Status)
+            {
+                case PromiseState.Fulfilled:
+                    MicroTaskQueue.Enqueue(() => fulfilled(Value));
+                    break;
+                case PromiseState.Rejected:
+                    MicroTaskQueue.Enqueue(() => rejected(Reason));
+                    break;
+                default:
+                    _thenCallbacks ??= new List<Action<ScriptVar>>();
+                    _catchCallbacks ??= new List<Action<ScriptVar>>();
+                    _thenCallbacks.Add(fulfilled);
+                    _catchCallbacks.Add(rejected);
+                    break;
+            }
+
+            return next;
+        }
+
+        /// <summary>
         /// Convenience: create an already-fulfilled Promise.
         /// </summary>
         public static PromiseObject Resolved(ScriptVar value)
@@ -218,6 +258,21 @@ namespace DScript.Vm
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(nextPromise.ToScriptVar(vm));
             }, null);
             obj.AddChild("catch", catchFn);
+
+            // .finally(onFinally)
+            var finallyFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            finallyFn.AddChild("onFinally", new ScriptVar(ScriptVar.Flags.Undefined));
+            finallyFn.SetCallback((scope, _) =>
+            {
+                var cb = scope.FindChild("onFinally")?.Var;
+                var nextPromise = self.Finally(() =>
+                {
+                    if (cb != null && cb.IsFunction)
+                        vm.InvokeCallable(cb, null, []);
+                });
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(nextPromise.ToScriptVar(vm));
+            }, null);
+            obj.AddChild("finally", finallyFn);
 
             return obj;
         }
