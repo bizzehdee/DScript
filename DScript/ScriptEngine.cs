@@ -75,6 +75,29 @@ namespace DScript
 
         private readonly Dictionary<string, ScriptVar> _moduleCache = new();
 
+        // --- resource limits ------------------------------------------------
+        // 0 means no limit; positive values are enforced by the VM.
+        private long _instructionLimit;
+        private TimeSpan _executionTimeout;
+
+        /// <summary>
+        /// Cancel execution after this many VM instructions. Pass 0 to disable.
+        /// The limit is checked on every instruction; exceeding it throws
+        /// <see cref="ScriptTimeoutException"/> in the host (not catchable by script).
+        /// </summary>
+        public void SetInstructionLimit(long limit) => _instructionLimit = limit;
+
+        /// <summary>
+        /// Cancel execution after this wall-clock duration elapses. Pass
+        /// <see cref="TimeSpan.Zero"/> to disable.
+        /// The deadline is sampled every 1 024 instructions; exceeding it throws
+        /// <see cref="ScriptTimeoutException"/> in the host (not catchable by script).
+        /// </summary>
+        public void SetTimeout(TimeSpan timeout) => _executionTimeout = timeout;
+
+        internal long InstructionLimit => _instructionLimit;
+        internal TimeSpan ExecutionTimeout => _executionTimeout;
+
         // --- debugger -------------------------------------------------------
         private IDebugger _debugger;
         private DebugAction _debugInitialAction = DebugAction.StepIn;

@@ -10,3 +10,5 @@ bin
 .idea
 *.user
 *.swp
+coverage.*.xml
+coverage.*.json

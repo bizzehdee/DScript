@@ -107,6 +107,13 @@ namespace DScript.Vm
         }
         private readonly PropCacheEntry[] _propCache = new PropCacheEntry[256];
 
+        // --- resource limits ------------------------------------------------
+        // Snapshotted from the engine at the start of each Run() call so the
+        // hot Execute() loop reads a plain field, not a virtual property chain.
+        private long _instrCount;
+        private long _instrHardLimit = long.MaxValue; // MaxValue = no limit
+        private long _deadlineTicks = long.MinValue;  // MinValue = no timeout
+
         // --- step debugger --------------------------------------------------
 
         // Lightweight mutable record for one active call frame.
@@ -223,6 +230,12 @@ namespace DScript.Vm
 
         public ScriptVar Run(Chunk chunk, Environment env)
         {
+            _instrCount = 0;
+            _instrHardLimit = (engine != null && engine.InstructionLimit > 0) ? engine.InstructionLimit : long.MaxValue;
+            _deadlineTicks = (engine != null && engine.ExecutionTimeout > TimeSpan.Zero)
+                ? DateTime.UtcNow.Ticks + engine.ExecutionTimeout.Ticks
+                : long.MinValue;
+
             var startDepth = sp;
             var result = Execute(chunk, env);
 
@@ -273,6 +286,13 @@ namespace DScript.Vm
                 var instrIp = ip; // capture before advancing — used for line lookup on error
                 var op = (OpCode)code[ip];
                 ip++;
+
+                // Resource limits — checked outside the inner try/catch so that
+                // ScriptTimeoutException bypasses script-side try/catch blocks.
+                if (++_instrCount >= _instrHardLimit)
+                    throw new ScriptTimeoutException("Script instruction limit exceeded");
+                if ((_instrCount & 0x3FF) == 0 && _deadlineTicks != long.MinValue && DateTime.UtcNow.Ticks >= _deadlineTicks)
+                    throw new ScriptTimeoutException("Script execution timed out");
 
                 // Step debugger hook — fired at every new source line.
                 if (_debugger != null)
