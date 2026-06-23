@@ -261,6 +261,12 @@ namespace DScript
                 while (CurrentChar != (char)0 && CurrentChar.IsWhitespace())
                     GetNextChar();
 
+                if (CurrentChar == '#' && NextChar == '!' && dataPos == dataStart + 2)
+                {
+                    while (CurrentChar != 0 && CurrentChar != '\n') GetNextChar();
+                    continue;
+                }
+
                 if (CurrentChar == '/' && NextChar == '/')
                 {
                     while (CurrentChar != 0 && CurrentChar != '\n') GetNextChar();

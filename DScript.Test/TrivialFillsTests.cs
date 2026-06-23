@@ -466,5 +466,21 @@ namespace DScript.Test
             var r = RunStr("var __r__ = String.fromCodePoint(65);");
             Assert.That(r, Is.EqualTo("A"));
         }
+
+        // ── hashbang ─────────────────────────────────────────────────────────
+
+        [Test]
+        public void Hashbang_IsSkippedAtStartOfScript()
+        {
+            var r = RunInt("#!/usr/bin/env node\nvar __r__ = 42;");
+            Assert.That(r, Is.EqualTo(42));
+        }
+
+        [Test]
+        public void Hashbang_ScriptWithOnlyHashbangRunsCleanly()
+        {
+            // a script containing nothing but a hashbang line should not throw
+            Assert.DoesNotThrow(() => Run("#!/usr/bin/env node\n"));
+        }
     }
 }

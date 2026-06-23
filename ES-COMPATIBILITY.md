@@ -234,7 +234,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Array.prototype.findLast` / `findLastIndex` | ✅ | |
 | `Array.prototype.toReversed` / `toSorted` / `toSpliced` / `with` | ✅ | |
 | `Array.from` with `{ from }` static | ✅ | Basic form only |
-| Hashbang (`#!`) in scripts | ❌ | Lexer does not skip `#!` prologue |
+| Hashbang (`#!`) in scripts | ✅ | |
 | `Symbol.prototype.description` (read-only) | ⚠️ | See ES2019 note |
 
 ---
