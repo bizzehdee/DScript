@@ -160,6 +160,7 @@ namespace DScript
             AndAndEqual,    // &&=
             OrOrEqual,      // ||=
             NullCoalesceEqual, // ??=
+            PrivateName,    // #identifier (private class field/method name)
         }
 
         public ScriptLex(string input)
@@ -329,6 +330,19 @@ namespace DScript
                     case "import": TokenType = LexTypes.RImport; break;
                     case "from": TokenType = LexTypes.RFrom; break;
                 }
+            }
+            else if (CurrentChar == '#' && NextChar.IsAlpha()) // Private class field/method name: #identifier
+            {
+                tokenBuilder.Clear();
+                tokenBuilder.Append('#');
+                GetNextChar(); // consume '#'
+                while (CurrentChar.IsAlpha() || CurrentChar.IsNumeric())
+                {
+                    tokenBuilder.Append(CurrentChar);
+                    GetNextChar();
+                }
+                TokenString = tokenBuilder.ToString();
+                TokenType = LexTypes.PrivateName;
             }
             else if (CurrentChar.IsNumeric()) //Numbers
             {
@@ -842,9 +856,10 @@ namespace DScript
         /// </summary>
         public void MatchPropertyName()
         {
-            // Accept Id or any reserved word (>= RListStart) that starts an alpha char
-            // (i.e. it was lexed as a keyword but is used here as a property name).
-            if (TokenType == LexTypes.Id || (int)TokenType >= (int)LexTypes.RListStart)
+            // Accept Id, private names, or any reserved word (>= RListStart) that starts
+            // an alpha char (i.e. it was lexed as a keyword but is used here as a property name).
+            if (TokenType == LexTypes.Id || TokenType == LexTypes.PrivateName
+                || (int)TokenType >= (int)LexTypes.RListStart)
             {
                 GetNextToken();
                 return;

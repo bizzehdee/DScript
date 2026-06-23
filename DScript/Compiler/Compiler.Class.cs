@@ -66,6 +66,9 @@ namespace DScript.Compiler
             // Collect all members before emitting anything for the constructor.
             var methods = new List<(string Name, bool IsStatic, string Source)>();
             var staticBlocks = new List<string>();  // static { ... } body sources
+            // Private members: (internalName, isStatic, methodSourceOrNull, fieldInitExprOrNull)
+            var privateMembers = new List<(string Name, bool IsStatic, string MethodSrc, string FieldInit)>();
+            var privateNames = new System.Collections.Generic.HashSet<string>();
             string constructorSrc = null;
 
             lexer.Match((ScriptLex.LexTypes)'{');
@@ -86,23 +89,62 @@ namespace DScript.Compiler
                     continue;
                 }
 
+                // Private field or method: #name
+                if (lexer.TokenType == ScriptLex.LexTypes.PrivateName)
+                {
+                    var privateName = lexer.TokenString; // includes '#' prefix
+                    lexer.Match(ScriptLex.LexTypes.PrivateName);
+                    privateNames.Add(privateName);
+                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                    {
+                        // Private method
+                        var methodSrc = CaptureMethodSource();
+                        privateMembers.Add((privateName, isStatic, methodSrc, null));
+                    }
+                    else
+                    {
+                        // Private field (with optional initializer)
+                        string initExpr = null;
+                        if (lexer.TokenType == (ScriptLex.LexTypes)'=')
+                        {
+                            lexer.Match((ScriptLex.LexTypes)'=');
+                            initExpr = CaptureFieldInitializer();
+                        }
+                        if (lexer.TokenType == (ScriptLex.LexTypes)';')
+                            lexer.Match((ScriptLex.LexTypes)';');
+                        privateMembers.Add((privateName, isStatic, null, initExpr));
+                    }
+                    continue;
+                }
+
                 var methodName = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Id);
 
                 // Capture the full method source starting from '('
-                var methodSrc = CaptureMethodSource();
+                var methodSrc2 = CaptureMethodSource();
 
                 if (!isStatic && methodName == "constructor")
-                    constructorSrc = methodSrc;
+                    constructorSrc = methodSrc2;
                 else
-                    methods.Add((methodName, isStatic, methodSrc));
+                    methods.Add((methodName, isStatic, methodSrc2));
             }
             lexer.Match((ScriptLex.LexTypes)'}');
 
+            // Build preamble for instance private field initializers
+            var instanceFieldInits = new System.Text.StringBuilder();
+            foreach (var (name, isStatic, _, init) in privateMembers)
+            {
+                if (!isStatic && init != null)
+                    instanceFieldInits.Append($"this[\"{name}\"] = {init};");
+            }
+
             // --- Emit constructor ---
             _superClassName = parentName;
+            var savedPrivateNames = _currentClassPrivateNames;
+            _currentClassPrivateNames = privateNames;
             var ctorSrc = constructorSrc ?? "(){}";
-            var ctorIdx = CompileMethodSource(ctorSrc, className);
+            var ctorPreamble = instanceFieldInits.Length > 0 ? instanceFieldInits.ToString() : null;
+            var ctorIdx = CompileMethodSource(ctorSrc, className, ctorPreamble);
             _superClassName = null;
 
             chunk.Emit(OpCode.MakeClosure, ctorIdx);
@@ -143,6 +185,38 @@ namespace DScript.Compiler
                 chunk.Emit(OpCode.Pop);
             }
 
+            // --- Emit private methods and static private fields ---
+            foreach (var (name, isStatic, methodSrc, fieldInit) in privateMembers)
+            {
+                if (methodSrc != null)
+                {
+                    // Private method — stored on the constructor with the #name key
+                    var methodIdx = CompileMethodSource(methodSrc, name);
+                    var nameIdx = chunk.AddName(name);
+                    chunk.Emit(OpCode.GetVar, classNameIdx);
+                    chunk.Emit(OpCode.MakeClosure, methodIdx);
+                    chunk.MakesClosure = true;
+                    chunk.Emit(OpCode.SetProp, nameIdx);
+                    chunk.Emit(OpCode.Pop);
+                }
+                else if (isStatic && fieldInit != null)
+                {
+                    // Static private field with initializer — set on class constructor
+                    var nameIdx = chunk.AddName(name);
+                    chunk.Emit(OpCode.GetVar, classNameIdx);
+                    // Compile the initializer inline using a sub-lexer
+                    var savedLexer2 = lexer;
+                    using var initLex = new ScriptLex(fieldInit);
+                    lexer = initLex;
+                    CompileBase();
+                    lexer = savedLexer2;
+                    chunk.Emit(OpCode.SetProp, nameIdx);
+                    chunk.Emit(OpCode.Pop);
+                }
+            }
+
+            _currentClassPrivateNames = savedPrivateNames;
+
             // --- Emit static initialisation blocks ---
             // Each `static { ... }` is compiled as an anonymous function called with
             // the class constructor as `this`, so `this.x = 1` sets a static property.
@@ -158,8 +232,10 @@ namespace DScript.Compiler
         }
 
         // Compile a method source string "(params) { body }" into a nested chunk.
+        // An optional preamble (plain statements) is compiled into the function body
+        // before the user-written body — used for instance private field initializers.
         // Returns the index in the current chunk's function table.
-        private int CompileMethodSource(string src, string name)
+        private int CompileMethodSource(string src, string name, string preamble = null)
         {
             var fnChunk = new Chunk { Name = name };
             var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
@@ -205,6 +281,16 @@ namespace DScript.Compiler
             EnterFunctionBody(out var savedLoops, out var savedFinally);
 
             EmitDefaultParamGuards(paramDefaults);
+            // Optional preamble (e.g. instance private field initializers)
+            if (preamble != null)
+            {
+                var bodyLex = lexer;  // save the method-body lexer
+                using var preambleLex = new ScriptLex(preamble);
+                lexer = preambleLex;
+                while (lexer.TokenType != ScriptLex.LexTypes.Eof)
+                    CompileStatement();
+                lexer = bodyLex;
+            }
             CompileBlock();
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
@@ -244,6 +330,27 @@ namespace DScript.Compiler
             }
             lexer.Match((ScriptLex.LexTypes)'}');
 
+            return lexer.GetSubString(start);
+        }
+
+        // Capture a field initializer expression up to the next `;` or `}` at depth 0.
+        // Returns the expression source text (without the `;`).
+        private string CaptureFieldInitializer()
+        {
+            var start = lexer.TokenStart;
+            var depth = 0;
+            while (lexer.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = lexer.TokenType;
+                if (t is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{') depth++;
+                else if (t is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}')
+                {
+                    if (depth == 0) break;
+                    depth--;
+                }
+                else if (depth == 0 && t == (ScriptLex.LexTypes)';') break;
+                lexer.GetNextToken();
+            }
             return lexer.GetSubString(start);
         }
 

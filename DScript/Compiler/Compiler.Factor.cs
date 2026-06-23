@@ -188,6 +188,16 @@ namespace DScript.Compiler
                     CompileIdentifierChain(canAssign);
                     return;
 
+                case ScriptLex.LexTypes.PrivateName:
+                {
+                    // #name used as an expression is only valid in `#name in obj`
+                    var privateName = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.PrivateName);
+                    chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.String(privateName)));
+                    CompileMemberChain(false);
+                    return;
+                }
+
                 default:
                     // unexpected token for the current (phase-limited) grammar
                     lexer.Match(ScriptLex.LexTypes.Eof);
@@ -336,8 +346,13 @@ namespace DScript.Compiler
                 {
                     lexer.Match((ScriptLex.LexTypes)'.');
                     // Property name may be a keyword (e.g. obj.catch, obj.then, obj.delete)
+                    // or a private name (#field, #method).
                     var prop = lexer.TokenString;
                     lexer.MatchPropertyName();
+                    // Private name access is only valid inside a class that declares it.
+                    if (prop.Length > 0 && prop[0] == '#' &&
+                        (_currentClassPrivateNames == null || !_currentClassPrivateNames.Contains(prop)))
+                        throw new JITException($"Private field '{prop}' must be declared in an enclosing class");
                     var nameIndex = chunk.AddName(prop);
 
                     if (lexer.TokenType == (ScriptLex.LexTypes)'(')
