@@ -78,8 +78,10 @@ namespace DScript.Compiler
         /// <summary>Compile a full program (statement sequence) to a chunk.</summary>
         public Chunk CompileProgram(string source)
         {
+            var isAsync = HasTopLevelAwait(source);
+
             lexer = new ScriptLex(source);
-            chunk = new Chunk { Name = "<main>" };
+            chunk = new Chunk { Name = "<main>", IsAsync = isAsync };
 
             while (lexer.TokenType != ScriptLex.LexTypes.Eof)
             {
@@ -393,6 +395,34 @@ namespace DScript.Compiler
                     }
                 }
             }
+        }
+
+        // Scan for a top-level `await` token — one that appears outside any
+        // function/class body. Tracks nesting by counting `function`/`class`
+        // keywords to enter a nested scope and `}` tokens to exit.
+        // Arrow functions are not counted because they use no keyword at their
+        // open — so `await` inside an arrow body counts as top-level. This is
+        // an intentional conservative choice: if you use arrow bodies at the
+        // top level, the wrapper is added which is safe. If that's too broad
+        // for a future use-case, a full AST pass would be required.
+        private static bool HasTopLevelAwait(string source)
+        {
+            int depth = 0;
+            using var lex = new ScriptLex(source);
+            while (lex.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = lex.TokenType;
+                if (t == ScriptLex.LexTypes.RFunction || t == ScriptLex.LexTypes.RClass)
+                    depth++;
+                else if (t == (ScriptLex.LexTypes)'{' && depth > 0)
+                    depth++;
+                else if (t == (ScriptLex.LexTypes)'}' && depth > 0)
+                    depth--;
+                else if (t == ScriptLex.LexTypes.RAwait && depth == 0)
+                    return true;
+                lex.GetNextToken();
+            }
+            return false;
         }
     }
 }

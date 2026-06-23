@@ -237,7 +237,20 @@ namespace DScript.Vm
                 : long.MinValue;
 
             var startDepth = sp;
-            var result = Execute(chunk, env);
+
+            ScriptVar result;
+            if (chunk.IsAsync)
+            {
+                // Top-level await: run the chunk as an async body in the provided env.
+                // Variables declared with `var` land in env.Vars (the engine root),
+                // not in a nested function scope.
+                var vmfn = new VmFunction(chunk, env);
+                result = CreateAsyncPromise(vmfn, env);
+            }
+            else
+            {
+                result = Execute(chunk, env);
+            }
 
             // discard anything the chunk left behind to keep the stack balanced
             sp = startDepth;
