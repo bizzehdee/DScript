@@ -12,3 +12,7 @@ bin
 *.swp
 coverage.*.xml
 coverage.*.json
+vscode-dscript/node_modules/
+vscode-dscript/out/
+vscode-dscript/server/
+vscode-dscript/*.vsix

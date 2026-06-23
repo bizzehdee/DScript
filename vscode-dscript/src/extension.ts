@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
@@ -9,33 +10,32 @@ import {
 
 let client: LanguageClient;
 
-export function activate(context: vscode.ExtensionContext): void {
-    // Resolve the path to the compiled language server executable.
-    // When the extension is published the server binary should be bundled; for
-    // development it lives under the neighbouring DScript.LanguageServer project.
-    const serverExe = context.asAbsolutePath(
-        path.join(
-            '..',
-            'DScript.LanguageServer',
-            'bin',
-            'Debug',
-            'net10.0',
-            process.platform === 'win32'
-                ? 'DScript.LanguageServer.exe'
-                : 'DScript.LanguageServer',
-        ),
-    );
+function resolveServerPath(context: vscode.ExtensionContext): string {
+    const platform = process.platform;
+    const rid = platform === 'win32' ? 'win-x64'
+               : platform === 'darwin' ? 'osx-arm64'
+               : 'linux-x64';
+    const exe = platform === 'win32' ? 'DScript.LanguageServer.exe' : 'DScript.LanguageServer';
 
+    // Bundled binary (packaged .vsix)
+    const bundled = context.asAbsolutePath(path.join('server', rid, exe));
+    if (fs.existsSync(bundled)) return bundled;
+
+    // Development fallback: neighbouring project build output
+    return context.asAbsolutePath(
+        path.join('..', 'DScript.LanguageServer', 'bin', 'Debug', 'net10.0', exe),
+    );
+}
+
+export function activate(context: vscode.ExtensionContext): void {
     const serverOptions: ServerOptions = {
-        command: serverExe,
+        command: resolveServerPath(context),
         transport: TransportKind.stdio,
     };
 
     const clientOptions: LanguageClientOptions = {
-        // Register for .ds files.
         documentSelector: [{ scheme: 'file', language: 'dscript' }],
         synchronize: {
-            // Watch for .ds file changes on disk so the server is notified.
             fileEvents: vscode.workspace.createFileSystemWatcher('**/*.ds'),
         },
         outputChannelName: 'DScript Language Server',

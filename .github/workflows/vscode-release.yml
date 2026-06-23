@@ -1,0 +1,65 @@
+name: Release VS Code Extension
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish language server (win-x64)
+        run: >
+          dotnet publish DScript.LanguageServer/DScript.LanguageServer.csproj
+          -r win-x64 --self-contained -c Release
+          -o vscode-dscript/server/win-x64
+
+      - name: Publish language server (linux-x64)
+        run: >
+          dotnet publish DScript.LanguageServer/DScript.LanguageServer.csproj
+          -r linux-x64 --self-contained -c Release
+          -o vscode-dscript/server/linux-x64
+
+      - name: Publish language server (osx-arm64)
+        run: >
+          dotnet publish DScript.LanguageServer/DScript.LanguageServer.csproj
+          -r osx-arm64 --self-contained -c Release
+          -o vscode-dscript/server/osx-arm64
+
+      # Cross-compiled binaries don't inherit execute permissions from the host OS.
+      # vsce preserves Unix modes in the vsix zip, so set them here before packaging.
+      - name: Set execute permissions on non-Windows server binaries
+        run: |
+          chmod +x vscode-dscript/server/linux-x64/DScript.LanguageServer
+          chmod +x vscode-dscript/server/osx-arm64/DScript.LanguageServer
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install extension dependencies
+        working-directory: vscode-dscript
+        run: npm ci
+
+      - name: Package extension
+        working-directory: vscode-dscript
+        run: npx @vscode/vsce package --out dscript-${{ github.ref_name }}.vsix
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: vscode-dscript/dscript-${{ github.ref_name }}.vsix
+          generate_release_notes: true

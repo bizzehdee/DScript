@@ -45,7 +45,7 @@ jobs:
           /p:Threshold=90
           /p:ThresholdType=line
           /p:ThresholdStat=Total
-          /p:Exclude="[DScript.Benchmark]*%2C[DScript.Demo]*%2C[DScript.Repl]*%2C[DScript.LanguageServer]*"
+          /p:Exclude="[DScript.Benchmark]*%2C[DScript.Demo]*%2C[DScript.Cli]*%2C[DScript.LanguageServer]*"
 
       - name: Upload test results
         if: always()
