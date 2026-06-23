@@ -1583,7 +1583,7 @@ namespace DScript.Vm
                 var nativeName = callee.FindChild("name")?.Var?.String;
                 _profiler?.Enter(string.IsNullOrEmpty(nativeName) ? "(native)" : nativeName, "(native)", 0, 0);
                 try { callee.GetCallback()?.Invoke(scope, callee.GetCallbackUserData()); }
-                finally { _profiler?.Exit(); }
+                finally { _profiler?.Leave(); }
                 return returnLink.Var;
             }
 
@@ -1655,12 +1655,12 @@ namespace DScript.Vm
                 finally
                 {
                     ReturnFrameVars(vars);
-                    _profiler?.Exit();
+                    _profiler?.Leave();
                 }
             }
 
             try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
-            finally { _profiler?.Exit(); }
+            finally { _profiler?.Leave(); }
         }
 
         // Invoke a compiled (non-native) function whose arguments are sitting on
@@ -1759,12 +1759,12 @@ namespace DScript.Vm
                 finally
                 {
                     ReturnFrameVars(vars);
-                    _profiler?.Exit();
+                    _profiler?.Leave();
                 }
             }
 
             try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
-            finally { _profiler?.Exit(); }
+            finally { _profiler?.Leave(); }
         }
 
         // Build a call environment for a VmFunction from a ScriptVar[] args array.

@@ -108,7 +108,7 @@ namespace DScript.Profiler
         }
 
         /// <inheritdoc/>
-        public void Exit()
+        public void Leave()
         {
             if (_stack.Count <= 1) return; // root is never explicitly popped
 

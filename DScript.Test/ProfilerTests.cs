@@ -39,7 +39,7 @@ namespace DScript.Test
         {
             var profiler = new CpuProfiler();
             profiler.Enter("foo", "test.js", 1, 0);
-            profiler.Exit();
+            profiler.Leave();
             var json = profiler.GetProfile();
             Assert.DoesNotThrow(() => JsonDocument.Parse(json));
         }
@@ -49,7 +49,7 @@ namespace DScript.Test
         {
             var profiler = new CpuProfiler();
             profiler.Enter("bar", "test.js", 2, 0);
-            profiler.Exit();
+            profiler.Leave();
             using var doc = JsonDocument.Parse(profiler.GetProfile());
             var root = doc.RootElement;
             Assert.That(root.TryGetProperty("nodes",      out _), Is.True);
@@ -76,7 +76,7 @@ namespace DScript.Test
         {
             var profiler = new CpuProfiler();
             profiler.Enter("myFunc", "script.js", 10, 0);
-            profiler.Exit();
+            profiler.Leave();
             using var doc = JsonDocument.Parse(profiler.GetProfile());
             var nodes = doc.RootElement.GetProperty("nodes");
             string foundName = null;
@@ -94,8 +94,8 @@ namespace DScript.Test
             var profiler = new CpuProfiler();
             profiler.Enter("outer", "", 1, 0);
             profiler.Enter("inner", "", 5, 0);
-            profiler.Exit(); // inner
-            profiler.Exit(); // outer
+            profiler.Leave(); // inner
+            profiler.Leave(); // outer
             using var doc = JsonDocument.Parse(profiler.GetProfile());
             var nodes = doc.RootElement.GetProperty("nodes");
             int outerChildren = -1;
@@ -112,7 +112,7 @@ namespace DScript.Test
         {
             var profiler = new CpuProfiler();
             profiler.Enter("f", "", 1, 0);
-            profiler.Exit();
+            profiler.Leave();
             var first  = profiler.GetProfile();
             var second = profiler.GetProfile();
             Assert.That(first, Is.EqualTo(second));
@@ -123,7 +123,7 @@ namespace DScript.Test
         {
             var profiler = new CpuProfiler();
             profiler.Enter("work", "", 1, 0);
-            profiler.Exit();
+            profiler.Leave();
             using var doc = JsonDocument.Parse(profiler.GetProfile());
             var start = doc.RootElement.GetProperty("startTime").GetInt64();
             var end   = doc.RootElement.GetProperty("endTime").GetInt64();
@@ -137,7 +137,7 @@ namespace DScript.Test
             profiler.SampleIntervalMicros = 1; // 1µs so short calls still emit samples
             profiler.Enter("a", "", 1, 0);
             System.Threading.Thread.Sleep(1); // ensure non-zero self-time
-            profiler.Exit();
+            profiler.Leave();
             using var doc = JsonDocument.Parse(profiler.GetProfile());
             var samples    = doc.RootElement.GetProperty("samples").GetArrayLength();
             var timeDeltas = doc.RootElement.GetProperty("timeDeltas").GetArrayLength();
@@ -149,7 +149,7 @@ namespace DScript.Test
         {
             var profiler = new CpuProfiler();
             profiler.Enter(null, "", 1, 0);
-            profiler.Exit();
+            profiler.Leave();
             using var doc = JsonDocument.Parse(profiler.GetProfile());
             var nodes = doc.RootElement.GetProperty("nodes");
             bool found = false;

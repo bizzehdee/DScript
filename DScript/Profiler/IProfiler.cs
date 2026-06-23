@@ -19,8 +19,8 @@ namespace DScript.Profiler
 
         /// <summary>
         /// Called synchronously by the VM when a function returns (normally or via exception).
-        /// Every successful <see cref="Enter"/> call is paired with exactly one <see cref="Exit"/> call.
+        /// Every successful <see cref="Enter"/> call is paired with exactly one <see cref="Leave"/> call.
         /// </summary>
-        void Exit();
+        void Leave();
     }
 }
