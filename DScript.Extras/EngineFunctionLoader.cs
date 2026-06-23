@@ -45,6 +45,7 @@ namespace DScript.Extras
             SetRegistrar.Register(engine);
             DateRegistrar.Register(engine);
             RegExpRegistrar.Register(engine);
+            BufferRegistrar.Register(engine);
             GeneratedFunctionRegistrar.RegisterAll(engine, engine);
         }
 
