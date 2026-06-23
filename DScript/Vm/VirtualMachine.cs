@@ -1404,6 +1404,15 @@ namespace DScript.Vm
                 vars.AddChild(parameters[restIdx2], restArr);
             }
 
+            // Bind arguments object for non-arrow functions
+            if (!vmfn.Body.IsArrow)
+            {
+                var argObj = new ScriptVar(ScriptVar.Flags.Array);
+                for (var j = 0; j < (args?.Length ?? 0); j++)
+                    argObj.SetArrayIndex(j, BindArg(args, j));
+                vars.AddChild("arguments", argObj);
+            }
+
             if (recyclable)
             {
                 try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
@@ -1473,6 +1482,15 @@ namespace DScript.Vm
                 vars.AddChild(parameters[restIdx], restArr);
             }
 
+            // Bind arguments object for non-arrow functions
+            if (!vmfn.Body.IsArrow)
+            {
+                var argObj = new ScriptVar(ScriptVar.Flags.Array);
+                for (var j = 0; j < argc; j++)
+                    argObj.SetArrayIndex(j, BindArgValue(stack[argBase + j]));
+                vars.AddChild("arguments", argObj);
+            }
+
             // Pop the arguments now that they are bound; the args' slots are free
             // for the callee's own use of the shared operand stack. Their values
             // stay alive via the call frame's child links.
@@ -1508,6 +1526,15 @@ namespace DScript.Vm
                 for (var j = restIdx; j < (args?.Length ?? 0); j++)
                     restArr.SetArrayIndex(restLen++, BindArg(args, j));
                 vars.AddChild(parameters[restIdx], restArr);
+            }
+
+            // Bind arguments object for non-arrow functions
+            if (!vmfn.Body.IsArrow)
+            {
+                var argObj = new ScriptVar(ScriptVar.Flags.Array);
+                for (var j = 0; j < (args?.Length ?? 0); j++)
+                    argObj.SetArrayIndex(j, BindArg(args, j));
+                vars.AddChild("arguments", argObj);
             }
 
             return env;

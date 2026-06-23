@@ -848,7 +848,7 @@ namespace DScript.Compiler
         // Compile `x => expr`, `(x, y) => expr`, or `(params) => { block }`.
         private void CompileArrowFunction()
         {
-            var fnChunk = new Chunk { Name = "<arrow>" };
+            var fnChunk = new Chunk { Name = "<arrow>", IsArrow = true };
             var sourceStart = lexer.TokenStart;
             var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
 

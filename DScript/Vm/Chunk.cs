@@ -155,6 +155,9 @@ namespace DScript.Vm
         /// <summary>True when this function chunk was compiled as an async function.</summary>
         public bool IsAsync { get; set; }
 
+        /// <summary>True when this function chunk was compiled as an arrow function (no own `arguments` binding).</summary>
+        public bool IsArrow { get; set; }
+
         /// <summary>
         /// Returns true when this generator body can use the stackless execution path:
         /// no try/catch blocks, no awaits. Generators not meeting these criteria fall

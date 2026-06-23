@@ -23,7 +23,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Ternary (`?:`) | ✅ | |
 | `void` operator | ✅ | |
 | Bitwise operators (`&` `\|` `^` `~` `<<` `>>` `>>>`) | ✅ | |
-| `arguments` object | ⚠️ | Not available inside arrow functions; basic function use only |
+| `arguments` object | ✅ | Available in all non-arrow functions; `.length`, indexed access, `Array.from(arguments)` all work; arrow functions correctly have no `arguments` binding |
 | Getter / setter (`get`/`set`) | ✅ | Object literals, class bodies, and `Object.defineProperty` |
 | `Object.create(proto)` | ✅ | |
 | `Object.keys(obj)` | ✅ | Respects `enumerable` descriptor |
