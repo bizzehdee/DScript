@@ -182,7 +182,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `BigInt()` factory | ✅ | |
 | BigInt arithmetic and comparisons | ✅ | `+` `-` `*` `/` `%` `&` `\|` `^` `~` `-` (unary) `<` `>` `<=` `>=` `==` `!=` |
 | BigInt mixed-type TypeError | ✅ | |
-| `globalThis` | ❌ | Global scope accessible via engine root but not exposed as `globalThis` |
+| `globalThis` | ✅ | Refers to the engine root; no circular reference; `globalThis === globalThis` is stable |
 | Optional chaining (`?.`) | ✅ | Member access, index access, and function calls |
 | Nullish coalescing (`??`) | ✅ | |
 | `Promise.allSettled` | ✅ | |
@@ -315,4 +315,4 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 - **`WeakRef` / `FinalizationRegistry`**: Not implemented (no GC hooks in the VM).
 - **Async generators** (`async function*`) and `for await...of`: Not implemented.
 - **`Error.cause`**: Constructable errors exist, but the `cause` option is ignored.
-- **`globalThis`**: The global scope is accessible from C# via `engine.Root`, but `globalThis` is not exposed as a script-level variable.
+- **`WeakRef`**: Implemented (`deref()` returns the target); `FinalizationRegistry` is not implemented (no GC hooks in the VM).
