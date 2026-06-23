@@ -52,6 +52,23 @@ namespace DScript
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(sym);
             }, null);
 
+            // Symbol.prototype.description getter — returns the raw description string
+            // (or undefined for anonymous symbols) when accessed on a symbol instance.
+            var descGetter = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            descGetter.SetCallback((scope, _) =>
+            {
+                var sym = scope.FindChild("this")?.Var;
+                if (sym == null || !sym.IsSymbol)
+                    throw new ScriptException("TypeError: Symbol.prototype.description requires a Symbol");
+                var rawDesc = sym.GetSymbolDescription();
+                var result = rawDesc != null
+                    ? new ScriptVar(rawDesc)
+                    : new ScriptVar(ScriptVar.Flags.Undefined);
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
+            }, null);
+            var descLink = symbolCtor.FindChild("description") ?? symbolCtor.AddChild("description", new ScriptVar());
+            descLink.Getter = descGetter;
+
             // Well-known symbols exposed as static properties
             symbolCtor.AddChild("iterator",    WellKnownSymbols.Iterator);
             symbolCtor.AddChild("hasInstance", WellKnownSymbols.HasInstance);

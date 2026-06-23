@@ -112,6 +112,8 @@ namespace DScript
 
         public string GetSymbolKey() => IsSymbol ? $"@@symbol:{intData}" : null;
 
+        public string GetSymbolDescription() => IsSymbol ? scriptData as string : null;
+
         // Native callbacks are rare (registered once per built-in function) but the
         // two dedicated fields they needed used to sit on every ScriptVar — including
         // the millions of short-lived primitives the VM allocates. They are folded

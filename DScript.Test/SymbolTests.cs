@@ -217,5 +217,35 @@ var r = (3 instanceof Even) ? 1 : 0;
 ").Int;
             Assert.That(r, Is.EqualTo(0));
         }
+
+        // --- Symbol.prototype.description ---
+
+        [Test]
+        public void SymbolDescription_ReturnsDescriptionString()
+        {
+            var r = RunStr("var s = Symbol('hello'); var r = s.description;");
+            Assert.That(r, Is.EqualTo("hello"));
+        }
+
+        [Test]
+        public void SymbolDescription_AnonymousSymbolIsUndefined()
+        {
+            var r = Run("var s = Symbol(); var r = s.description;");
+            Assert.That(r.IsUndefined, Is.True);
+        }
+
+        [Test]
+        public void SymbolDescription_EmptyStringDescription()
+        {
+            var r = RunStr("var s = Symbol(''); var r = s.description;");
+            Assert.That(r, Is.EqualTo(""));
+        }
+
+        [Test]
+        public void SymbolDescription_DoesNotEqualAnotherSymbolsDescription()
+        {
+            var r = RunStr("var s1 = Symbol('a'); var s2 = Symbol('b'); var r = s1.description;");
+            Assert.That(r, Is.EqualTo("a"));
+        }
     }
 }

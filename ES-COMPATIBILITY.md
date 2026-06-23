@@ -167,7 +167,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Object.fromEntries` | ✅ | |
 | `String.prototype.trimStart` / `trimEnd` | ✅ | |
 | Optional `catch` binding (`catch { }`) | ✅ | |
-| `Symbol.prototype.description` | ⚠️ | `Symbol('desc').description` returns the description string when accessed via `.String`; no dedicated `.description` property exposed |
+| `Symbol.prototype.description` | ✅ | |
 | `Array.prototype.sort` stability | ✅ | Backed by .NET's stable sort |
 | `Function.prototype.toString` | ⚠️ | Returns the source string of compiled functions; native functions return an empty string |
 | Well-formed `JSON.stringify` | ✅ | |
@@ -235,7 +235,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Array.prototype.toReversed` / `toSorted` / `toSpliced` / `with` | ✅ | |
 | `Array.from` with `{ from }` static | ✅ | Basic form only |
 | Hashbang (`#!`) in scripts | ✅ | |
-| `Symbol.prototype.description` (read-only) | ⚠️ | See ES2019 note |
+| `Symbol.prototype.description` (read-only) | ✅ | |
 
 ---
 

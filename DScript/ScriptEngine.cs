@@ -756,6 +756,16 @@ namespace DScript
                 parentClass = parentClass.Var.FindChild(ScriptVar.PrototypeClassName);
             }
 
+            if (obj.IsSymbol)
+            {
+                var symCtor = Root.FindChild("Symbol")?.Var;
+                if (symCtor != null)
+                {
+                    implementation = symCtor.FindChild(name);
+                    if (implementation != null) return implementation;
+                }
+            }
+
             if (obj.IsString)
             {
                 implementation = stringClass.FindChild(name);
