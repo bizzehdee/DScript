@@ -712,7 +712,7 @@ namespace DScript.Compiler
         // register it; returns its index in the enclosing chunk's function table.
         private int CompileFunctionRest(string name, bool isGenerator = false, bool isAsync = false)
         {
-            var fnChunk = new Chunk { Name = string.IsNullOrEmpty(name) ? "<anonymous>" : name, IsGenerator = isGenerator, IsAsync = isAsync };
+            var fnChunk = new Chunk { Name = string.IsNullOrEmpty(name) ? "<anonymous>" : name, IsGenerator = isGenerator, IsAsync = isAsync, IsStrict = chunk.IsStrict };
 
             // capture the source span so the function can be rendered back to
             // text by JSON.stringify / GetParsableString and re-parsed by eval
@@ -770,7 +770,7 @@ namespace DScript.Compiler
             // Emit default-value guards at the start of the function body.
             EmitDefaultParamGuards(paramDefaults);
 
-            CompileBlock();
+            CompileBlock(checkDirective: true);
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
             ExitFunctionBody(savedLoops, savedFinally);
@@ -865,7 +865,7 @@ namespace DScript.Compiler
         // Compile `x => expr`, `(x, y) => expr`, or `(params) => { block }`.
         private void CompileArrowFunction()
         {
-            var fnChunk = new Chunk { Name = "<arrow>", IsArrow = true };
+            var fnChunk = new Chunk { Name = "<arrow>", IsArrow = true, IsStrict = chunk.IsStrict };
             var sourceStart = lexer.TokenStart;
             var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
 
@@ -935,7 +935,7 @@ namespace DScript.Compiler
             if (lexer.TokenType == (ScriptLex.LexTypes)'{')
             {
                 // Block body: (x) => { statements; }
-                CompileBlock();
+                CompileBlock(checkDirective: true);
                 chunk.Emit(OpCode.PushUndefined);
                 chunk.Emit(OpCode.Return);
             }

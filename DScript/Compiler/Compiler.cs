@@ -135,6 +135,8 @@ namespace DScript.Compiler
                 _constScopes.Push(new Dictionary<string, ConstantValue>());
             }
 
+            ConsumeUseStrictIfPresent();
+
             while (lexer.TokenType != ScriptLex.LexTypes.Eof)
             {
                 CompileStatement();
@@ -152,6 +154,18 @@ namespace DScript.Compiler
                 _constScopes = null;
             }
             return chunk;
+        }
+
+        // ----- strict-mode directive detection ---------------------------------
+
+        private void ConsumeUseStrictIfPresent()
+        {
+            if (lexer.TokenType != ScriptLex.LexTypes.Str) return;
+            if (lexer.TokenString != "use strict") return;
+            lexer.Match(ScriptLex.LexTypes.Str);
+            if (lexer.TokenType == (ScriptLex.LexTypes)';')
+                lexer.Match((ScriptLex.LexTypes)';');
+            chunk.IsStrict = true;
         }
 
         // ----- precedence chain (mirrors ScriptEngine.* tiers) --------------

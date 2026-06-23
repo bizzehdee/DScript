@@ -126,9 +126,11 @@ namespace DScript.Compiler
             }
         }
 
-        private void CompileBlock()
+        private void CompileBlock(bool checkDirective = false)
         {
             lexer.Match((ScriptLex.LexTypes)'{');
+
+            if (checkDirective) ConsumeUseStrictIfPresent();
 
             // If the block contains any `let` or `const` declarations at the top
             // level of this block (depth 0), we need a dedicated scope frame so

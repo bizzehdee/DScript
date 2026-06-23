@@ -155,6 +155,9 @@ namespace DScript.Vm
         /// <summary>True when this function chunk was compiled as an async function.</summary>
         public bool IsAsync { get; set; }
 
+        /// <summary>True when this chunk (or any ancestor) contains a "use strict" directive.</summary>
+        public bool IsStrict { get; set; }
+
         /// <summary>True when this function chunk was compiled as an arrow function (no own `arguments` binding).</summary>
         public bool IsArrow { get; set; }
 
