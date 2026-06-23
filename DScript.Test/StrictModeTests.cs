@@ -263,5 +263,37 @@ namespace DScript.Test
             // on whether callee was set, but should never throw TypeError).
             Assert.DoesNotThrow(() => RunStr(src));
         }
+
+        // ── T14: undeclared assignment throws ReferenceError ──────────────────
+
+        [Test]
+        public void Strict_UndeclaredAssignment_ThrowsReferenceError()
+        {
+            var src = @"""use strict""; x = 1;";
+            var engine = new ScriptEngine();
+            var chunk = Compile(src);
+            Assert.Throws<ScriptException>(() =>
+                new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null)));
+        }
+
+        [Test]
+        public void Strict_DeclaredVar_Assignment_IsAllowed()
+        {
+            var src = @"""use strict""; var x = 0; x = 42;";
+            var engine = new ScriptEngine();
+            var chunk = Compile(src);
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
+            Assert.That(engine.Root.GetParameter("x").Int, Is.EqualTo(42));
+        }
+
+        [Test]
+        public void NonStrict_UndeclaredAssignment_CreatesGlobal()
+        {
+            var src = @"x = 99;";
+            var engine = new ScriptEngine();
+            var chunk = Compile(src);
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
+            Assert.That(engine.Root.GetParameter("x").Int, Is.EqualTo(99));
+        }
     }
 }

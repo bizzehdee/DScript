@@ -61,7 +61,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ✅ | Constructable via `new` or call; `message`, `name`, `stack` set; `instanceof Error` works through prototype chain; `Error.cause` (ES2022) not implemented |
 | `Function.prototype.bind` / `call` / `apply` | ✅ | |
-| Strict mode (`"use strict"`) | ⚠️ | Directive detected; compile-time errors (dup params, `eval`/`arguments` as binding, `delete <id>`, octals); `this=undefined` in plain calls; `arguments.callee`/`caller` poison pills — undeclared var ReferenceError and non-writable write TypeError not yet implemented |
+| Strict mode (`"use strict"`) | ⚠️ | Directive detected; compile-time errors (dup params, `eval`/`arguments` as binding, `delete <id>`, octals); `this=undefined` in plain calls; `arguments.callee`/`caller` poison pills; undeclared assignment throws `ReferenceError` — non-writable property write TypeError not yet implemented |
 | Eval | ⚠️ | `eval(str)` executes code; indirect eval semantics not guaranteed |
 
 ---

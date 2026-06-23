@@ -420,6 +420,8 @@ namespace DScript.Vm
                         }
                         else
                         {
+                            if (chunk.IsStrict)
+                                throw new ScriptException($"ReferenceError: '{chunk.Names[nameIdx]}' is not defined");
                             // New global binding: bump the global scope's version so
                             // any cached resolutions of this name re-validate.
                             var global = env.Global();
@@ -1321,6 +1323,8 @@ namespace DScript.Vm
                         }
                         else
                         {
+                            if (chunk.IsStrict)
+                                throw new ScriptException($"ReferenceError: '{chunk.Names[nameIdx]}' is not defined");
                             var global = env.Global();
                             global.Vars.AddChildNoDup(chunk.Names[nameIdx], value);
                             global.Version++;
