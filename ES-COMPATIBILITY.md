@@ -91,7 +91,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Static initialisation blocks | ✅ | |
 | Private fields and methods (`#name`) | ✅ | Stored as string key `"#name"` |
 | `for...of` | ✅ | Arrays, generators, custom iterables |
-| `Symbol` | ✅ | `Symbol()`, `Symbol.for`, `Symbol.keyFor`, `Symbol.iterator`, `Symbol.hasInstance`, `Symbol.toPrimitive`, `Symbol.toStringTag` |
+| `Symbol` | ✅ | `Symbol()`, `Symbol.for`, `Symbol.keyFor`, `Symbol.iterator`, `Symbol.asyncIterator`, `Symbol.hasInstance`, `Symbol.toPrimitive`, `Symbol.toStringTag` |
 | Custom iterables (`[Symbol.iterator]()`) | ✅ | |
 | Generators (`function*`, `yield`) | ✅ | Including `yield*` delegation |
 | `Map` | ✅ | |
@@ -124,7 +124,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 
 | Feature | Status | Notes |
 |---|---|---|
-| Exponentiation operator (`**`) | ✅ | |
+| Exponentiation operator (`**`) | ❌ | Lexer and compiler do not implement `**`; use `Math.pow(a, b)` |
 | `Array.prototype.includes` | ✅ | |
 
 ---
@@ -244,7 +244,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Feature | Status | Notes |
 |---|---|---|
 | `Promise.withResolvers` | ❌ | |
-| `Object.groupBy` / `Map.groupBy` | ❌ | |
+| `Object.groupBy` / `Map.groupBy` | ✅ | |
 | `ArrayBuffer.prototype.resize` | ❌ | Out of scope — requires typed array / ArrayBuffer support |
 | `Atomics.waitAsync` | ❌ | Out of scope — requires multi-threading infrastructure; see ES2017 notes |
 | RegExp `v` flag and set notation | ❌ | |
