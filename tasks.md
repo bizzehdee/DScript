@@ -1,218 +1,293 @@
-# DScript — ES2020+ Conformance Tasks
+# DScript — ES5 / ES2015 Compatibility Tasks
 
-Tasks are ordered by effort-to-impact ratio. Each phase is independently shippable and must be committed separately. See `plan.md` for full design notes.
+Derived from `plan.md`. Each phase must pass the full test suite and 90% coverage gate before being committed. Commit message = phase name.
 
 Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ---
 
-## Phase 1 — Promise combinators + `finally` (ES2018/2021)
+## Phase 1 — Property descriptors and the Object API (ES5)
 
-Find the existing Promise registration and extend it.
+**Prerequisite for all other phases.** Adds getter/setter support and the property descriptor model to `ScriptVarLink`.
 
-- [ ] `Promise.resolve(val)` — return an already-resolved Promise
-- [ ] `Promise.reject(reason)` — return an already-rejected Promise
-- [ ] `Promise.all(arr)` — resolve when all resolve; reject on first rejection
-- [ ] `Promise.allSettled(arr)` — always resolve with `[{status, value/reason}]`
-- [ ] `Promise.race(arr)` — settle with the first input to settle
-- [ ] `Promise.any(arr)` — resolve with first fulfillment; reject with `AggregateError` if all reject
-- [ ] `Promise.prototype.finally(fn)` — run `fn` on both paths; propagate original value/reason
-- [ ] Tests: happy path for each method, rejection propagation, `AggregateError` from `Promise.any`
-- [ ] Update `wiki/Standard-Library.md` and `README.md`
+### ScriptVar / ScriptVarLink changes
+- [ ] Add `Getter` and `Setter` (`ScriptVar`) slots to `ScriptVarLink`
+- [ ] Add `IsFrozen`, `IsSealed`, `IsExtensible` flags to `ScriptVar`
+- [ ] Enforce frozen/sealed in `SetVar` / `AddChild` (silently ignore writes in sloppy mode)
+- [ ] Enforce non-extensible in `AddChild` (throw `TypeError`)
 
----
+### Lexer / compiler changes
+- [ ] Parse `get ident() { }` in object literals — emit `DefineGetter` opcode (append to enum)
+- [ ] Parse `set ident(v) { }` in object literals — emit `DefineSetter` opcode (append to enum)
+- [ ] Parse `get` / `set` accessor methods in class bodies
+- [ ] Handle `get` / `set` as contextual keywords (they are valid identifiers too)
 
-## Phase 2 — Logical assignment operators (ES2021)
+### VM changes
+- [ ] Handle `DefineGetter` opcode — store getter on the named child link
+- [ ] Handle `DefineSetter` opcode — store setter on the named child link
+- [ ] Invoke getter in `GetMember` when the link has a `Getter`
+- [ ] Invoke setter in `SetMember` when the link has a `Setter`
 
-Changes to `ScriptLex.cs` and `ScriptCompile.cs` only.
+### Object API (new `ObjectRegistrar.cs` or extend `ObjectExtras.cs`)
+- [ ] `Object.defineProperty(obj, key, descriptor)` — honour `value`, `writable`, `enumerable`, `configurable`, `get`, `set`
+- [ ] `Object.defineProperties(obj, descriptors)`
+- [ ] `Object.getOwnPropertyDescriptor(obj, key)` — return `{value, writable, enumerable, configurable}` or accessor descriptor
+- [ ] `Object.getOwnPropertyDescriptors(obj)`
+- [ ] `Object.getOwnPropertyNames(obj)` — all own string-keyed property names regardless of enumerability
+- [ ] `Object.getPrototypeOf(obj)` — forward to `Reflect.getPrototypeOf`
+- [ ] `Object.setPrototypeOf(obj, proto)` — forward to `Reflect.setPrototypeOf`
+- [ ] `Object.create(proto)` / `Object.create(proto, descriptors)`
+- [ ] `Object.freeze(obj)` / `Object.isFrozen(obj)`
+- [ ] `Object.seal(obj)` / `Object.isSealed(obj)`
+- [ ] `Object.isExtensible(obj)` / `Object.preventExtensions(obj)`
+- [ ] Register all methods in `ScriptEngine` constructor
 
-- [ ] Add `LexTypes.LogicalAndAssign` — lex `&&=`
-- [ ] Add `LexTypes.LogicalOrAssign` — lex `||=`
-- [ ] Add `LexTypes.NullCoalesceAssign` — lex `??=`
-- [ ] Compile `a &&= b` → assign only if `a` is truthy (short-circuit; no re-evaluate of `a`)
-- [ ] Compile `a ||= b` → assign only if `a` is falsy
-- [ ] Compile `a ??= b` → assign only if `a` is `null`/`undefined`
-- [ ] Tests: truthy/falsy guard, nullish guard, side-effect count (RHS only evaluated when needed)
-- [ ] Update `wiki/Language.md` operators table
+### Tests (`DScript.Test/PropertyDescriptorTests.cs`)
+- [ ] Getter is invoked on property read
+- [ ] Setter is invoked on property write
+- [ ] Getter-only property ignores writes (sloppy mode)
+- [ ] `Object.freeze` prevents property mutation
+- [ ] `Object.seal` prevents adding new properties but allows value writes
+- [ ] `Object.create(proto)` — child inherits proto methods
+- [ ] `Object.getOwnPropertyDescriptor` returns correct descriptor shape
+- [ ] `Object.defineProperty` — add non-enumerable property; it does not appear in `for...in`
+- [ ] `Object.preventExtensions` — adding new property throws or is silently ignored
 
----
-
-## Phase 3 — `globalThis` (ES2020)
-
-One-liner native registration.
-
-- [ ] Register `globalThis` at root level pointing to the engine root `ScriptVar`
-- [ ] `globalThis === globalThis` evaluates to `true`
-- [ ] Test: access a variable via `globalThis.x` after setting `var x = 1`
-- [ ] Update `wiki/Language.md`
-
----
-
-## Phase 4 — Numeric separators (ES2021)
-
-Lexer-only change in `ScriptLex.cs`.
-
-- [ ] Skip `_` between digits in integer and float literals (`1_000`, `1_000.5`, `1_000e2`)
-- [ ] Skip `_` in hex (`0xFF_FF`), binary (`0b1010_0001`), octal (`0o7_7`) literals
-- [ ] Reject `_` at start, end, adjacent to `.`, `e`/`E`, or `x`/`b`/`o` prefix — throw `SyntaxError`
-- [ ] Tests: valid separators in all literal forms, invalid positions throw
-- [ ] Update `wiki/Language.md`
-
----
-
-## Phase 5 — `Symbol` (ES2015, required for iterable protocol)
-
-Core VM change. Requires touching `ScriptVar`, the lexer, and property-key lookup.
-
-- [ ] Add `SymbolType` value kind to `ScriptVar` (opaque unique identity; backed by a `ulong` counter or `Guid`)
-- [ ] `Symbol(description?)` factory — calling `new Symbol()` throws `TypeError`
-- [ ] `Symbol.for(key)` / `Symbol.keyFor(sym)` — global symbol registry
-- [ ] `typeof sym` returns `"symbol"`
-- [ ] Symbols usable as property keys: `obj[Symbol.iterator] = fn`
-- [ ] Child lookup in `ScriptVar` must support symbol-keyed children (separate map from string-keyed)
-- [ ] Well-known symbol `Symbol.iterator` — expose as static property; wire into `for...of` / spread iterable path
-- [ ] Well-known symbol `Symbol.hasInstance` — wire into `instanceof` operator
-- [ ] Well-known symbol `Symbol.toPrimitive` — wire into type coercion path
-- [ ] Well-known symbol `Symbol.toStringTag` — wire into `Object.prototype.toString`
-- [ ] Tests: uniqueness, registry, typeof, property key, Symbol.iterator on custom object
-- [ ] Update `wiki/Language.md` and `wiki/Standard-Library.md`
+### Docs
+- [ ] `ES-COMPATIBILITY.md` — flip getter/setter, `Object.create`, `Object.freeze/seal`, `Object.defineProperty`, `Object.getPrototypeOf` rows to ✅
+- [ ] `wiki/Language.md` — getter/setter syntax section
+- [ ] `wiki/Standard-Library.md` — update Object section
 
 ---
 
-## Phase 6 — `WeakMap`, `WeakSet`, `WeakRef` (ES2015/2021)
+## Phase 2 — Function.prototype methods (ES5)
 
-Pure provider work; no VM changes.
-
-- [ ] `WeakMap` — `new WeakMap()`, `.get(k)`, `.set(k,v)`, `.has(k)`, `.delete(k)`
-- [ ] `WeakSet` — `new WeakSet()`, `.add(o)`, `.has(o)`, `.delete(o)`
-- [ ] `WeakRef` — `new WeakRef(target)`, `.deref()` (always returns live object — GC-less engine)
-- [ ] Tests: basic CRUD for each; `WeakRef.deref()` returns the object
-- [ ] Update `wiki/Standard-Library.md`
-
----
-
-## Phase 7 — Static class initialisation blocks (ES2022)
-
-Compiler-only change; no new opcodes needed.
-
-- [ ] In class-body compiler, recognise `static {` (not followed by an identifier or `(`)
-- [ ] Compile the block body and emit it after the class object is constructed
-- [ ] Tests: static block runs once; can reference static fields; runs before first instance creation
-- [ ] Update `wiki/Language.md`
+- [ ] `Function.prototype.call(thisArg, ...args)` — invoke function with explicit `this`
+- [ ] `Function.prototype.apply(thisArg, argsArray)` — invoke with array of arguments
+- [ ] `Function.prototype.bind(thisArg, ...partialArgs)` — return new native callable with fixed `this` and pre-filled args
+- [ ] `bind` result has correct `.length` (original length minus partial arg count, min 0)
+- [ ] `bind` result has correct `.name` (`"bound " + originalName`)
+- [ ] Tests (`DScript.Test/FunctionMethodTests.cs`):
+  - [ ] `call` with explicit `this`
+  - [ ] `apply` with array args
+  - [ ] `bind` basic invocation
+  - [ ] `bind` with partial args
+  - [ ] `bind` result `.length` and `.name`
+  - [ ] Chained `bind` (second `bind` does not override first `this`)
+- [ ] `ES-COMPATIBILITY.md` — flip `Function.prototype.bind/call/apply` to ✅
+- [ ] `wiki/Standard-Library.md` — add Function.prototype section
 
 ---
 
-## Phase 8 — Private class fields and methods (ES2022)
+## Phase 3 — Date object (ES5)
 
-Lexer + compiler + runtime change.
+New `DScript/DateRegistrar.cs`. Store timestamp as `double` (Unix ms) in `scriptData`.
 
-- [ ] Add `LexTypes.PrivateName` — lex `#identifier` as a single token
-- [ ] In class-body compiler, treat `#name` declarations as private slots stored separately from public properties
-- [ ] Private instance fields: initialised per-instance in the constructor
-- [ ] Private instance methods: stored on the class, accessible via `this.#method()`
-- [ ] Private static fields and methods: `static #x`
-- [ ] `#name in obj` existence check (ES2022) — new `in` branch in the compiler
-- [ ] Accessing `obj.#field` outside the class body throws `SyntaxError` at compile time
-- [ ] Tests: read/write private field, private method call, static private, out-of-class access throws, `#name in obj`
-- [ ] Update `wiki/Language.md`
+### Constructors and static methods
+- [ ] `Date()` (no `new`) — returns current date as a string
+- [ ] `new Date()` — current timestamp
+- [ ] `new Date(ms)` — from Unix milliseconds
+- [ ] `new Date(str)` — parse ISO-8601 string
+- [ ] `new Date(year, month[, day, h, m, s, ms])` — local time components
+- [ ] `Date.now()` — current Unix ms via `DateTimeOffset.UtcNow`
+- [ ] `Date.parse(str)` — return Unix ms or `NaN` on failure
+- [ ] `Date.UTC(year, month, ...)` — UTC milliseconds
 
----
+### Prototype getters
+- [ ] `getTime()`, `valueOf()`
+- [ ] `getFullYear()`, `getMonth()`, `getDate()`, `getDay()`
+- [ ] `getHours()`, `getMinutes()`, `getSeconds()`, `getMilliseconds()`
+- [ ] `getTimezoneOffset()`
+- [ ] UTC variants: `getUTCFullYear()` … `getUTCMilliseconds()`
 
-## Phase 9 — `import.meta` (ES2020)
+### Prototype setters
+- [ ] `setTime(ms)`
+- [ ] `setFullYear(y[, m, d])`, `setMonth(m[, d])`, `setDate(d)`
+- [ ] `setHours(h[, m, s, ms])`, `setMinutes(m[, s, ms])`, `setSeconds(s[, ms])`, `setMilliseconds(ms)`
+- [ ] UTC variants: `setUTCFullYear()` … `setUTCMilliseconds()`
 
-Small compiler + VM change.
+### Prototype formatters
+- [ ] `toISOString()` — `"YYYY-MM-DDTHH:mm:ss.sssZ"`
+- [ ] `toUTCString()`, `toDateString()`, `toTimeString()`, `toString()`
+- [ ] `toLocaleDateString()`, `toLocaleTimeString()`, `toLocaleString()`
+- [ ] `toJSON()` — same as `toISOString()`
 
-- [ ] Add `LexTypes.ImportMeta` or handle `import.meta` as a special case in the expression compiler
-- [ ] Emit a `PushImportMeta` opcode (or reuse existing machinery)
-- [ ] VM resolves `import.meta` to an object with `url`, `filename`, `dirname` populated from the current module context
-- [ ] Tests: `import.meta.url` contains the module path; works inside a `require`d module
-- [ ] Update `wiki/Modules.md`
-
----
-
-## Phase 10 — Dynamic `import()` (ES2020)
-
-New opcode + Promise integration.
-
-- [ ] Parser: when `import` appears in expression position followed by `(`, parse as a call expression (not a declaration)
-- [ ] Compiler: emit `DynamicImport` opcode with the specifier expression
-- [ ] VM: handle `DynamicImport` — resolve via `ModuleLoader`, compile and cache, return `Promise<exports>`
-- [ ] Tests: `await import("./mod")` resolves with the module exports; missing module rejects the Promise
-- [ ] Update `wiki/Modules.md`
-
----
-
-## Phase 11 — Top-level `await` (ES2022)
-
-Compiler change; the VM's async machinery already exists.
-
-- [ ] Detect `await` at module scope (outside any function body) in the compiler
-- [ ] When detected, wrap the entire module body in an implicit async wrapper before compilation
-- [ ] Propagate the returned Promise so the host can await module completion
-- [ ] Tests: top-level `await` resolves a `Promise`; value is accessible after module load
-- [ ] Update `wiki/Language.md` and `wiki/Modules.md`
+### Registration and tests
+- [ ] Register `Date` in `ScriptEngine` constructor
+- [ ] Tests (`DScript.Test/DateTests.cs`):
+  - [ ] `typeof Date.now() === 'number'`
+  - [ ] `new Date(0).toISOString() === '1970-01-01T00:00:00.000Z'`
+  - [ ] `new Date(2024, 0, 15).getFullYear() === 2024`
+  - [ ] `Date.parse('2024-01-01T00:00:00.000Z') === 1704067200000`
+  - [ ] Round-trip: set then get year/month/date
+  - [ ] `new Date('invalid').getTime()` is `NaN`
+- [ ] `ES-COMPATIBILITY.md` — flip `Date` to ✅
+- [ ] `wiki/Standard-Library.md` — add Date section
 
 ---
 
-## Phase 12 — BigInt (ES2020)
+## Phase 4 — RegExp enhancements (ES5 / ES2018 / ES2020)
 
-Significant VM change. Do after Phase 5 (Symbol) since typeof handling follows the same pattern.
+**Root cause fix:** replace `RegexOptions.ECMAScript` with `RegexOptions.None` + explicit per-flag options.
 
-- [ ] Add `LexTypes.BigInt` — lex trailing `n` on integer literals (`123n`, `0xFFn`, `0b101n`, `0o77n`)
-- [ ] Numeric separators also apply inside BigInt literals (`1_000n`)
-- [ ] Add `BigInteger` slot to `ScriptVar` (via `System.Numerics.BigInteger`)
-- [ ] `typeof 1n` returns `"bigint"`
-- [ ] `BigInt(val)` factory — `new BigInt()` throws `TypeError`
-- [ ] Arithmetic opcodes: `+`, `-`, `*`, `/`, `%`, `**` — add BigInt branch; cross-type with Number throws `TypeError`
-- [ ] Unary `-`, bitwise `&`, `|`, `^`, `~`, `<<`, `>>`
-- [ ] Comparison: `==`, `===`, `<`, `>`, `<=`, `>=`; cross-type `==` coerces; cross-type `===` is always `false`
-- [ ] `BigInt.prototype.toString(radix?)`, `.valueOf()`, `.toLocaleString()`
-- [ ] `Number(bigint)` explicit conversion
-- [ ] Tests: literals, arithmetic, comparisons, typeof, cross-type TypeError, toString radix
-- [ ] Update `wiki/Language.md` and `wiki/Standard-Library.md`
+### RegExp compilation and flags
+- [ ] Switch from `RegexOptions.ECMAScript` to `RegexOptions.None` in RegExp construction
+- [ ] Map `i` → `RegexOptions.IgnoreCase`, `m` → `RegexOptions.Multiline`, `s` → `RegexOptions.Singleline`
+- [ ] `u` flag — accepted and stored; no additional .NET option needed for basic support
+- [ ] `g` flag — already handled; verify it still works after the options switch
+- [ ] Expose `RegExp.prototype.flags` — sorted string of active flags (e.g. `"gim"`)
+- [ ] Expose `RegExp.prototype.source` — the raw pattern string
 
----
+### Named capture groups
+- [ ] `(?<name>...)` syntax compiles without error
+- [ ] `exec` / `match` result has a `.groups` object with named group values
+- [ ] Unnamed groups still work alongside named groups
 
-## Phase 13 — `Proxy` and `Reflect` (ES2015)
+### Lookahead and lookbehind
+- [ ] `(?=...)` positive lookahead works
+- [ ] `(?!...)` negative lookahead works
+- [ ] `(?<=...)` positive lookbehind works
+- [ ] `(?<!...)` negative lookbehind works
 
-Deep VM change. Implement after all other phases are stable.
+### String.prototype.matchAll
+- [ ] `str.matchAll(regexp)` — requires `g` flag; throws `TypeError` without it
+- [ ] Returns an iterator of match objects (each with `.index`, `.input`, `.groups`)
+- [ ] `[...str.matchAll(/ab/g)]` produces one entry per match
 
-### Reflect (standalone, no VM changes needed)
-- [ ] `Reflect.apply(fn, thisArg, args)`
-- [ ] `Reflect.construct(target, args, newTarget?)`
-- [ ] `Reflect.get(target, key, receiver?)`
-- [ ] `Reflect.set(target, key, val, receiver?)`
-- [ ] `Reflect.has(target, key)` — `key in target`
-- [ ] `Reflect.deleteProperty(target, key)`
-- [ ] `Reflect.ownKeys(target)`
-- [ ] `Reflect.defineProperty(target, key, desc)`
-- [ ] `Reflect.getOwnPropertyDescriptor(target, key)`
-- [ ] `Reflect.getPrototypeOf(target)` / `Reflect.setPrototypeOf(target, proto)`
-- [ ] `Reflect.isExtensible(target)` / `Reflect.preventExtensions(target)`
+### Tests (`DScript.Test/RegExpTests.cs`)
+- [ ] Named capture group — `groups.year` returns correct value
+- [ ] `matchAll` length matches expected number of matches
+- [ ] Positive/negative lookahead
+- [ ] Positive/negative lookbehind
+- [ ] `s` flag — `.` matches `\n`
+- [ ] `.flags` property returns sorted flag string
+- [ ] `.source` property returns the original pattern
+- [ ] `matchAll` without `g` flag throws `TypeError`
 
-### Proxy (VM-pervasive change)
-- [ ] `new Proxy(target, handler)` — constructor
-- [ ] Every property-get path in the VM checks for Proxy and calls `handler.get` trap if present
-- [ ] Every property-set path checks for Proxy and calls `handler.set` trap
-- [ ] `in` operator checks for `handler.has` trap
-- [ ] `delete` operator checks for `handler.deleteProperty` trap
-- [ ] Function calls check for `handler.apply` trap
-- [ ] `new` expression checks for `handler.construct` trap
-- [ ] `Object.keys()` / `for...in` checks for `handler.ownKeys` trap
-- [ ] Tests: get/set/has/delete traps; revocable proxy (`Proxy.revocable`); transparent forwarding via Reflect
-- [ ] Update `wiki/Standard-Library.md` and `wiki/Language.md`
+### Docs
+- [ ] `ES-COMPATIBILITY.md` — flip named captures, lookahead/lookbehind, `matchAll`, `s`/`u` flags to ✅
+- [ ] `wiki/Language.md` — update RegExp section
 
 ---
 
-## Phase 14 — `Intl` (ES2020+)
+## Phase 5 — WeakMap and WeakSet (ES2015)
 
-Backed entirely by .NET globalization APIs.
+New `DScript/WeakCollectionRegistrar.cs`. Back with `ConditionalWeakTable<ScriptVar, …>`.
 
-- [ ] `Intl.getCanonicalLocales(locales)` — normalise locale tags
-- [ ] `new Intl.Collator(locale?, opts?)` — `.compare(a, b)`, `.resolvedOptions()`
-- [ ] `new Intl.NumberFormat(locale?, opts?)` — `.format(n)`, `.formatToParts(n)`, `.resolvedOptions()`
-- [ ] `new Intl.DateTimeFormat(locale?, opts?)` — `.format(date)`, `.formatToParts(date)`, `.resolvedOptions()`
-- [ ] `new Intl.DisplayNames(locale, {type})` — `.of(code)` for language/region/script/currency display names
-- [ ] `new Intl.PluralRules(locale?, opts?)` — `.select(n)` → `"one"|"few"|"many"|"other"` etc.
-- [ ] Tests: formatting numbers with locale, sorting with collator, date formatting
-- [ ] Update `wiki/Standard-Library.md`
+- [ ] `new WeakMap()` constructor
+- [ ] `WeakMap.prototype.set(key, value)` — key must be object; throws `TypeError` for primitives
+- [ ] `WeakMap.prototype.get(key)` — returns value or `undefined`
+- [ ] `WeakMap.prototype.has(key)` — returns boolean
+- [ ] `WeakMap.prototype.delete(key)` — returns boolean
+- [ ] `new WeakSet()` constructor
+- [ ] `WeakSet.prototype.add(value)` — value must be object; throws `TypeError` for primitives
+- [ ] `WeakSet.prototype.has(value)` — returns boolean
+- [ ] `WeakSet.prototype.delete(value)` — returns boolean
+- [ ] Register both in `ScriptEngine` constructor
+- [ ] Tests (`DScript.Test/WeakCollectionTests.cs`):
+  - [ ] WeakMap CRUD — set/get/has/delete round-trip
+  - [ ] WeakMap `has` returns false after `delete`
+  - [ ] WeakMap primitive key throws `TypeError`
+  - [ ] WeakSet add/has/delete round-trip
+  - [ ] WeakSet primitive value throws `TypeError`
+  - [ ] Two different object keys are independent entries
+- [ ] `ES-COMPATIBILITY.md` — flip `WeakMap` and `WeakSet` to ✅
+- [ ] `wiki/Standard-Library.md` — add WeakMap/WeakSet section
+
+---
+
+## Phase 6 — Tagged template literals and String.raw (ES2015)
+
+### Lexer
+- [ ] During template literal lexing, capture raw (escape-preserved) text alongside cooked text for each segment
+
+### Compiler (`Compiler.Expressions.cs`)
+- [ ] Detect tagged template: `expression` immediately before a template literal with no whitespace
+- [ ] Build a frozen array of cooked string segments
+- [ ] Build a parallel `.raw` array of raw string segments and attach it to the cooked array
+- [ ] Emit new `TaggedTemplate` opcode (append to enum) carrying: tag expression, strings-array, interpolated values
+
+### VM
+- [ ] Handle `TaggedTemplate` opcode — pop tag + strings-array + N values, invoke tag as `tag(strings, v0, v1, …)`
+
+### String.raw
+- [ ] `String.raw(strings, ...subs)` — read `strings.raw`, interleave `subs`, return joined string
+- [ ] Register as static method on `String`
+
+### Tests (`DScript.Test/TemplateLiteralTests.cs`)
+- [ ] Tag function receives correct number of string segments (interpolations + 1)
+- [ ] `strings[0]` is the cooked first segment (escape sequences processed)
+- [ ] `strings.raw[0]` is the raw first segment (escape sequences literal)
+- [ ] `String.raw` returns unescaped content
+- [ ] `String.raw` with substitutions interleaves correctly
+- [ ] Untagged template literals still work unchanged
+
+### Docs
+- [ ] `ES-COMPATIBILITY.md` — flip tagged template literals to ✅; add `String.raw` ✅
+- [ ] `wiki/Language.md` — update template literal section
+- [ ] `wiki/Standard-Library.md` — add `String.raw`
+
+---
+
+## Phase 7 — arguments object (ES5)
+
+**Investigation first:** run the acceptance tests below before any VM changes to find which fail.
+
+- [ ] Write `DScript.Test/ArgumentsTests.cs` with all cases below and run — record which pass/fail
+- [ ] Fix: `arguments` materialised on every non-arrow `Call` with correct `.length`
+- [ ] Fix: `arguments[i]` correct for all positions including extras beyond declared parameter count
+- [ ] Fix: `Array.from(arguments)` works (iterable or array-like with `.length`)
+- [ ] Fix: `[...arguments]` spread works
+- [ ] Verify: arrow functions still have no `arguments` binding (must stay `undefined` or `ReferenceError`)
+- [ ] Tests:
+  - [ ] `sum(1, 2, 3) === 6` via `arguments` loop
+  - [ ] `sum()` (no args) returns 0
+  - [ ] Extra arg beyond declared params accessible at `arguments[2]`
+  - [ ] `Array.from(arguments)[0]` returns first argument
+  - [ ] Arrow function: `typeof arguments === 'undefined'`
+- [ ] `ES-COMPATIBILITY.md` — update `arguments` row to ✅
+- [ ] `wiki/Language.md` — note `arguments` availability
+
+---
+
+## Phase 8 — Error improvements (ES5)
+
+- [ ] In `VirtualMachine.cs` `Throw` opcode: capture current call-frame stack; build a stack string `"ErrorType: message\n  at <script>:line"` and set it as `.stack` on the thrown error object
+- [ ] Verify prototype chain: `TypeError.prototype.__proto__ === Error.prototype`
+- [ ] Verify `new TypeError('msg') instanceof Error === true`
+- [ ] Verify `new TypeError('msg') instanceof TypeError === true`
+- [ ] Same chain check for `RangeError`, `SyntaxError`, `ReferenceError`
+- [ ] Tests (`DScript.Test/ErrorTests.cs`):
+  - [ ] `e instanceof TypeError` is true
+  - [ ] `e instanceof Error` is true
+  - [ ] `typeof e.stack === 'string'`
+  - [ ] `e.stack` includes the error type name
+  - [ ] `e.message` is preserved
+  - [ ] `e.name` is `"TypeError"` etc.
+- [ ] `ES-COMPATIBILITY.md` — update Error row to ✅
+- [ ] `wiki/Standard-Library.md` — update Error section
+
+---
+
+## Phase 9 — globalThis (ES2020)
+
+- [ ] In the VM's variable-lookup path, intercept `"globalThis"` and push `engine.Root` directly — **do not** call `root.AddChild("globalThis", root)` (would create a circular reference)
+- [ ] Tests (`DScript.Test/GlobalThisTests.cs` — file may already exist):
+  - [ ] `typeof globalThis === 'object'`
+  - [ ] `globalThis.Math === Math`
+  - [ ] Set `var x = 42`; then `globalThis.x === 42`
+  - [ ] `globalThis === globalThis` (identity stable)
+- [ ] `ES-COMPATIBILITY.md` — flip `globalThis` to ✅
+- [ ] `wiki/Language.md` — add `globalThis` note
+
+---
+
+## Phase 10 — Documentation update
+
+Run after all previous phases are committed and green.
+
+- [ ] `ES-COMPATIBILITY.md` — audit every row changed by Phases 1–9; confirm all are ✅
+- [ ] `wiki/Language.md` — getter/setter syntax; `arguments`; tagged template literals; `globalThis`
+- [ ] `wiki/Standard-Library.md` — `Date`; `WeakMap`/`WeakSet`; `Function.prototype` (`call`/`apply`/`bind`); `String.raw`; updated `Object`, `RegExp`, `String` sections; `Error.stack`
+- [ ] `wiki/Engine.md` — update if `ScriptEngine` constructor or public API changed
+- [ ] Commit wiki submodule; record updated pointer in main repo

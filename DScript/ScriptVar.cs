@@ -169,6 +169,9 @@ namespace DScript
             Symbol = 512,
             BigInt = 1024,
             Proxy = 2048,
+            NonExtensible = 4096,   // Object.preventExtensions
+            Sealed = 8192,          // Object.seal
+            Frozen = 16384,         // Object.freeze
             NumericMask = Null | Double | Integer,
             VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol | BigInt | Proxy
         }
@@ -316,6 +319,41 @@ namespace DScript
         public bool IsBigInt => (flags & Flags.BigInt) != 0;
 
         public bool IsProxy => (flags & Flags.Proxy) != 0;
+
+        public bool IsFrozen => (flags & Flags.Frozen) != 0;
+        public bool IsSealed => (flags & (Flags.Sealed | Flags.Frozen)) != 0;
+        public bool IsExtensible => (flags & (Flags.NonExtensible | Flags.Sealed | Flags.Frozen)) == 0;
+
+        /// <summary>Increments the shape version so the VM's inline property cache re-validates.</summary>
+        internal void BumpShapeVersion() => shapeVersion++;
+
+        public void FreezeSelf()
+        {
+            flags |= Flags.Frozen;
+            var link = FirstChild;
+            while (link != null)
+            {
+                link.Writable = false;
+                link.Configurable = false;
+                link = link.Next;
+            }
+        }
+
+        public void SealSelf()
+        {
+            flags |= Flags.Sealed;
+            var link = FirstChild;
+            while (link != null)
+            {
+                link.Configurable = false;
+                link = link.Next;
+            }
+        }
+
+        public void PreventExtensionsSelf()
+        {
+            flags |= Flags.NonExtensible;
+        }
 
         public static ScriptVar CreateProxy(ScriptVar target, ScriptVar handler)
         {

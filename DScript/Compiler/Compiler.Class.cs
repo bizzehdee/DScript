@@ -64,7 +64,8 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.DeclareVar, classNameIdx);
 
             // Collect all members before emitting anything for the constructor.
-            var methods = new List<(string Name, bool IsStatic, string Source)>();
+            // AccessorOp: SetProp for regular methods, DefineGetter/DefineSetter for accessors.
+            var methods = new List<(string Name, bool IsStatic, string Source, OpCode AccessorOp)>();
             var staticBlocks = new List<string>();  // static { ... } body sources
             // Private members: (internalName, isStatic, methodSourceOrNull, fieldInitExprOrNull)
             var privateMembers = new List<(string Name, bool IsStatic, string MethodSrc, string FieldInit)>();
@@ -120,13 +121,23 @@ namespace DScript.Compiler
                 var methodName = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Id);
 
+                // get/set accessor — contextual: treat as accessor keyword only when the
+                // next token is another identifier (the property name) not '('.
+                OpCode accessorOp = OpCode.SetProp;
+                if ((methodName == "get" || methodName == "set") && lexer.TokenType == ScriptLex.LexTypes.Id)
+                {
+                    accessorOp = methodName == "get" ? OpCode.DefineGetter : OpCode.DefineSetter;
+                    methodName = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                }
+
                 // Capture the full method source starting from '('
                 var methodSrc2 = CaptureMethodSource();
 
-                if (!isStatic && methodName == "constructor")
+                if (!isStatic && methodName == "constructor" && accessorOp == OpCode.SetProp)
                     constructorSrc = methodSrc2;
                 else
-                    methods.Add((methodName, isStatic, methodSrc2));
+                    methods.Add((methodName, isStatic, methodSrc2, accessorOp));
             }
             lexer.Match((ScriptLex.LexTypes)'}');
 
@@ -170,7 +181,7 @@ namespace DScript.Compiler
             // --- Emit methods and statics ---
             // Instance methods are placed directly on the constructor function so that
             // FindInParentClasses(instance, name) finds them via instance.prototype = ctor.
-            foreach (var (methodName, isStatic, src) in methods)
+            foreach (var (methodName, isStatic, src, accessorOp) in methods)
             {
                 var methodIdx = CompileMethodSource(src, methodName);
                 var methodNameIdx = chunk.AddName(methodName);
@@ -181,7 +192,7 @@ namespace DScript.Compiler
                 chunk.Emit(OpCode.GetVar, classNameIdx);
                 chunk.Emit(OpCode.MakeClosure, methodIdx);
                 chunk.MakesClosure = true;
-                chunk.Emit(OpCode.SetProp, methodNameIdx);
+                chunk.Emit(accessorOp, methodNameIdx);
                 chunk.Emit(OpCode.Pop);
             }
 

@@ -169,5 +169,9 @@ namespace DScript.Vm
         // --- Phase 10: dynamic import() -------------------------------------
         // Pops specifier string, loads module via ModuleLoader, pushes Promise<exports>.
         DynamicImport,
+
+        // --- Property accessors (ES5 get/set syntax) ------------------------
+        DefineGetter,    // [i nameIndex]  pops fn, peeks obj, defines getter on obj[name]
+        DefineSetter,    // [i nameIndex]  pops fn, peeks obj, defines setter on obj[name]
     }
 }

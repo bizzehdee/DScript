@@ -55,6 +55,31 @@ namespace DScript
         public bool Owned { get; internal set; }
         public bool IsConst { get; private set; }
 
+        // Property descriptor fields (ES5 Object.defineProperty semantics)
+        public bool Enumerable { get; set; } = true;
+        public bool Configurable { get; set; } = true;
+        public bool Writable { get; set; } = true;
+
+        private ScriptVar _getter;
+        private ScriptVar _setter;
+
+        /// <summary>Getter function for this accessor property. Setting it invalidates the owner's property cache.</summary>
+        public ScriptVar Getter
+        {
+            get => _getter;
+            set { _getter = value; Owner?.BumpShapeVersion(); }
+        }
+
+        /// <summary>Setter function for this accessor property. Setting it invalidates the owner's property cache.</summary>
+        public ScriptVar Setter
+        {
+            get => _setter;
+            set { _setter = value; Owner?.BumpShapeVersion(); }
+        }
+
+        /// <summary>True when this link has a get or set accessor (not a plain data property).</summary>
+        public bool IsAccessor => _getter != null || _setter != null;
+
         /// <summary>The ScriptVar this link is a child of (set when added).</summary>
         internal ScriptVar Owner { get; set; }
 
@@ -75,6 +100,11 @@ namespace DScript
             Next = toCopy.Next;
             Prev = toCopy.Prev;
             Owned = toCopy.Owned;
+            _getter = toCopy._getter;
+            _setter = toCopy._setter;
+            Enumerable = toCopy.Enumerable;
+            Configurable = toCopy.Configurable;
+            Writable = toCopy.Writable;
         }
 
         public void ReplaceWith(ScriptVar newVar)

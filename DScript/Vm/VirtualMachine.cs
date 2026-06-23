@@ -370,7 +370,7 @@ namespace DScript.Vm
                         var member = obj.FirstChild;
                         while (member != null)
                         {
-                            if (member.Name != ScriptVar.PrototypeClassName)
+                            if (member.Name != ScriptVar.PrototypeClassName && member.Enumerable)
                             {
                                 keys.SetArrayIndex(index++, new ScriptVar(member.Name));
                             }
@@ -464,7 +464,9 @@ namespace DScript.Vm
                             ReferenceEquals(ce.Name, name) &&
                             ce.Link != null)
                         {
-                            Push(ce.Link.Var);
+                            Push(ce.Link.Getter != null
+                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                : ce.Link.Var);
                             break;
                         }
 
@@ -476,7 +478,10 @@ namespace DScript.Vm
                         ScriptVar propResult;
                         if (link != null)
                         {
-                            propResult = link.Var;
+                            if (link.Getter != null)
+                                propResult = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
+                            else
+                                propResult = link.Var;
                             // Cache the link for objects/arrays (not for primitives or
                             // values that fall back to built-ins like .length).
                             if (obj.IsObject || obj.IsArray)
@@ -700,6 +705,24 @@ namespace DScript.Vm
                         var name = chunk.Names[ReadOperand(code, ref ip)];
                         var value = Pop();
                         Peek().AddChild(name, value); // object kept on stack
+                        break;
+                    }
+                    case OpCode.DefineGetter:
+                    {
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
+                        var getter = Pop();
+                        var obj = Peek();
+                        var link = obj.FindChild(name) ?? obj.AddChild(name, new ScriptVar());
+                        link.Getter = getter;
+                        break;
+                    }
+                    case OpCode.DefineSetter:
+                    {
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
+                        var setter = Pop();
+                        var obj = Peek();
+                        var link = obj.FindChild(name) ?? obj.AddChild(name, new ScriptVar());
+                        link.Setter = setter;
                         break;
                     }
                     case OpCode.InitElem:
@@ -1683,7 +1706,12 @@ namespace DScript.Vm
             {
                 link = engine.FindInParentClasses(obj, name);
             }
-            if (link != null) return link.Var;
+            if (link != null)
+            {
+                if (link.Getter != null)
+                    return InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
+                return link.Var;
+            }
 
             if (obj.IsArray && name == "length") return new ScriptVar(obj.GetArrayLength());
             if (obj.IsString && name == "length") return new ScriptVar(obj.String.Length);
@@ -1713,15 +1741,31 @@ namespace DScript.Vm
                 obj = obj.ProxyTarget ?? obj;
             }
 
-            // Assignment always targets an OWN property (FindChild searches own
-            // members only), so inherited members are shadowed, never mutated.
             var link = obj.FindChild(name);
             if (link != null)
             {
+                if (link.Setter != null)
+                {
+                    InvokeCallable(link.Setter, obj, new[] { value });
+                    return;
+                }
+                if (!link.Writable) return;
                 link.ReplaceWith(value);
             }
             else
             {
+                // Check prototype chain for a setter
+                if (engine != null)
+                {
+                    var protoLink = engine.FindInParentClasses(obj, name);
+                    if (protoLink?.Setter != null)
+                    {
+                        InvokeCallable(protoLink.Setter, obj, new[] { value });
+                        return;
+                    }
+                    if (protoLink != null && !protoLink.Writable) return;
+                }
+                if (!obj.IsExtensible) return;
                 obj.AddChild(name, value);
             }
         }

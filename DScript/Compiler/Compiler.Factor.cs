@@ -1061,16 +1061,38 @@ namespace DScript.Compiler
                     else
                         lexer.Match(ScriptLex.LexTypes.Id);
 
+                    // get/set accessors — contextual: "get"/"set" is only an accessor keyword
+                    // when the next token is another identifier (the property name).
+                    if ((name == "get" || name == "set") && lexer.TokenType == ScriptLex.LexTypes.Id)
+                    {
+                        var isGetter = name == "get";
+                        var propName = lexer.TokenString;
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                        var fnIdx = CompileFunctionRest(propName);
+                        chunk.Emit(OpCode.MakeClosure, fnIdx);
+                        chunk.MakesClosure = true;
+                        chunk.Emit(isGetter ? OpCode.DefineGetter : OpCode.DefineSetter, chunk.AddName(propName));
+                    }
+                    // Method shorthand: `{ foo() { } }`
+                    else if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                    {
+                        var fnIdx = CompileFunctionRest(name);
+                        chunk.Emit(OpCode.MakeClosure, fnIdx);
+                        chunk.MakesClosure = true;
+                        chunk.Emit(OpCode.InitProp, chunk.AddName(name));
+                    }
                     // Shorthand property: `{ x, y }` — no colon, use var with same name as key
-                    if (lexer.TokenType == (ScriptLex.LexTypes)',' || lexer.TokenType == (ScriptLex.LexTypes)'}')
+                    else if (lexer.TokenType == (ScriptLex.LexTypes)',' || lexer.TokenType == (ScriptLex.LexTypes)'}')
+                    {
                         chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+                        chunk.Emit(OpCode.InitProp, chunk.AddName(name));
+                    }
                     else
                     {
                         lexer.Match((ScriptLex.LexTypes)':');
                         CompileBase();
+                        chunk.Emit(OpCode.InitProp, chunk.AddName(name));
                     }
-
-                    chunk.Emit(OpCode.InitProp, chunk.AddName(name));
                 }
 
                 if (lexer.TokenType != (ScriptLex.LexTypes)'}')

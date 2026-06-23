@@ -61,6 +61,21 @@ When a change adds or removes a user-visible feature, update `README.md` only if
 Wiki base URL: `https://github.com/bizzehdee/DScript/wiki`  
 Example page: `https://github.com/bizzehdee/DScript/wiki/Engine`
 
+### ES-COMPATIBILITY.md
+
+`ES-COMPATIBILITY.md` in the repo root is the authoritative record of which ECMAScript features DScript implements.
+
+Update it alongside any code change that adds, removes, or meaningfully alters ECMAScript feature support:
+
+| Change type | Action |
+|---|---|
+| New language feature or built-in implemented | Change its row from ❌ or ⚠️ to ✅; remove or update the Notes column |
+| Feature partially implemented | Set status to ⚠️ and describe what is missing in Notes |
+| Feature removed or broken | Set status back to ❌ or ⚠️ and explain in Notes |
+| New ES version feature added | Add a new row in the correct ES version section |
+
+Do **not** leave the matrix stale — a ❌ that is actually implemented, or a ✅ that no longer works, is a bug in the documentation.
+
 ### Wiki submodule (`wiki/`)
 
 The wiki lives at `C:\code\DScript\wiki\` (git submodule pointing at the GitHub wiki repo).

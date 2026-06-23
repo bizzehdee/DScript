@@ -24,15 +24,21 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `void` operator | ✅ | |
 | Bitwise operators (`&` `\|` `^` `~` `<<` `>>` `>>>`) | ✅ | |
 | `arguments` object | ⚠️ | Not available inside arrow functions; basic function use only |
-| Getter / setter (`get`/`set`) | ❌ | `Object.defineProperty`-style accessors not implemented |
-| `Object.create(proto)` | ❌ | |
-| `Object.keys(obj)` | ✅ | |
-| `Object.values(obj)` | ✅ | |
-| `Object.entries(obj)` | ✅ | |
+| Getter / setter (`get`/`set`) | ✅ | Object literals, class bodies, and `Object.defineProperty` |
+| `Object.create(proto)` | ✅ | |
+| `Object.keys(obj)` | ✅ | Respects `enumerable` descriptor |
+| `Object.values(obj)` | ✅ | Respects `enumerable` descriptor |
+| `Object.entries(obj)` | ✅ | Respects `enumerable` descriptor |
 | `Object.assign(target, …src)` | ✅ | |
-| `Object.freeze` / `Object.seal` | ❌ | |
-| `Object.getPrototypeOf` | ❌ | Use `Reflect.getPrototypeOf` instead |
-| `Object.defineProperty` | ❌ | Use `Reflect.defineProperty` instead |
+| `Object.freeze` / `Object.isFrozen` | ✅ | |
+| `Object.seal` / `Object.isSealed` | ✅ | |
+| `Object.isExtensible` / `Object.preventExtensions` | ✅ | |
+| `Object.getPrototypeOf` | ✅ | |
+| `Object.setPrototypeOf` | ✅ | |
+| `Object.defineProperty` | ✅ | `value`, `writable`, `enumerable`, `configurable`, `get`, `set` |
+| `Object.defineProperties` | ✅ | |
+| `Object.getOwnPropertyDescriptor` | ✅ | |
+| `Object.getOwnPropertyDescriptors` | ✅ | |
 | `Array.isArray(val)` | ✅ | |
 | `Array.prototype` iteration methods (`forEach`, `map`, `filter`, `reduce`, `every`, `some`, `find`, `findIndex`, `includes`, `indexOf`, `lastIndexOf`) | ✅ | |
 | `Array.prototype.slice` / `splice` / `concat` / `join` / `reverse` / `sort` | ✅ | |
@@ -305,8 +311,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 - **ArrayBuffer** / **SharedArrayBuffer**: Not implemented.
 - **Atomics**: Not implemented.
 - **`Function.prototype.bind` / `call` / `apply`**: Not implemented. Use `Reflect.apply` for dynamic dispatch.
-- **`Object.create` / `Object.defineProperty` / `Object.getOwnPropertyDescriptor`**: Not implemented. Use `Reflect` equivalents.
-- **`getter` / `setter` syntax** (`get foo() {}`, `set foo(v) {}`): Not implemented.
+- **`Object.create`, `Object.defineProperty`, `Object.getOwnPropertyDescriptor`, getter/setter syntax**: Implemented in Phase 1.
 - **`WeakRef` / `FinalizationRegistry`**: Not implemented (no GC hooks in the VM).
 - **Async generators** (`async function*`) and `for await...of`: Not implemented.
 - **`Error.cause`**: Constructable errors exist, but the `cause` option is ignored.
