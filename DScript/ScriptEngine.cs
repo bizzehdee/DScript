@@ -26,6 +26,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using DScript.Compiler;
 using DScript.Debugger;
+using DScript.Profiler;
 using DScript.Vm;
 using VmEnvironment = DScript.Vm.Environment;
 
@@ -106,6 +107,9 @@ namespace DScript
         private IDebugger _debugger;
         private DebugAction _debugInitialAction = DebugAction.StepIn;
         private readonly HashSet<(string Source, int Line)> _breakpoints = [];
+
+        // --- profiler -------------------------------------------------------
+        private IProfiler _profiler;
 
         public delegate void ScriptCallbackCB(ScriptVar var, object userdata);
 
@@ -499,6 +503,8 @@ namespace DScript
                 foreach (var (src, line) in _breakpoints)
                     vm.AddBreakpoint(src, line);
             }
+            if (_profiler != null)
+                vm.AttachProfiler(_profiler);
             vm.Run(program, globalEnvironment);
         }
 
@@ -638,6 +644,17 @@ namespace DScript
 
         /// <summary>Remove all registered breakpoints.</summary>
         public void ClearBreakpoints() => _breakpoints.Clear();
+
+        /// <summary>
+        /// Attach a profiler. The profiler receives <see cref="IProfiler.Enter"/> and
+        /// <see cref="IProfiler.Exit"/> calls for every synchronous function call made
+        /// during subsequent <see cref="Run"/> calls. Use <see cref="CpuProfiler"/> to
+        /// collect V8-compatible CPU profiles.
+        /// </summary>
+        public void AttachProfiler(IProfiler profiler) => _profiler = profiler;
+
+        /// <summary>Detach the current profiler. Subsequent runs execute without profiling overhead.</summary>
+        public void DetachProfiler() => _profiler = null;
 
         /// <summary>
         /// Drain the micro-task queue, running all pending Promise callbacks.

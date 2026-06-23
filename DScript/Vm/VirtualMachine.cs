@@ -24,6 +24,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using DScript.Debugger;
+using DScript.Profiler;
 
 namespace DScript.Vm
 {
@@ -160,6 +161,11 @@ namespace DScript.Vm
         }
 
         internal void DetachDebugger() => _debugger = null;
+
+        private Profiler.IProfiler _profiler;
+
+        internal void AttachProfiler(Profiler.IProfiler profiler) => _profiler = profiler;
+        internal void DetachProfiler() => _profiler = null;
 
         internal void AddBreakpoint(string source, int line) => _breakpoints.Add((source, line));
         internal void RemoveBreakpoint(string source, int line) => _breakpoints.Remove((source, line));
@@ -1574,7 +1580,10 @@ namespace DScript.Vm
                     scope.AddChild(i.ToString(), BindArg(args, i));
 
                 var returnLink = scope.AddChild(ScriptVar.ReturnVarName, null);
-                callee.GetCallback()?.Invoke(scope, callee.GetCallbackUserData());
+                var nativeName = callee.FindChild("name")?.Var?.String;
+                _profiler?.Enter(string.IsNullOrEmpty(nativeName) ? "(native)" : nativeName, "(native)", 0, 0);
+                try { callee.GetCallback()?.Invoke(scope, callee.GetCallbackUserData()); }
+                finally { _profiler?.Exit(); }
                 return returnLink.Var;
             }
 
@@ -1639,13 +1648,19 @@ namespace DScript.Vm
                 vars.AddChild("arguments", argObj);
             }
 
+            _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
             if (recyclable)
             {
                 try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
-                finally { ReturnFrameVars(vars); }
+                finally
+                {
+                    ReturnFrameVars(vars);
+                    _profiler?.Exit();
+                }
             }
 
-            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
+            try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
+            finally { _profiler?.Exit(); }
         }
 
         // Invoke a compiled (non-native) function whose arguments are sitting on
@@ -1737,13 +1752,19 @@ namespace DScript.Vm
             // stay alive via the call frame's child links.
             sp = argBase;
 
+            _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
             if (recyclable)
             {
                 try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
-                finally { ReturnFrameVars(vars); }
+                finally
+                {
+                    ReturnFrameVars(vars);
+                    _profiler?.Exit();
+                }
             }
 
-            return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined);
+            try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
+            finally { _profiler?.Exit(); }
         }
 
         // Build a call environment for a VmFunction from a ScriptVar[] args array.
