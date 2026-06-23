@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Collections.Generic;
 using DScript.Vm;
 
 namespace DScript.Compiler
@@ -44,6 +45,44 @@ namespace DScript.Compiler
         // Null when not inside a class body. Used to validate #name access.
         private System.Collections.Generic.HashSet<string> _currentClassPrivateNames;
 
+        // Stack of const-propagation scopes (innermost first).  Each scope maps a
+        // `const` identifier to the compile-time constant that was assigned to it.
+        // A null entry acts as a parameter barrier: it prevents an outer const from
+        // being substituted for a function parameter that shares the same name.
+        // Null when EnableOptimizer is false (constant propagation is disabled).
+        private Stack<Dictionary<string, ConstantValue>> _constScopes;
+
+        // Walk from the innermost scope outward; return the first constant value
+        // found for `name`.  A null entry stops the walk (parameter barrier).
+        private bool TryGetPropagatedConst(string name, out ConstantValue value)
+        {
+            if (_constScopes != null)
+            {
+                foreach (var scope in _constScopes)
+                {
+                    if (scope.TryGetValue(name, out value))
+                        return value != null; // null entry = barrier, stop
+                }
+            }
+            value = null;
+            return false;
+        }
+
+        // If exactly one Constant instruction was emitted starting at baseStart,
+        // record its value in the innermost const scope so uses of `name` can be
+        // substituted without a GetVar.
+        private void TryRecordConstPropagation(string name, int baseStart)
+        {
+            if (!EnableOptimizer || _constScopes == null || _constScopes.Count == 0) return;
+            if (chunk.Count - baseStart != 5) return;
+            if ((OpCode)chunk.Code[baseStart] != OpCode.Constant) return;
+            var constIdx = chunk.Code[baseStart + 1]
+                           | (chunk.Code[baseStart + 2] << 8)
+                           | (chunk.Code[baseStart + 3] << 16)
+                           | (chunk.Code[baseStart + 4] << 24);
+            _constScopes.Peek()[name] = chunk.Constants[constIdx];
+        }
+
         /// <summary>
         /// When false, skips the new peephole passes (constant folding,
         /// BinaryIntConst specialisation, jump-chain collapsing, dead-code
@@ -63,6 +102,11 @@ namespace DScript.Compiler
         {
             lexer = new ScriptLex(source);
             chunk = new Chunk { Name = "<expr>" };
+            if (EnableOptimizer)
+            {
+                _constScopes = new Stack<Dictionary<string, ConstantValue>>();
+                _constScopes.Push(new Dictionary<string, ConstantValue>());
+            }
 
             CompileBase();
             chunk.Emit(OpCode.Return);
@@ -71,6 +115,8 @@ namespace DScript.Compiler
             {
                 chunk.CollapseJumpChains();
                 chunk.EliminateDeadCode();
+                chunk.NarrowEncodePass();
+                _constScopes = null;
             }
             return chunk;
         }
@@ -82,6 +128,11 @@ namespace DScript.Compiler
 
             lexer = new ScriptLex(source);
             chunk = new Chunk { Name = "<main>", IsAsync = isAsync };
+            if (EnableOptimizer)
+            {
+                _constScopes = new Stack<Dictionary<string, ConstantValue>>();
+                _constScopes.Push(new Dictionary<string, ConstantValue>());
+            }
 
             while (lexer.TokenType != ScriptLex.LexTypes.Eof)
             {
@@ -95,6 +146,8 @@ namespace DScript.Compiler
             {
                 chunk.CollapseJumpChains();
                 chunk.EliminateDeadCode();
+                chunk.NarrowEncodePass();
+                _constScopes = null;
             }
             return chunk;
         }

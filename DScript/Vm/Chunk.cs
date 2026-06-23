@@ -485,12 +485,13 @@ namespace DScript.Vm
 
         // --- post-compilation passes ----------------------------------------
 
-        // Total byte size of an instruction (opcode byte + 4 bytes per operand).
+        // Total byte size of an instruction (opcode byte + operand bytes).
         internal static int InstructionSize(OpCode op) => op switch
         {
             OpCode.EnterTry        => 13, // 1 + 4*3
             OpCode.BinaryConst     =>  9, // 1 + 4*2
             OpCode.BinaryIntConst  =>  9, // 1 + 4*2
+            OpCode.TaggedTemplate  =>  9, // 1 + 4*2
             OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
             OpCode.DeclareVar   or OpCode.DeclareConst or OpCode.DeclareLocal or
             OpCode.GetProp      or OpCode.SetProp      or OpCode.DeleteProp or
@@ -502,8 +503,29 @@ namespace DScript.Vm
             OpCode.MakeClosure  or OpCode.Call         or OpCode.CallMethod or
             OpCode.TailCall     or OpCode.TailCallMethod                    or
             OpCode.New          or OpCode.InitProp      or OpCode.InitElem  or
-            OpCode.LeaveTry     or OpCode.LeaveCatch                        =>  5, // 1 + 4*1
+            OpCode.LeaveTry     or OpCode.LeaveCatch                        or
+            OpCode.DefineGetter or OpCode.DefineSetter                      =>  5, // 1 + 4*1
+            // Narrow forms: 1 opcode byte + 1 operand byte
+            OpCode.GetVarN      or OpCode.SetVarN      or OpCode.ConstantN  or
+            OpCode.GetPropN     or OpCode.SetPropN     or OpCode.DeclareVarN or
+            OpCode.DeclareConstN or OpCode.DeclareLocalN or OpCode.InitPropN => 2, // 1 + 1
             _                   =>  1, // no operands
+        };
+
+        // Maps a wide (5-byte) opcode to its narrow (2-byte) equivalent.
+        // Returns op unchanged when no narrow form exists.
+        private static OpCode NarrowOf(OpCode op) => op switch
+        {
+            OpCode.Constant     => OpCode.ConstantN,
+            OpCode.GetVar       => OpCode.GetVarN,
+            OpCode.SetVar       => OpCode.SetVarN,
+            OpCode.DeclareVar   => OpCode.DeclareVarN,
+            OpCode.DeclareConst => OpCode.DeclareConstN,
+            OpCode.DeclareLocal => OpCode.DeclareLocalN,
+            OpCode.GetProp      => OpCode.GetPropN,
+            OpCode.SetProp      => OpCode.SetPropN,
+            OpCode.InitProp     => OpCode.InitPropN,
+            _                   => op,
         };
 
         /// <summary>
@@ -705,6 +727,7 @@ namespace DScript.Vm
                     var isJump = op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
                                         or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
                                         or OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined
+                                        or OpCode.ForOfStep
                                         or OpCode.LeaveTry or OpCode.LeaveCatch;
 
                     newCode.Add(Code[ip]); // opcode byte
@@ -770,6 +793,145 @@ namespace DScript.Vm
             list.Add((byte)((value >> 8) & 0xFF));
             list.Add((byte)((value >> 16) & 0xFF));
             list.Add((byte)((value >> 24) & 0xFF));
+        }
+
+        /// <summary>
+        /// Replace wide (5-byte) instructions whose single operand is a name or
+        /// constant index &lt; 256 with their 2-byte narrow equivalents. All jump
+        /// targets are remapped so semantics are preserved.
+        ///
+        /// Call after <see cref="EliminateDeadCode"/> so the input stream is
+        /// already minimal — smaller input means less remap work.
+        /// </summary>
+        public void NarrowEncodePass()
+        {
+            // Pass 1: mark every instruction that can be narrowed.
+            var narrowable = new bool[Code.Count];
+            var totalSavings = 0;
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+                    if (size == 5 && NarrowOf(op) != op)
+                    {
+                        var idx = ReadIntFromCode(ip + 1);
+                        if ((uint)idx < 256)
+                        {
+                            narrowable[ip] = true;
+                            totalSavings += 3;
+                        }
+                    }
+                    ip += size;
+                }
+            }
+
+            if (totalSavings == 0)
+            {
+                foreach (var fn in Functions) fn.NarrowEncodePass();
+                return;
+            }
+
+            // Pass 2: build a cumulative-savings array so that
+            //   remap(old_offset) = old_offset - savings[old_offset]
+            // maps any instruction-start in the old stream to its new position.
+            var savings = new int[Code.Count + 1];
+            {
+                var cumSavings = 0;
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var size = InstructionSize((OpCode)Code[ip]);
+                    for (var k = 0; k < size; k++)
+                        savings[ip + k] = cumSavings;
+                    if (narrowable[ip]) cumSavings += 3;
+                    ip += size;
+                }
+                savings[Code.Count] = cumSavings;
+            }
+
+            // Pass 3: rebuild the instruction stream with narrow forms and
+            // remapped jump targets.
+            var newCode  = new List<byte>(Code.Count - totalSavings);
+            var newLines = new List<int>(Code.Count - totalSavings);
+            var newCols  = new List<int>(Code.Count - totalSavings);
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op   = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+
+                    if (narrowable[ip])
+                    {
+                        // Opcode byte
+                        newCode.Add((byte)NarrowOf(op));
+                        newLines.Add(Lines[ip]);
+                        newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
+                        // Single-byte operand (low byte of the 4-byte LE index; high 3 bytes are 0)
+                        newCode.Add(Code[ip + 1]);
+                        newLines.Add(Lines[ip + 1]);
+                        newCols.Add((ip + 1) < Cols.Count ? Cols[ip + 1] : 0);
+                        ip += size;
+                        continue;
+                    }
+
+                    var isJump = op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                                        or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                                        or OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined
+                                        or OpCode.ForOfStep
+                                        or OpCode.LeaveTry or OpCode.LeaveCatch;
+
+                    // Opcode byte (verbatim)
+                    newCode.Add(Code[ip]);
+                    newLines.Add(Lines[ip]);
+                    newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
+
+                    var src = ip + 1;
+                    if (op is OpCode.EnterTry)
+                    {
+                        // catchPC — remap
+                        var catchPC = ReadIntFromCode(src);
+                        AppendInt(newCode, catchPC >= 0 ? catchPC - savings[catchPC] : -1);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                        // finallyPC — remap
+                        var finallyPC = ReadIntFromCode(src);
+                        AppendInt(newCode, finallyPC >= 0 ? finallyPC - savings[finallyPC] : -1);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                    }
+                    else if (isJump)
+                    {
+                        var target = ReadIntFromCode(src);
+                        AppendInt(newCode, target - savings[target]);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                    }
+
+                    while (src < ip + size) // remaining operands verbatim (non-jump)
+                    {
+                        newCode.Add(Code[src]);
+                        newLines.Add(Lines[src]);
+                        newCols.Add(src < Cols.Count ? Cols[src] : 0);
+                        src++;
+                    }
+
+                    ip += size;
+                }
+            }
+
+            Code.Clear();
+            Code.AddRange(newCode);
+            Lines.Clear();
+            Lines.AddRange(newLines);
+            Cols.Clear();
+            Cols.AddRange(newCols);
+            codeArray = null;
+            inlineCache = null; // offsets have shifted
+
+            foreach (var fn in Functions) fn.NarrowEncodePass();
         }
     }
 }

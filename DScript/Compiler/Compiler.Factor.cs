@@ -333,7 +333,12 @@ namespace DScript.Compiler
             }
 
             // plain variable read, possibly followed by member access
-            chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+            // Substitute a propagated constant directly rather than emitting a
+            // GetVar, so downstream peephole passes can fold the expression.
+            if (EnableOptimizer && TryGetPropagatedConst(name, out var cv))
+                chunk.Emit(OpCode.Constant, chunk.AddConstant(cv));
+            else
+                chunk.Emit(OpCode.GetVar, chunk.AddName(name));
             CompileMemberChain(canAssign);
         }
 
@@ -748,6 +753,16 @@ namespace DScript.Compiler
             }
             lexer.Match((ScriptLex.LexTypes)')');
 
+            // Push a parameter-barrier scope so outer `const` propagation cannot
+            // substitute a value for a name that this function shadows with a parameter.
+            if (_constScopes != null)
+            {
+                var barrier = new Dictionary<string, ConstantValue>();
+                foreach (var p in fnChunk.Parameters)
+                    barrier[p] = null; // null = blocked
+                _constScopes.Push(barrier);
+            }
+
             var saved = chunk;
             chunk = fnChunk;
             EnterFunctionBody(out var savedLoops, out var savedFinally);
@@ -760,6 +775,8 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.Return);
             ExitFunctionBody(savedLoops, savedFinally);
             chunk = saved;
+
+            _constScopes?.Pop();
 
             fnChunk.Source = "function " + name + lexer.GetSubString(sourceStart);
 
@@ -899,6 +916,15 @@ namespace DScript.Compiler
 
             lexer.Match(ScriptLex.LexTypes.Arrow);
 
+            // Push a parameter-barrier scope (same as CompileFunctionRest).
+            if (_constScopes != null)
+            {
+                var barrier = new Dictionary<string, ConstantValue>();
+                foreach (var p in fnChunk.Parameters)
+                    barrier[p] = null;
+                _constScopes.Push(barrier);
+            }
+
             var saved = chunk;
             chunk = fnChunk;
             EnterFunctionBody(out var savedLoops, out var savedFinally);
@@ -922,6 +948,8 @@ namespace DScript.Compiler
 
             ExitFunctionBody(savedLoops, savedFinally);
             chunk = saved;
+
+            _constScopes?.Pop();
 
             fnChunk.Source = lexer.GetSubString(sourceStart);
 

@@ -41,6 +41,7 @@ namespace DScript.Vm
 
                 case OpCode.BinaryConst:
                 case OpCode.BinaryIntConst:
+                case OpCode.TaggedTemplate:
                     return 2;
 
                 case OpCode.Constant:
@@ -67,6 +68,8 @@ namespace DScript.Vm
                 case OpCode.InitElem:
                 case OpCode.LeaveTry:
                 case OpCode.LeaveCatch:
+                case OpCode.DefineGetter:
+                case OpCode.DefineSetter:
                     return 1;
 
                 default:
@@ -106,6 +109,12 @@ namespace DScript.Vm
             return DisassembleInstruction(chunk, offset, sb, ref lastLine);
         }
 
+        // Returns true for opcodes whose single operand is stored as 1 byte (narrow form).
+        private static bool IsNarrow(OpCode op) =>
+            op is OpCode.GetVarN or OpCode.SetVarN or OpCode.ConstantN or
+                  OpCode.GetPropN or OpCode.SetPropN or OpCode.DeclareVarN or
+                  OpCode.DeclareConstN or OpCode.DeclareLocalN or OpCode.InitPropN;
+
         private static int DisassembleInstruction(Chunk chunk, int offset, StringBuilder sb, ref int lastLine)
         {
             var line = chunk.GetLineForOffset(offset);
@@ -122,18 +131,50 @@ namespace DScript.Vm
             var op = (OpCode)chunk.Code[offset];
             sb.Append(op);
 
-            var operands = OperandCount(op);
             var next = offset + 1;
-            for (var i = 0; i < operands; i++)
+
+            if (IsNarrow(op))
             {
-                var value = chunk.ReadInt(next);
+                // Narrow form: single 1-byte operand
+                var value = chunk.Code[next];
                 sb.Append(' ').Append(value);
-                sb.Append(Annotate(chunk, op, i, value));
-                next += 4;
+                sb.Append(AnnotateNarrow(chunk, op, value));
+                next++;
+            }
+            else
+            {
+                var operands = OperandCount(op);
+                for (var i = 0; i < operands; i++)
+                {
+                    var value = chunk.ReadInt(next);
+                    sb.Append(' ').Append(value);
+                    sb.Append(Annotate(chunk, op, i, value));
+                    next += 4;
+                }
             }
 
             sb.AppendLine();
             return next;
+        }
+
+        private static string AnnotateNarrow(Chunk chunk, OpCode op, int value)
+        {
+            switch (op)
+            {
+                case OpCode.ConstantN when value >= 0 && value < chunk.Constants.Count:
+                    return $" ({chunk.Constants[value]})";
+                case OpCode.GetVarN:
+                case OpCode.SetVarN:
+                case OpCode.DeclareVarN:
+                case OpCode.DeclareConstN:
+                case OpCode.DeclareLocalN:
+                case OpCode.GetPropN:
+                case OpCode.SetPropN:
+                case OpCode.InitPropN:
+                    if (value >= 0 && value < chunk.Names.Count) return $" ({chunk.Names[value]})";
+                    break;
+            }
+            return string.Empty;
         }
 
         private static string Annotate(Chunk chunk, OpCode op, int operandIndex, int value)

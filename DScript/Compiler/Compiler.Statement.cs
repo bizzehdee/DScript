@@ -136,10 +136,16 @@ namespace DScript.Compiler
             var needsBlockScope = PeekHasLetOrConst();
             if (needsBlockScope) chunk.Emit(OpCode.EnterBlock);
 
+            // Push a propagation scope so `const` declarations inside this block
+            // are visible within it but not after the closing brace.
+            _constScopes?.Push(new Dictionary<string, ConstantValue>());
+
             while (lexer.TokenType != (ScriptLex.LexTypes)'}' && lexer.TokenType != ScriptLex.LexTypes.Eof)
             {
                 CompileStatement();
             }
+
+            _constScopes?.Pop();
 
             if (needsBlockScope) chunk.Emit(OpCode.LeaveBlock);
             lexer.Match((ScriptLex.LexTypes)'}');
@@ -199,7 +205,11 @@ namespace DScript.Compiler
                     if (lexer.TokenType == (ScriptLex.LexTypes)'=')
                     {
                         lexer.Match((ScriptLex.LexTypes)'=');
+                        var baseStart = chunk.Count;
                         CompileBase();
+                        // Record the constant value for propagation if the initialiser
+                        // compiled to exactly one Constant instruction.
+                        if (readOnly) TryRecordConstPropagation(name, baseStart);
                         chunk.Emit(OpCode.SetVar, nameIndex);
                         chunk.Emit(OpCode.Pop);
                     }

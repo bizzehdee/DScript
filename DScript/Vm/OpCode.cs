@@ -178,5 +178,23 @@ namespace DScript.Vm
         // Stack: tag, cooked[0..n-1], raw[0..n-1], expr[0..m-1]
         // Builds the strings array (with .raw), calls tag(strings, expr0..exprM), pushes result.
         TaggedTemplate,  // [i numStrings] [i numExprs]
+
+        // --- Narrow (2-byte) opcode forms ------------------------------------
+        // For instructions whose operand is a name or constant index < 256,
+        // the narrow form stores the index as a single byte, saving 3 bytes per
+        // instruction over the wide (5-byte) form.  Emitted by the post-
+        // compilation NarrowEncodePass after all other peephole passes have
+        // run; the wide forms are used during compilation so existing peephole
+        // passes can inspect them without change.
+        // APPENDED AT THE END per CLAUDE.md rules (preserves existing byte values).
+        GetVarN,        // [b nameIndex]   narrow form of GetVar
+        SetVarN,        // [b nameIndex]   narrow form of SetVar
+        ConstantN,      // [b constIndex]  narrow form of Constant
+        GetPropN,       // [b nameIndex]   narrow form of GetProp
+        SetPropN,       // [b nameIndex]   narrow form of SetProp
+        DeclareVarN,    // [b nameIndex]   narrow form of DeclareVar
+        DeclareConstN,  // [b nameIndex]   narrow form of DeclareConst
+        DeclareLocalN,  // [b nameIndex]   narrow form of DeclareLocal
+        InitPropN,      // [b nameIndex]   narrow form of InitProp
     }
 }
