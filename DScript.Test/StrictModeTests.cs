@@ -163,5 +163,61 @@ namespace DScript.Test
             new VirtualMachine(engine).Run(compiled, new Vm.Environment(engine.Root, null));
             Assert.That(engine.Root.GetParameter("r").Bool, Is.True);
         }
+
+        // ── T12: this=undefined in plain calls ────────────────────────────────
+
+        private static string RunStr(string source)
+        {
+            var engine = new ScriptEngine();
+            var chunk = Compile(source);
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
+            return engine.Root.GetParameter("r").String;
+        }
+
+        private static int RunInt(string source)
+        {
+            var engine = new ScriptEngine();
+            var chunk = Compile(source);
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
+            return engine.Root.GetParameter("r").Int;
+        }
+
+        [Test]
+        public void Strict_PlainCall_ThisIsUndefined()
+        {
+            var src = @"
+                ""use strict"";
+                function getThis() { return typeof this; }
+                var r = getThis();
+            ";
+            Assert.That(RunStr(src), Is.EqualTo("undefined"));
+        }
+
+        [Test]
+        public void NonStrict_PlainCall_ThisIsInheritedFromScope()
+        {
+            // In sloppy mode this is inherited from the calling scope (not explicitly set
+            // to undefined like strict mode). Accessing a property via this works when
+            // called as a method.
+            var src = @"
+                var obj = {
+                    val: 99,
+                    getVal: function() { return this.val; }
+                };
+                var r = obj.getVal();
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void Strict_MethodCall_ThisIsReceiver()
+        {
+            var src = @"
+                ""use strict"";
+                var obj = { val: 42, getThis: function() { return this; } };
+                var r = obj.getThis().val;
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(42));
+        }
     }
 }

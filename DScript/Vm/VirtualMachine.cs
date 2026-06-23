@@ -1600,7 +1600,10 @@ namespace DScript.Vm
             var recyclable = vmfn.Body.RecyclableFrame;
             var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
             var callEnv = new Environment(vars, vmfn.Captured);
-            if (thisArg != null) vars.AddChildNoDup("this", thisArg);
+            if (thisArg != null)
+                vars.AddChildNoDup("this", thisArg);
+            else if (vmfn.Body.IsStrict)
+                vars.AddChildNoDup("this", SharedUndefined);
 
             var parameters = vmfn.Body.Parameters;
             var restIdx2 = vmfn.Body.RestParamIndex;
@@ -1688,7 +1691,10 @@ namespace DScript.Vm
             var recyclable = vmfn.Body.RecyclableFrame;
             var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
             var callEnv = new Environment(vars, vmfn.Captured);
-            if (thisArg != null) vars.AddChildNoDup("this", thisArg);
+            if (thisArg != null)
+                vars.AddChildNoDup("this", thisArg);
+            else if (vmfn.Body.IsStrict)
+                vars.AddChildNoDup("this", SharedUndefined);
 
             var parameters = vmfn.Body.Parameters;
             var restIdx = vmfn.Body.RestParamIndex;
