@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System.Collections.Generic;
+using System.Numerics;
 using DScript.Vm;
 
 namespace DScript.Compiler
@@ -111,6 +112,31 @@ namespace DScript.Compiler
                     var value = new ScriptVar(lexer.TokenString, ScriptVar.Flags.Double).Float;
                     lexer.Match(ScriptLex.LexTypes.Float);
                     chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Double(value)));
+                    break;
+                }
+
+                case ScriptLex.LexTypes.BigIntLiteral:
+                {
+                    var raw = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.BigIntLiteral);
+                    BigInteger bigVal;
+                    if (raw.StartsWith("0x", System.StringComparison.OrdinalIgnoreCase))
+                        bigVal = BigInteger.Parse("0" + raw[2..], System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+                    else if (raw.StartsWith("0b", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        bigVal = BigInteger.Zero;
+                        foreach (var ch in raw[2..])
+                            bigVal = bigVal * 2 + (ch == '1' ? BigInteger.One : BigInteger.Zero);
+                    }
+                    else if (raw.StartsWith("0o", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        bigVal = BigInteger.Zero;
+                        foreach (var ch in raw[2..])
+                            bigVal = bigVal * 8 + (ch - '0');
+                    }
+                    else
+                        bigVal = BigInteger.Parse(raw, System.Globalization.CultureInfo.InvariantCulture);
+                    chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.BigInt(bigVal)));
                     break;
                 }
 

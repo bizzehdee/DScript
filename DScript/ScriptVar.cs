@@ -25,6 +25,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -166,8 +167,9 @@ namespace DScript
             Native = 128,
             Regexp = 256,
             Symbol = 512,
+            BigInt = 1024,
             NumericMask = Null | Double | Integer,
-            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol
+            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol | BigInt
         }
 
         public ScriptVarLink FirstChild { get; set; }
@@ -310,6 +312,22 @@ namespace DScript
 
         public bool IsSymbol => (flags & Flags.Symbol) != 0;
 
+        public bool IsBigInt => (flags & Flags.BigInt) != 0;
+
+        public BigInteger BigIntData
+        {
+            get => scriptData is BigInteger b ? b : BigInteger.Zero;
+            set { scriptData = value; }
+        }
+
+        public static ScriptVar CreateBigInt(BigInteger value)
+        {
+            var v = new ScriptVar();
+            v.flags = Flags.BigInt;
+            v.scriptData = value;
+            return v;
+        }
+
         public bool IsBasic => FirstChild == null;
 
         public ScriptVar this[string index] => GetParameter(index);
@@ -372,6 +390,7 @@ namespace DScript
                 var desc = scriptData as string;
                 return desc != null ? $"Symbol({desc})" : "Symbol()";
             }
+            if (IsBigInt) return BigIntData.ToString(CultureInfo.InvariantCulture);
 
             if (scriptData is Vm.VmFunction fn) return fn.Source;
 
@@ -400,6 +419,7 @@ namespace DScript
             if (IsString) return "string";
             if (IsNull) return "null";
             if (IsSymbol) return "symbol";
+            if (IsBigInt) return "bigint";
 
             return "undefined";
         }
@@ -899,6 +919,37 @@ namespace DScript
                         case ScriptLex.LexTypes.Equal: return new ScriptVar(symEqual);
                         case ScriptLex.LexTypes.NEqual: return new ScriptVar(!symEqual);
                         default: throw new ScriptException("Operation not supported on the Symbol datatype");
+                    }
+                }
+
+                // BigInt operations — both operands must be BigInt (no implicit mixed-type conversion)
+                if (a.IsBigInt || b.IsBigInt)
+                {
+                    if (!a.IsBigInt || !b.IsBigInt)
+                        throw new ScriptException("Cannot mix BigInt and other types; use explicit conversions");
+                    var ba = a.BigIntData;
+                    var bb = b.BigIntData;
+                    switch (opc)
+                    {
+                        case '+': return CreateBigInt(ba + bb);
+                        case '-': return CreateBigInt(ba - bb);
+                        case '*': return CreateBigInt(ba * bb);
+                        case '/':
+                            if (bb == BigInteger.Zero) throw new ScriptException("Division by zero");
+                            return CreateBigInt(ba / bb);
+                        case '%':
+                            if (bb == BigInteger.Zero) throw new ScriptException("Division by zero");
+                            return CreateBigInt(ba % bb);
+                        case '&': return CreateBigInt(ba & bb);
+                        case '|': return CreateBigInt(ba | bb);
+                        case '^': return CreateBigInt(ba ^ bb);
+                        case '<': return new ScriptVar(ba < bb);
+                        case '>': return new ScriptVar(ba > bb);
+                        case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar(ba <= bb);
+                        case (char)ScriptLex.LexTypes.GEqual: return new ScriptVar(ba >= bb);
+                        case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(ba == bb);
+                        case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(ba != bb);
+                        default: throw new ScriptException("Operation not supported on BigInt");
                     }
                 }
 

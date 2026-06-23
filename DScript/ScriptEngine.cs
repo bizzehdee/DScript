@@ -124,6 +124,7 @@ namespace DScript
             RegisterPromiseBuiltin();
             RegisterRequireBuiltin();
             SymbolRegistrar.Register(this);
+            BigIntRegistrar.Register(this);
 
             globalEnvironment = new VmEnvironment(Root, null);
         }

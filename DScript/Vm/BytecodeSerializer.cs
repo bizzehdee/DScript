@@ -336,6 +336,9 @@ namespace DScript.Vm
                 case ConstantKind.Double:
                     writer.Write(value.DoubleValue);
                     break;
+                case ConstantKind.BigInt:
+                    writer.Write(value.BigIntValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    break;
                 default: // String / Regex
                     writer.Write(value.StringValue ?? string.Empty);
                     break;
@@ -350,6 +353,7 @@ namespace DScript.Vm
                 case ConstantKind.Int: return ConstantValue.Int(reader.ReadInt32());
                 case ConstantKind.Double: return ConstantValue.Double(reader.ReadDouble());
                 case ConstantKind.Regex: return ConstantValue.Regex(reader.ReadString());
+                case ConstantKind.BigInt: return ConstantValue.BigInt(System.Numerics.BigInteger.Parse(reader.ReadString(), System.Globalization.CultureInfo.InvariantCulture));
                 default: return ConstantValue.String(reader.ReadString());
             }
         }

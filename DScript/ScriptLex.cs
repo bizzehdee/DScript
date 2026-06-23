@@ -55,8 +55,8 @@ namespace DScript
 
         private readonly LexTypes[] notAllowedBeforeRegex =
         [
-            LexTypes.Id, LexTypes.Int, LexTypes.Float, LexTypes.Str, 
-            LexTypes.RTrue, LexTypes.RFalse, LexTypes.RNull, (LexTypes)']', 
+            LexTypes.Id, LexTypes.Int, LexTypes.Float, LexTypes.Str, LexTypes.BigIntLiteral,
+            LexTypes.RTrue, LexTypes.RFalse, LexTypes.RNull, (LexTypes)']',
             (LexTypes)')', (LexTypes)'.', LexTypes.PlusPlus, LexTypes.MinusMinus,
             LexTypes.Eof
         ];
@@ -161,6 +161,7 @@ namespace DScript
             OrOrEqual,      // ||=
             NullCoalesceEqual, // ??=
             PrivateName,    // #identifier (private class field/method name)
+            BigIntLiteral,  // BigInt literal: 42n, 0xFFn, 0b101n, 0o77n
         }
 
         public ScriptLex(string input)
@@ -455,6 +456,14 @@ namespace DScript
                         GetNextChar();
                     }
                     if (prevWasSep) throw new ScriptException("Numeric separator cannot appear at the end of a numeric literal");
+                }
+
+                // BigInt suffix: 123n, 0xFFn, 0b101n, 0o77n
+                // Floats (with '.' or 'e') cannot have the n suffix.
+                if (CurrentChar == 'n' && TokenType == LexTypes.Int)
+                {
+                    GetNextChar(); // consume 'n'
+                    TokenType = LexTypes.BigIntLiteral;
                 }
 
                 TokenString = tokenBuilder.ToString();

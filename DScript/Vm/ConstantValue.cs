@@ -20,6 +20,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System.Numerics;
+
 namespace DScript.Vm
 {
     public enum ConstantKind
@@ -27,7 +29,8 @@ namespace DScript.Vm
         Int,
         Double,
         String,
-        Regex
+        Regex,
+        BigInt
     }
 
     /// <summary>
@@ -42,11 +45,13 @@ namespace DScript.Vm
         public int IntValue { get; private set; }
         public double DoubleValue { get; private set; }
         public string StringValue { get; private set; }
+        public BigInteger BigIntValue { get; private set; }
 
         public static ConstantValue Int(int value) => new() { Kind = ConstantKind.Int, IntValue = value };
         public static ConstantValue Double(double value) => new() { Kind = ConstantKind.Double, DoubleValue = value };
         public static ConstantValue String(string value) => new() { Kind = ConstantKind.String, StringValue = value };
         public static ConstantValue Regex(string literal) => new() { Kind = ConstantKind.Regex, StringValue = literal };
+        public static ConstantValue BigInt(BigInteger value) => new() { Kind = ConstantKind.BigInt, BigIntValue = value };
 
         /// <summary>Create a fresh ScriptVar for this constant (never shared).</summary>
         public ScriptVar Materialize()
@@ -57,6 +62,7 @@ namespace DScript.Vm
                 case ConstantKind.Double: return new ScriptVar(DoubleValue);
                 case ConstantKind.String: return new ScriptVar(StringValue, ScriptVar.Flags.String);
                 case ConstantKind.Regex: return new ScriptVar(StringValue, ScriptVar.Flags.Regexp);
+                case ConstantKind.BigInt: return ScriptVar.CreateBigInt(BigIntValue);
                 default: return new ScriptVar();
             }
         }
@@ -69,6 +75,7 @@ namespace DScript.Vm
                 ConstantKind.Double => DoubleValue.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ConstantKind.String => $"\"{StringValue}\"",
                 ConstantKind.Regex => StringValue,
+                ConstantKind.BigInt => BigIntValue.ToString(System.Globalization.CultureInfo.InvariantCulture) + "n",
                 _ => "?"
             };
         }

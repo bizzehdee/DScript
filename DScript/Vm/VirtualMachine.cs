@@ -627,6 +627,7 @@ namespace DScript.Vm
                         // fall back to MathsOp for the (rare) non-numeric cases
                         if (a.IsInt) Push(new ScriptVar(-a.Int));
                         else if (a.IsDouble) Push(new ScriptVar(-a.Float));
+                        else if (a.IsBigInt) Push(ScriptVar.CreateBigInt(-a.BigIntData));
                         else Push(Zero.MathsOp(a, (ScriptLex.LexTypes)'-'));
                         break;
                     }
@@ -639,7 +640,8 @@ namespace DScript.Vm
                     case OpCode.BitNot:
                     {
                         var a = Pop();
-                        Push(new ScriptVar(~a.Int));
+                        if (a.IsBigInt) Push(ScriptVar.CreateBigInt(~a.BigIntData));
+                        else Push(new ScriptVar(~a.Int));
                         break;
                     }
                     case OpCode.ToNumber:
