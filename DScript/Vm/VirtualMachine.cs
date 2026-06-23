@@ -353,6 +353,18 @@ namespace DScript.Vm
                     case OpCode.EnumKeys:
                     {
                         var obj = Pop();
+                        // Proxy [[OwnKeys]] trap
+                        if (obj.IsProxy)
+                        {
+                            var handler = obj.ProxyHandler;
+                            var ownKeysTrap = handler?.FindChild("ownKeys")?.Var;
+                            if (ownKeysTrap != null && ownKeysTrap.IsFunction)
+                            {
+                                Push(InvokeCallable(ownKeysTrap, handler, new[] { obj.ProxyTarget }));
+                                break;
+                            }
+                            obj = obj.ProxyTarget ?? obj;
+                        }
                         var keys = new ScriptVar(ScriptVar.Flags.Array);
                         var index = 0;
                         var member = obj.FirstChild;
@@ -433,6 +445,13 @@ namespace DScript.Vm
                         var nameIdx = ReadOperand(code, ref ip);
                         var name = chunk.Names[nameIdx];
                         var obj = Pop();
+
+                        // Proxy [[Get]] trap — bypass the property cache for proxy objects
+                        if (obj.IsProxy)
+                        {
+                            Push(GetMember(obj, name));
+                            break;
+                        }
 
                         // Inline property cache: 256-slot direct-mapped, hashed via
                         // Fibonacci/multiplicative hashing so that names whose indices
@@ -538,6 +557,19 @@ namespace DScript.Vm
                     {
                         var obj = Pop();
                         var key = Pop();
+                        // Proxy [[Has]] trap
+                        if (obj.IsProxy)
+                        {
+                            var handler = obj.ProxyHandler;
+                            var hasTrap = handler?.FindChild("has")?.Var;
+                            if (hasTrap != null && hasTrap.IsFunction)
+                            {
+                                var r = InvokeCallable(hasTrap, handler, new[] { obj.ProxyTarget, new ScriptVar(key.String) });
+                                Push(new ScriptVar(r?.Bool == true));
+                                break;
+                            }
+                            obj = obj.ProxyTarget ?? obj;
+                        }
                         var exists = obj.FindChild(key.String) != null ||
                                      (engine != null && engine.FindInParentClasses(obj, key.String) != null);
                         Push(new ScriptVar(exists));
@@ -1235,9 +1267,24 @@ namespace DScript.Vm
         /// </summary>
         public ScriptVar InvokeCallable(ScriptVar callee, ScriptVar thisArg, ScriptVar[] args)
         {
-            if (callee == null || !callee.IsFunction)
+            if (callee == null || (!callee.IsFunction && !callee.IsProxy))
             {
                 throw new ScriptException("Value is not a function");
+            }
+
+            // Proxy [[Apply]] trap
+            if (callee.IsProxy)
+            {
+                var handler = callee.ProxyHandler;
+                var applyTrap = handler?.FindChild("apply")?.Var;
+                if (applyTrap != null && applyTrap.IsFunction)
+                {
+                    var argsArr = ArgsToArray(args);
+                    return InvokeCallable(applyTrap, handler, new[] { callee.ProxyTarget, thisArg ?? new ScriptVar(ScriptVar.Flags.Undefined), argsArr });
+                }
+                callee = callee.ProxyTarget ?? callee;
+                if (callee == null || !callee.IsFunction)
+                    throw new ScriptException("Value is not a function");
             }
 
             if (callee.IsNative)
@@ -1582,6 +1629,19 @@ namespace DScript.Vm
 
         private ScriptVar Construct(ScriptVar ctor, ScriptVar[] args)
         {
+            // Proxy [[Construct]] trap
+            if (ctor.IsProxy)
+            {
+                var handler = ctor.ProxyHandler;
+                var constructTrap = handler?.FindChild("construct")?.Var;
+                if (constructTrap != null && constructTrap.IsFunction)
+                {
+                    var argsArr = ArgsToArray(args);
+                    return InvokeCallable(constructTrap, handler, new[] { ctor.ProxyTarget, argsArr, ctor });
+                }
+                ctor = ctor.ProxyTarget ?? ctor;
+            }
+
             var instance = new ScriptVar(ScriptVar.Flags.Object);
 
             // link the instance to its constructor so shared members resolve
@@ -1597,8 +1657,27 @@ namespace DScript.Vm
             return instance;
         }
 
+        private static ScriptVar ArgsToArray(ScriptVar[] args)
+        {
+            var arr = new ScriptVar(ScriptVar.Flags.Array);
+            for (var i = 0; i < args.Length; i++)
+                arr.AddChild(ScriptVar.IndexName(i), args[i]);
+            arr.AddChild("length", new ScriptVar(args.Length));
+            return arr;
+        }
+
         private ScriptVar GetMember(ScriptVar obj, string name)
         {
+            // Proxy [[Get]] trap
+            if (obj.IsProxy)
+            {
+                var handler = obj.ProxyHandler;
+                var getTrap = handler?.FindChild("get")?.Var;
+                if (getTrap != null && getTrap.IsFunction)
+                    return InvokeCallable(getTrap, handler, new[] { obj.ProxyTarget, new ScriptVar(name), obj });
+                obj = obj.ProxyTarget ?? obj;
+            }
+
             var link = obj.FindChild(name);
             if (link == null && engine != null)
             {
@@ -1619,8 +1698,21 @@ namespace DScript.Vm
             return new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
-        private static void SetMember(ScriptVar obj, string name, ScriptVar value)
+        private void SetMember(ScriptVar obj, string name, ScriptVar value)
         {
+            // Proxy [[Set]] trap
+            if (obj.IsProxy)
+            {
+                var handler = obj.ProxyHandler;
+                var setTrap = handler?.FindChild("set")?.Var;
+                if (setTrap != null && setTrap.IsFunction)
+                {
+                    InvokeCallable(setTrap, handler, new[] { obj.ProxyTarget, new ScriptVar(name), value, obj });
+                    return;
+                }
+                obj = obj.ProxyTarget ?? obj;
+            }
+
             // Assignment always targets an OWN property (FindChild searches own
             // members only), so inherited members are shadowed, never mutated.
             var link = obj.FindChild(name);
@@ -1634,8 +1726,21 @@ namespace DScript.Vm
             }
         }
 
-        private static void DeleteMember(ScriptVar obj, string name)
+        private void DeleteMember(ScriptVar obj, string name)
         {
+            // Proxy [[Delete]] trap
+            if (obj.IsProxy)
+            {
+                var handler = obj.ProxyHandler;
+                var deleteTrap = handler?.FindChild("deleteProperty")?.Var;
+                if (deleteTrap != null && deleteTrap.IsFunction)
+                {
+                    InvokeCallable(deleteTrap, handler, new[] { obj.ProxyTarget, new ScriptVar(name) });
+                    return;
+                }
+                obj = obj.ProxyTarget ?? obj;
+            }
+
             var link = obj.FindChild(name);
             if (link != null)
             {

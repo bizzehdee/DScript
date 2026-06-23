@@ -168,8 +168,9 @@ namespace DScript
             Regexp = 256,
             Symbol = 512,
             BigInt = 1024,
+            Proxy = 2048,
             NumericMask = Null | Double | Integer,
-            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol | BigInt
+            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol | BigInt | Proxy
         }
 
         public ScriptVarLink FirstChild { get; set; }
@@ -313,6 +314,19 @@ namespace DScript
         public bool IsSymbol => (flags & Flags.Symbol) != 0;
 
         public bool IsBigInt => (flags & Flags.BigInt) != 0;
+
+        public bool IsProxy => (flags & Flags.Proxy) != 0;
+
+        public static ScriptVar CreateProxy(ScriptVar target, ScriptVar handler)
+        {
+            var v = new ScriptVar(Flags.Proxy | Flags.Object);
+            v.AddChild("[[ProxyTarget]]", target);
+            v.AddChild("[[ProxyHandler]]", handler);
+            return v;
+        }
+
+        public ScriptVar ProxyTarget => FindChild("[[ProxyTarget]]")?.Var;
+        public ScriptVar ProxyHandler => FindChild("[[ProxyHandler]]")?.Var;
 
         public BigInteger BigIntData
         {
