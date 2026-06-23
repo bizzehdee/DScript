@@ -319,8 +319,16 @@ Call `engine.DrainMicroTasks()` after `Run()` to flush the microtask queue.
     fetchData().then(function(v) { r = v; });
     // engine.DrainMicroTasks() from C# to settle the chain
 
-`Promise.resolve(value)` and `Promise.reject(reason)` are available as static
-constructors. `.then(fn)` and `.catch(fn)` are chainable.
+All six Promise combinators are available:
+
+| Method | Behaviour |
+|---|---|
+| `Promise.resolve(val)` | Already-resolved promise |
+| `Promise.reject(reason)` | Already-rejected promise |
+| `Promise.all(arr)` | Resolves when all resolve; rejects on first rejection |
+| `Promise.allSettled(arr)` | Always resolves with `[{status, value/reason}]` |
+| `Promise.race(arr)` | Settles with the first to settle |
+| `Promise.any(arr)` | Resolves with first fulfillment; rejects with `AggregateError` if all reject |
 
 ---
 
@@ -353,6 +361,92 @@ Supply a module loader callback to resolve module paths:
 Module exports are cached — re-requiring the same path returns the cached
 object without re-executing the module body. Circular `require()` is handled
 gracefully via pre-seeding the cache before execution.
+
+Each module environment exposes `module`, `exports`, `__filename`, and `__dirname`:
+
+    // Inside any required module:
+    console.log(__filename);      // absolute path of this file
+    console.log(__dirname);       // directory of this file
+    module.exports = { greet };   // replace the exports object
+
+---
+
+Resource limits
+---------------
+
+Prevent runaway scripts from hanging the host process:
+
+    // Cancel after 500 ms of wall-clock time
+    engine.SetTimeout(TimeSpan.FromMilliseconds(500));
+
+    // Cancel after 10 million VM instructions
+    engine.SetInstructionLimit(10_000_000);
+
+Both limits throw `ScriptTimeoutException` (a plain .NET exception, not derived
+from `JITException`) so script-level `try/catch` blocks cannot intercept it:
+
+    try
+    {
+        engine.Run(program);
+    }
+    catch (ScriptTimeoutException ex)
+    {
+        Console.Error.WriteLine($"Script killed: {ex.Message}");
+    }
+
+---
+
+Sandboxing / permissions
+------------------------
+
+Restrict which system resources a script can access by passing `EnginePermissions`
+flags when registering the standard library:
+
+    // Allow everything (default)
+    loader.RegisterFunctions(engine);
+
+    // Deny all system access
+    loader.RegisterFunctions(engine, EnginePermissions.None);
+
+    // Allow only file and network access
+    loader.RegisterFunctions(engine, EnginePermissions.FileSystem | EnginePermissions.Network);
+
+Available flags:
+
+| Flag | Guards |
+|---|---|
+| `FileSystem` | All `fs.*` operations |
+| `Network` | `fetch()`, `http.*`, `net.*` |
+| `ProcessSpawn` | `child_process.*` |
+| `ProcessExit` | `process.exit()` |
+| `EnvironmentVariables` | `process.env`, `process.getenv` |
+
+Violations throw `PermissionException`, which scripts can catch.
+
+---
+
+Host object injection
+---------------------
+
+Expose a C# object to scripts without writing a custom provider. Mark members
+with `[ScriptVisible]` (read access) and optionally `[ScriptWritable]` (write access),
+then call `engine.SetGlobal`:
+
+    public class Config
+    {
+        [ScriptVisible] public string Env { get; set; } = "prod";
+        [ScriptVisible][ScriptWritable] public int MaxRetries { get; set; } = 3;
+
+        [ScriptVisible]
+        public string GetVersion() => "1.0.0";
+    }
+
+    engine.SetGlobal("config", new Config());
+
+    // In script:
+    console.log(config.Env);         // "prod"
+    console.log(config.GetVersion()); // "1.0.0"
+    config.MaxRetries = 5;           // writable
 
 ---
 
@@ -430,43 +524,228 @@ Register with `new EngineFunctionLoader().RegisterFunctions(engine)`.
 
 **Global functions**
 
-`eval`, `exec`, `trace`, `parseInt(str, radix?)`, `parseFloat`, `isNaN`,
-`isFinite`, `charToInt`
+`eval`, `exec`, `trace`, `parseInt(str, radix?)`, `parseFloat`, `isNaN`, `isFinite`,
+`encodeURIComponent`, `decodeURIComponent`, `encodeURI`, `decodeURI`,
+`btoa`, `atob`, `charToInt`, `structuredClone`, `queueMicrotask`
 
 **console**
 
-`log`, `error`, `clear`
+`log`, `error`, `warn`, `info`, `clear`, `time(label?)`, `timeEnd(label?)`, `timeLog(label?)`
+
+Output routing: `ConsoleFunctionProvider.SetOutput(Action<string> stdout, Action<string> stderr)`
 
 **Math**
 
 `abs`, `acos`, `asin`, `atan`, `atan2`, `ceil`, `cos`, `cosh`, `exp`, `floor`,
-`log`, `min`, `max`, `pow`, `random`, `randomInt`, `round`, `sin`, `sinh`,
-`sqrt`, `tan`, `tanh`
+`log`, `log2`, `log10`, `min`, `max`, `pow`, `random`, `round`, `sign`, `sin`, `sinh`,
+`sqrt`, `tan`, `tanh`, `trunc`, `cbrt`, `hypot`, `clz32`, `fround`, `imul`
 
 Constants: `PI`, `E`, `SQRT2`, `SQRT1_2`, `LN2`, `LN10`, `LOG2E`, `LOG10E`
 
 **String** (instance methods on string values)
 
-`charAt`, `charCodeAt`, `fromCharCode`, `indexOf`, `lastIndexOf`,
-`substring`, `substr`, `split`, `match`, `trim`, `concat`, `replace`,
-`toUpperCase`, `toLowerCase`
+`charAt`, `charCodeAt`, `codePointAt`, `fromCharCode`, `fromCodePoint`,
+`indexOf`, `lastIndexOf`, `includes`, `startsWith`, `endsWith`,
+`substring`, `slice`, `split`, `match`, `matchAll`, `trim`, `trimStart`, `trimEnd`,
+`padStart`, `padEnd`, `repeat`, `concat`, `replace`, `replaceAll`,
+`toUpperCase`, `toLowerCase`, `normalize`, `at`
 
 **Array** (instance methods on array values)
 
-`push`, `pop`, `shift`, `unshift`, `slice`, `indexOf`, `reverse`, `sort`,
-`contains`, `remove`, `join`, `map`, `filter`, `forEach`, `reduce`
+`push`, `pop`, `shift`, `unshift`, `splice`, `slice`, `indexOf`, `lastIndexOf`,
+`includes`, `find`, `findIndex`, `reverse`, `sort`, `flat`, `flatMap`,
+`join`, `map`, `filter`, `forEach`, `reduce`, `reduceRight`,
+`every`, `some`, `fill`, `copyWithin`, `keys`, `values`, `entries`, `at`,
+`toSorted`, `toReversed`, `toSpliced`, `with`
+
+`Array.from`, `Array.isArray`, `Array.of`
 
 **Object**
 
-`keys`, `hasOwnProperty`, `dump`, `clone`
+`keys`, `values`, `entries`, `assign`, `create`, `freeze`, `isFrozen`,
+`seal`, `isSealed`, `hasOwn`, `is`, `groupBy`, `fromEntries`,
+`hasOwnProperty`, `dump`, `clone`
+
+**Number**
+
+`isInteger`, `isFinite`, `isNaN`, `isSafeInteger`, `parseInt`, `parseFloat`,
+`toFixed(digits?)`, `toPrecision(digits?)`, `toExponential(digits?)`
+
+Constants: `MAX_VALUE`, `MIN_VALUE`, `MAX_SAFE_INTEGER`, `MIN_SAFE_INTEGER`,
+`POSITIVE_INFINITY`, `NEGATIVE_INFINITY`, `NaN`, `EPSILON`
 
 **JSON**
 
 `parse`, `stringify`
 
-**Integer** (also available as globals)
+**Map**
 
-`parseInt(str, radix?)`, `parseFloat`, `isNaN`, `isFinite`, `valueOf`
+`new Map()`, `.set`, `.get`, `.has`, `.delete`, `.clear`, `.forEach`, `.keys`, `.values`, `.entries`, `.size`
+
+`Map.groupBy(arr, fn)`
+
+**Set**
+
+`new Set()`, `.add`, `.has`, `.delete`, `.clear`, `.forEach`, `.keys`, `.values`, `.entries`, `.size`
+
+**Date**
+
+`new Date()`, `.getFullYear`, `.getMonth`, `.getDate`, `.getDay`,
+`.getHours`, `.getMinutes`, `.getSeconds`, `.getMilliseconds`, `.getTime`,
+`.toISOString`, `.toLocaleDateString`, `.toString`
+
+`Date.now()`
+
+**RegExp**
+
+`new RegExp(pattern, flags?)`, `.test(str)`, `.exec(str)`
+
+Properties: `.source`, `.flags`, `.global`, `.ignoreCase`, `.multiline`
+
+**Buffer**
+
+`Buffer.from(str, enc?)`, `Buffer.from(array)`, `Buffer.alloc(size, fill?)`,
+`Buffer.allocUnsafe(size)`, `Buffer.isBuffer(val)`, `Buffer.concat(list)`
+
+Instance: `.toString(enc?)`, `.length`, `.slice(start, end?)`, `.copy(target, targetStart?)`,
+`.equals(other)`, `.readUInt8(offset)`, `.writeUInt8(val, offset)`, and common numeric variants
+
+**EventEmitter**
+
+`new EventEmitter()`, `.on(event, fn)`, `.once(event, fn)`, `.off(event, fn)`,
+`.removeAllListeners(event?)`, `.emit(event, ...args)`, `.listeners(event)`, `.listenerCount(event)`
+
+**Timers**
+
+`setTimeout(fn, delay?)`, `clearTimeout(id)`, `setInterval(fn, interval?)`, `clearInterval(id)`
+
+Flush pending timers from C# with `engine.DrainTimers()`.
+
+**process**
+
+`argv`, `env`, `getenv(name)`, `exit(code?)`, `cwd()`, `platform`, `version`
+
+Lifecycle hooks: `process.on('exit', fn)`, `process.on('uncaughtException', fn)`, `process.on('unhandledRejection', fn)`
+
+**assert**
+
+`assert(val, msg?)` / `assert.ok`, `assert.equal`, `assert.strictEqual`,
+`assert.notEqual`, `assert.notStrictEqual`, `assert.deepEqual`,
+`assert.throws`, `assert.doesNotThrow`, `assert.fail`
+
+**util**
+
+`util.format(fmt, ...args)`, `util.inspect(val, opts?)`,
+`util.promisify(fn)`, `util.deprecate(fn, msg)`
+
+**path**
+
+`join(...parts)`, `resolve(...parts)`, `dirname(p)`, `basename(p, ext?)`,
+`extname(p)`, `isAbsolute(p)`, `normalize(p)`, `sep`
+
+**os**
+
+`hostname()`, `platform()`, `arch()`, `homedir()`, `tmpdir()`,
+`totalmem()`, `freemem()`, `cpus()`, `EOL`
+
+**fs** (synchronous)
+
+`readFileSync(path, enc?)`, `writeFileSync(path, data, enc?)`, `appendFileSync(path, data, enc?)`,
+`existsSync(path)`, `mkdirSync(path, opts?)`, `rmdirSync(path)`, `unlinkSync(path)`,
+`readdirSync(path)`, `renameSync(old, new)`, `statSync(path)`, `copyFileSync(src, dest)`
+
+Requires `EnginePermissions.FileSystem`.
+
+**crypto**
+
+`randomUUID()`, `randomBytes(n)`, `getRandomValues(arr)`,
+`createHash(algo)` → `{ update(data), digest(enc?) }`,
+`createHmac(algo, key)` → `{ update(data), digest(enc?) }`
+
+Supported algorithms: `sha256`, `sha512`, `sha1`, `md5`
+
+**fetch**
+
+`fetch(url, opts?)` — synchronous HTTP client. `opts`: `{ method, headers, body }`.
+
+Response: `.ok`, `.status`, `.statusText`, `.headers`, `.text()`, `.json()`, `.arrayBuffer()`
+
+Requires `EnginePermissions.Network`.
+
+**http**
+
+`http.createServer(fn)` — `fn(req, res)` is called per request.
+
+`server.listen(port, host?, cb?)`, `server.close(cb?)`
+
+Request: `.method`, `.url`, `.headers`, `.on('data', fn)`, `.on('end', fn)`
+
+Response: `.writeHead(status, headers?)`, `.write(data)`, `.end(data?)`
+
+Requires `EnginePermissions.Network`.
+
+**child_process**
+
+`execSync(cmd, opts?)` — returns stdout; throws on non-zero exit.
+
+`spawnSync(cmd, args?, opts?)` → `{ stdout, stderr, status, signal }`
+
+`exec(cmd, cb)` — runs and calls `cb(err, stdout, stderr)`.
+
+`spawn(cmd, args?, opts?)` — returns process object; `.on('exit', fn)`, `.on('data', fn)`
+
+Requires `EnginePermissions.ProcessSpawn`.
+
+**readline**
+
+`readline.createInterface({ input, output })` → rl object
+
+`rl.question(prompt, cb)`, `rl.close()`, `rl.on('line', fn)`, `rl.on('close', fn)`
+
+**net**
+
+`net.createServer(connectionListener?)` — TCP server; handler receives a socket object.
+
+`net.createConnection(port, host?, connectListener?)` — TCP client.
+
+Socket: `.write(data)`, `.end(data?)`, `.read()`, `.destroy()`, `.on(event, fn)`,
+`.remoteAddress`, `.remotePort`
+
+Requires `EnginePermissions.Network`.
+
+**stream**
+
+`new stream.Readable()` — `.push(chunk)`, `.read()`, `.pipe(dest)`, `.on('data', fn)`, `.on('end', fn)`
+
+`new stream.Writable()` — `.write(chunk)`, `.end(chunk?)`, `.on('finish', fn)`, `.getBuffer()`
+
+`new stream.Transform()` — combined readable + writable; write feeds the readable side.
+
+**zlib**
+
+`zlib.gzipSync(input)`, `zlib.gunzipSync(input)`,
+`zlib.deflateSync(input)`, `zlib.inflateSync(input)`
+
+Input may be a Buffer or a string (UTF-8 encoded). Returns a Buffer.
+
+**URL / URLSearchParams**
+
+    var u = new URL('https://example.com/path?a=1#frag');
+    u.hostname;           // "example.com"
+    u.pathname;           // "/path"
+    u.searchParams.get('a');  // "1"
+
+    var sp = new URLSearchParams('x=1&y=2');
+    sp.set('x', '99');
+    sp.toString();        // "x=99&y=2"
+
+**TextEncoder / TextDecoder**
+
+    var enc = new TextEncoder();          // encoding: 'utf-8'
+    var buf = enc.encode('hello');        // Buffer
+
+    var dec = new TextDecoder('utf-8');
+    dec.decode(buf);                      // 'hello'
 
 ---
 
@@ -486,14 +765,17 @@ Feature summary
 - `break` and `continue` (with `continue` crossing `switch` to target the enclosing loop)
 - Ternary (`?:`) expressions
 - `typeof`, `instanceof`, `in`, `delete`
-- Regular-expression literals (`/pattern/flags`)
+- Regular-expression literals (`/pattern/flags`) and `new RegExp(pattern, flags?)`
 - Exception handling (`try`/`catch`/`finally`/`throw`) with script stack traces
 - Generators (`function*`, `yield`) — stackless for simple bodies, thread-based fallback
-- `async`/`await` with `Promise`, `.then()`, `.catch()`, microtask queue
-- Modules: `require()`, `export var/const/function/default`, `import { } from`, `import * as`
+- `async`/`await` with `Promise`, `.then()`, `.catch()`, microtask queue, all six combinators
+- Modules: `require()`, `export var/const/function/default`, `import { } from`, `import * as`, `module`/`exports`/`__filename`/`__dirname`
 - Tail call optimisation (eligible `return f(...)` calls avoid growing the C# call stack)
 - Bytecode compiler with peephole optimiser (constant folding, BinaryIntConst fusion, jump-chain collapse, dead-code elimination)
 - Bytecode serialisation with source maps (`BytecodeSerializer.SaveWithSourceMap`)
 - Engine state serialisation (save / restore all script variables)
+- Resource limits: wall-clock timeout and instruction count limit (`ScriptTimeoutException`)
+- Permission sandbox: `EnginePermissions` flags gate filesystem, network, process, and environment access
+- Host object injection: `engine.SetGlobal(name, obj)` with `[ScriptVisible]` / `[ScriptWritable]`
 - Step debugger with breakpoints (`IDebugger`)
 - Language Server Protocol server with diagnostics, hover, completion, go-to-definition, signature help
