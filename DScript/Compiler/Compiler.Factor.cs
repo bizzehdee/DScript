@@ -101,6 +101,8 @@ namespace DScript.Compiler
 
                 case ScriptLex.LexTypes.Int:
                 {
+                    if (chunk.IsStrict && IsLegacyOctal(lexer.TokenString))
+                        throw new ScriptException("SyntaxError: Octal literals are not allowed in strict mode");
                     var value = new ScriptVar(lexer.TokenString, ScriptVar.Flags.Integer).Int;
                     lexer.Match(ScriptLex.LexTypes.Int);
                     EmitConstantInt(value);
@@ -783,8 +785,27 @@ namespace DScript.Compiler
 
             fnChunk.Source = "function " + name + lexer.GetSubString(sourceStart);
 
+            // Strict-mode parameter checks (run after CompileBlock so that "use strict"
+            // inside the body is detected before the parameters are validated).
+            if (fnChunk.IsStrict)
+            {
+                var seen = new System.Collections.Generic.HashSet<string>();
+                foreach (var p in fnChunk.Parameters)
+                {
+                    if (p == "eval" || p == "arguments")
+                        throw new ScriptException($"SyntaxError: '{p}' cannot be used as a parameter name in strict mode");
+                    if (!seen.Add(p))
+                        throw new ScriptException($"SyntaxError: Duplicate parameter name '{p}' not allowed in strict mode");
+                }
+            }
+
             return saved.AddFunction(fnChunk);
         }
+
+        // Returns true for legacy-octal integer literals such as 0777.
+        // These are the bare-zero-prefixed forms disallowed in strict mode.
+        private static bool IsLegacyOctal(string s)
+            => s.Length >= 2 && s[0] == '0' && char.IsDigit(s[1]);
 
         // Emit default-value guards for any parameters that carry a default expression.
         // Pattern: GetVar name; JumpIfDefined → skip; <default expr>; SetVar name; Pop; skip:

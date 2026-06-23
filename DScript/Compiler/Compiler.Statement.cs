@@ -193,6 +193,8 @@ namespace DScript.Compiler
                 else
                 {
                     var name = lexer.TokenString;
+                    if (chunk.IsStrict && (name == "eval" || name == "arguments"))
+                        throw new ScriptException($"SyntaxError: '{name}' cannot be used as a variable name in strict mode");
                     lexer.Match(ScriptLex.LexTypes.Id);
                     var nameIndex = chunk.AddName(name);
 

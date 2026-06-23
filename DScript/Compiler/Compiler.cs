@@ -423,6 +423,8 @@ namespace DScript.Compiler
 
             if (lexer.TokenType is not ((ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'['))
             {
+                if (chunk.IsStrict)
+                    throw new ScriptException($"SyntaxError: Cannot delete variable '{name}' in strict mode");
                 // delete of a bare variable is unsupported; yields false
                 chunk.Emit(OpCode.Pop);
                 chunk.Emit(OpCode.PushFalse);

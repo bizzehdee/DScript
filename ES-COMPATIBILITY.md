@@ -61,7 +61,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ✅ | Constructable via `new` or call; `message`, `name`, `stack` set; `instanceof Error` works through prototype chain; `Error.cause` (ES2022) not implemented |
 | `Function.prototype.bind` / `call` / `apply` | ✅ | |
-| Strict mode (`"use strict"`) | ⚠️ | Directive detected; `Chunk.IsStrict` set and propagated to nested functions — enforcement phases (undeclared var ReferenceError, `this=undefined`, etc.) not yet implemented |
+| Strict mode (`"use strict"`) | ⚠️ | Directive detected; compile-time errors for duplicate params, `eval`/`arguments` as binding names, `delete <identifier>`, and octal literals — runtime enforcement (undeclared var ReferenceError, `this=undefined`, etc.) not yet implemented |
 | Eval | ⚠️ | `eval(str)` executes code; indirect eval semantics not guaranteed |
 
 ---
