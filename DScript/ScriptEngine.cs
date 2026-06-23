@@ -158,6 +158,21 @@ namespace DScript
                 var moduleRoot = new ScriptVar(ScriptVar.Flags.Object);
                 moduleRoot.AddChild("__exports__", exportsObj);
 
+                // module object: { exports, filename, loaded }
+                var moduleObj = new ScriptVar(ScriptVar.Flags.Object);
+                moduleObj.AddChild("exports", exportsObj);
+                moduleObj.AddChild("filename", new ScriptVar(path));
+                moduleObj.AddChild("loaded", new ScriptVar(0));
+                moduleRoot.AddChild("module", moduleObj);
+
+                // exports shorthand (alias for __exports__ / module.exports)
+                moduleRoot.AddChild("exports", exportsObj);
+
+                // __filename and __dirname
+                moduleRoot.AddChild("__filename", new ScriptVar(path));
+                var dirName = GetDirName(path);
+                moduleRoot.AddChild("__dirname", new ScriptVar(dirName));
+
                 // Copy globals (require, Promise, String, …) into the module root.
                 var link = Root.FirstChild;
                 while (link != null)
@@ -183,8 +198,14 @@ namespace DScript
                     CurrentModulePath = savedPath;
                 }
 
-                // Retrieve exports (the module may have mutated __exports__ or replaced it).
-                var exports = moduleRoot.FindChild("__exports__")?.Var ?? exportsObj;
+                // Mark module as loaded.
+                var loadedLink = moduleObj.FindChild("loaded");
+                if (loadedLink != null) loadedLink.Var.Bool = true;
+
+                // Retrieve exports — prefer module.exports over __exports__ (script may
+                // have replaced module.exports with a different object, e.g. module.exports = fn)
+                var moduleExports = moduleObj.FindChild("exports")?.Var;
+                var exports = moduleExports ?? moduleRoot.FindChild("__exports__")?.Var ?? exportsObj;
 
                 // Update the cache entry in case it was replaced, and return.
                 _moduleCache[path] = exports;
@@ -192,6 +213,13 @@ namespace DScript
             }, null);
 
             Root.AddChild("require", requireVar);
+        }
+
+        private static string GetDirName(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return ".";
+            var sep = path.LastIndexOfAny(['/', '\\']);
+            return sep > 0 ? path[..sep] : ".";
         }
 
         private void RegisterPromiseBuiltin()

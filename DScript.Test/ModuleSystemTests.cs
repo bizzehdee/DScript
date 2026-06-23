@@ -188,5 +188,89 @@ namespace DScript.Test
                 Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(1));
             });
         }
+
+        // ── module object ──────────────────────────────────────────────────────
+
+        [Test]
+        public void Module_ExportsPropertyAliasesExports()
+        {
+            var modules = new Dictionary<string, string>
+            {
+                ["mexp"] = "module.exports.x = 99;"
+            };
+            Assert.That(RunInt("var r = require('mexp').x;", modules), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void Module_FilenameIsModulePath()
+        {
+            var modules = new Dictionary<string, string>
+            {
+                ["mymod"] = "exports.fn = __filename;"
+            };
+            Assert.That(RunStr("var r = require('mymod').fn;", modules), Is.EqualTo("mymod"));
+        }
+
+        [Test]
+        public void Module_FilenamePropertyOnModuleObject()
+        {
+            var modules = new Dictionary<string, string>
+            {
+                ["lmod"] = "exports.fn = module.filename;"
+            };
+            Assert.That(RunStr("var r = require('lmod').fn;", modules), Is.EqualTo("lmod"));
+        }
+
+        [Test]
+        public void Module_ExportsShorthandWorks()
+        {
+            var modules = new Dictionary<string, string>
+            {
+                ["sh"] = "exports.value = 42;"
+            };
+            Assert.That(RunInt("var r = require('sh').value;", modules), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void Module_ReplaceExports_ReturnsNewObject()
+        {
+            var modules = new Dictionary<string, string>
+            {
+                ["fn_mod"] = "module.exports = function() { return 77; };"
+            };
+            Assert.That(RunInt("var fn = require('fn_mod'); var r = fn();", modules), Is.EqualTo(77));
+        }
+
+        // ── __filename / __dirname ─────────────────────────────────────────────
+
+        [Test]
+        public void Filename_IsAvailableInsideModule()
+        {
+            var modules = new Dictionary<string, string>
+            {
+                ["dir/file.js"] = "exports.name = __filename;"
+            };
+            Assert.That(RunStr("var r = require('dir/file.js').name;", modules), Is.EqualTo("dir/file.js"));
+        }
+
+        [Test]
+        public void Dirname_IsDirectoryPartOfModulePath()
+        {
+            var modules = new Dictionary<string, string>
+            {
+                ["dir/sub/file.js"] = "exports.dir = __dirname;"
+            };
+            Assert.That(RunStr("var r = require('dir/sub/file.js').dir;", modules), Is.EqualTo("dir/sub"));
+        }
+
+        [Test]
+        public void Dirname_FallsBackToDotForPathWithoutSlash()
+        {
+            var modules = new Dictionary<string, string>
+            {
+                ["flat"] = "exports.dir = __dirname;"
+            };
+            Assert.That(RunStr("var r = require('flat').dir;", modules), Is.EqualTo("."));
+        }
     }
 }
