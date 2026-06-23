@@ -29,12 +29,31 @@ namespace DScript.Extras.FunctionProviders
     [ScriptClass("process")]
     public static class ProcessFunctionProvider
     {
+        private const string HandlerPrefix = "__process_on_";
+
+        public static void DispatchEvent(ScriptEngine engine, string eventName, params ScriptVar[] args)
+        {
+            var handlerKey = HandlerPrefix + eventName + "__";
+            var handlers = engine.Root.FindChild(handlerKey);
+            if (handlers == null) return;
+            var len = handlers.Var.GetArrayLength();
+            for (var i = 0; i < len; i++)
+            {
+                var fn = handlers.Var.GetArrayIndex(i);
+                if (fn.IsFunction)
+                    engine.CallFunction(fn, null, args);
+            }
+        }
+
         [ExcludeFromCodeCoverage]
         [ScriptMethod("exit", "code")]
         public static void ProcessExitImpl(ScriptVar var, object userData)
         {
             var codeVar = var.GetParameter("code");
-            Environment.Exit(codeVar.IsUndefined ? 0 : codeVar.Int);
+            var code = codeVar.IsUndefined ? 0 : codeVar.Int;
+            var engine = (ScriptEngine)userData;
+            DispatchEvent(engine, "exit", new ScriptVar(code));
+            Environment.Exit(code);
         }
 
         [ScriptProperty("platform")]
@@ -82,6 +101,50 @@ namespace DScript.Extras.FunctionProviders
                 var.ReturnVar.SetUndefined();
             else
                 var.ReturnVar.String = value;
+        }
+
+        [ScriptMethod("on", "event", "fn")]
+        public static void ProcessOnImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var eventName = var.GetParameter("event").String;
+            var fn = var.GetParameter("fn");
+
+            var handlerKey = HandlerPrefix + eventName + "__";
+            var handlers = engine.Root.FindChild(handlerKey);
+            if (handlers == null)
+            {
+                var arr = new ScriptVar();
+                arr.SetArray();
+                engine.Root.AddChild(handlerKey, arr);
+                handlers = engine.Root.FindChild(handlerKey);
+            }
+            if (handlers != null)
+                handlers.Var.SetArrayIndex(handlers.Var.GetArrayLength(), fn.DeepCopy());
+        }
+
+        [ScriptMethod("off", "event", "fn")]
+        public static void ProcessOffImpl(ScriptVar var, object userData)
+        {
+            // Removing a specific handler is complex; for simplicity clear all for the event
+            var engine = (ScriptEngine)userData;
+            var eventName = var.GetParameter("event").String;
+            var handlerKey = HandlerPrefix + eventName + "__";
+            var handlers = engine.Root.FindChild(handlerKey);
+            if (handlers != null)
+                handlers.Var.RemoveAllChildren();
+        }
+
+        [ScriptMethod("emit", "event", "arg")]
+        public static void ProcessEmitImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var eventName = var.GetParameter("event").String;
+            var arg = var.GetParameter("arg");
+            if (arg.IsUndefined)
+                DispatchEvent(engine, eventName);
+            else
+                DispatchEvent(engine, eventName, arg);
         }
     }
 }
