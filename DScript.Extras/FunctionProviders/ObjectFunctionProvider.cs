@@ -103,13 +103,14 @@ namespace DScript.Extras.FunctionProviders
             }
         }
 
-        [ScriptMethod("assign", "target", "source")]
+        [ScriptMethod("assign", "target", "s0", "s1", "s2", "s3")]
         public static void ObjectAssignImpl(ScriptVar var, object userData)
         {
             var target = var.GetParameter("target");
-            var source = var.GetParameter("source");
-            if (!source.IsUndefined && !source.IsNull)
+            foreach (var name in new[] { "s0", "s1", "s2", "s3" })
             {
+                var source = var.GetParameter(name);
+                if (source.IsUndefined || source.IsNull) continue;
                 var link = source.FirstChild;
                 while (link != null)
                 {

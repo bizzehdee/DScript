@@ -281,16 +281,26 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar.Int = Math.Sign(var.GetParameter("val").Float);
         }
 
-        [ScriptMethod("hypot", "vals")]
+        [ScriptMethod("hypot", "a0", "a1", "a2", "a3", "a4")]
         public static void MathHypotImpl(ScriptVar var, object userData)
         {
-            var vals = var.GetParameter("vals");
             var sum = 0.0;
-            var len = vals.GetArrayLength();
-            for (var i = 0; i < len; i++)
+            var a0 = var.GetParameter("a0");
+            if (a0.IsArray)
             {
-                var v = vals.GetArrayIndex(i).Float;
-                sum += v * v;
+                // Array form: Math.hypot([3, 4])
+                var len = a0.GetArrayLength();
+                for (var i = 0; i < len; i++) { var v = a0.GetArrayIndex(i).Float; sum += v * v; }
+            }
+            else
+            {
+                // Variadic form: Math.hypot(3, 4, ...)
+                foreach (var name in new[] { "a0", "a1", "a2", "a3", "a4" })
+                {
+                    var v = var.GetParameter(name);
+                    if (v.IsUndefined) break;
+                    sum += v.Float * v.Float;
+                }
             }
             var.ReturnVar.Float = Math.Sqrt(sum);
         }

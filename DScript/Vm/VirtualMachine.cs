@@ -439,6 +439,8 @@ namespace DScript.Vm
                                 propResult = new ScriptVar(obj.GetArrayLength());
                             else if (obj.IsString && name == "length")
                                 propResult = new ScriptVar(obj.String.Length);
+                            else if (name == "size" && obj.GetData() is INativeContainer container)
+                                propResult = new ScriptVar(container.GetSize());
                             else
                                 propResult = new ScriptVar(ScriptVar.Flags.Undefined);
                         }
@@ -1464,8 +1466,10 @@ namespace DScript.Vm
                 return new ScriptVar(ScriptVar.Flags.Undefined);
             }
 
-            // Objects/arrays/functions are passed by reference.
-            if (!value.IsBasic) return value;
+            // Objects/arrays/functions are passed by reference — even empty ones.
+            // IsBasic (FirstChild == null) is not a reliable type test because an
+            // empty {} or [] has no children but is still a mutable reference type.
+            if (value.IsObject || value.IsArray || value.IsFunction) return value;
 
             // Primitives are passed by value, so a shared one (held by a variable,
             // hence ref-counted) must be copied to prevent the callee mutating the
@@ -1504,6 +1508,13 @@ namespace DScript.Vm
 
             if (obj.IsArray && name == "length") return new ScriptVar(obj.GetArrayLength());
             if (obj.IsString && name == "length") return new ScriptVar(obj.String.Length);
+
+            // Dynamic size property for native containers (Set, Map, …).
+            // INativeContainer is implemented by the native object stored in the
+            // ScriptVar's data field; this avoids a static registered property that
+            // would always return the count at registration time (0).
+            if (name == "size" && obj.GetData() is INativeContainer container)
+                return new ScriptVar(container.GetSize());
 
             return new ScriptVar(ScriptVar.Flags.Undefined);
         }

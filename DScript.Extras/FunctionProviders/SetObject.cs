@@ -24,9 +24,34 @@ using System.Collections.Generic;
 
 namespace DScript.Extras.FunctionProviders
 {
-    public sealed class SetObject
+    public sealed class SetObject : INativeContainer
     {
         public HashSet<ScriptVar> Data { get; } = new HashSet<ScriptVar>(ReferenceEqualityComparer.Instance);
+
+        /// <inheritdoc/>
+        public int GetSize() => Data.Count;
+
+        /// <summary>
+        /// Returns true if any element in the set is value-equal to
+        /// <paramref name="val"/> (mirrors the JS <c>===</c> semantics).
+        /// </summary>
+        public bool Contains(ScriptVar val)
+        {
+            foreach (var item in Data)
+                if (item.Equal(val)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Adds <paramref name="val"/> only if no value-equal element is present.
+        /// Returns true if the element was added.
+        /// </summary>
+        public bool TryAdd(ScriptVar val)
+        {
+            if (Contains(val)) return false;
+            Data.Add(val.DeepCopy());
+            return true;
+        }
 
         public ScriptVar ToScriptVar()
         {

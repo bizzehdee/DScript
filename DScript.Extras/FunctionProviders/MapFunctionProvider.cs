@@ -84,10 +84,10 @@ namespace DScript.Extras.FunctionProviders
             GetMap(var.GetParameter("this")).Data.Clear();
         }
 
-        [ScriptProperty("size")]
+        [ScriptMethod("size")]
         public static void MapSizeImpl(ScriptVar var, object userData)
         {
-            var.Int = GetMap(var).Data.Count;
+            var.ReturnVar.Int = GetMap(var.GetParameter("this")).Data.Count;
         }
 
         [ScriptMethod("keys")]

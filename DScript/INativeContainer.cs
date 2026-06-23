@@ -20,22 +20,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-using System.Collections.Generic;
-
-namespace DScript.Extras.FunctionProviders
+namespace DScript
 {
-    public sealed class MapObject : INativeContainer
+    /// <summary>
+    /// Implemented by native container objects (e.g. Set, Map) stored in a
+    /// <see cref="ScriptVar"/>'s data field.  The VM uses this interface to
+    /// expose a dynamic <c>size</c> property that reflects the current element
+    /// count without requiring a static registered property.
+    /// </summary>
+    public interface INativeContainer
     {
-        public Dictionary<ScriptVar, ScriptVar> Data { get; } = new Dictionary<ScriptVar, ScriptVar>(ReferenceEqualityComparer.Instance);
-
-        /// <inheritdoc/>
-        public int GetSize() => Data.Count;
-
-        public ScriptVar ToScriptVar()
-        {
-            var sv = new ScriptVar(ScriptVar.Flags.Object);
-            sv.SetData(this);
-            return sv;
-        }
+        /// <summary>Returns the current number of elements in the container.</summary>
+        int GetSize();
     }
 }

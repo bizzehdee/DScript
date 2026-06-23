@@ -86,7 +86,8 @@ namespace DScript.Extras
                 }
 
                 var dateObj = new DateObject(dto);
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(dateObj.ToScriptVar());
+                var thisVar = scope.FindChild("this")?.Var;
+                thisVar?.SetData(dateObj);
             }, null);
 
             // Date.now() static method

@@ -46,7 +46,13 @@ namespace DScript.Extras
                         mapObj.Data[key] = val.DeepCopy();
                     }
                 }
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(mapObj.ToScriptVar());
+                // Store the MapObject onto `this` so that Map methods (get, set, …)
+                // can access it via thisVar.GetData().  The Construct opcode creates
+                // the instance and passes it as `this`; by mutating `this` rather
+                // than replacing ReturnVar we preserve the prototype link
+                // (instance.__proto__ = mapCtorVar) that allows method lookup.
+                var thisVar = scope.FindChild("this")?.Var;
+                thisVar?.SetData(mapObj);
             }, null);
 
             engine.Root.AddChild("Map", mapCtorVar);

@@ -38,9 +38,14 @@ namespace DScript.Extras
                 {
                     var len = iterableArg.GetArrayLength();
                     for (var i = 0; i < len; i++)
-                        setObj.Data.Add(iterableArg.GetArrayIndex(i));
+                        setObj.TryAdd(iterableArg.GetArrayIndex(i));
                 }
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(setObj.ToScriptVar());
+                // Store the SetObject onto `this` so that Set methods (add, has, …)
+                // can access it via thisVar.GetData().  Mutating `this` rather than
+                // replacing ReturnVar preserves the prototype link that allows
+                // method lookup on the returned instance.
+                var thisVar = scope.FindChild("this")?.Var;
+                thisVar?.SetData(setObj);
             }, null);
 
             engine.Root.AddChild("Set", setCtorVar);

@@ -23,6 +23,7 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 namespace DScript.Extras.FunctionProviders
@@ -35,41 +36,56 @@ namespace DScript.Extras.FunctionProviders
         private static readonly Dictionary<string, int> _counters = new Dictionary<string, int>();
         private static int _indentLevel = 0;
 
+        private static Action<string> _stdout = Console.WriteLine;
+        private static Action<string> _stderr = Console.Error.WriteLine;
+
+        public static void SetOutput(Action<string> stdout, Action<string> stderr)
+        {
+            if (stdout != null) _stdout = stdout;
+            if (stderr != null) _stderr = stderr;
+        }
+
+        public static void ResetOutput()
+        {
+            _stdout = Console.WriteLine;
+            _stderr = Console.Error.WriteLine;
+        }
+
         private static string Indent() => new string(' ', _indentLevel * 2);
 
         [ScriptMethod("log", "val")]
         public static void ConsoleLogImpl(ScriptVar var, object userData)
         {
             var val = var.GetParameter("val").GetParsableString();
-            Console.WriteLine(Indent() + val);
+            _stdout(Indent() + val);
         }
 
         [ScriptMethod("error", "val")]
         public static void ConsoleErrorImpl(ScriptVar var, object userData)
         {
             var val = var.GetParameter("val").GetParsableString();
-            Console.Error.WriteLine(Indent() + val);
+            _stderr(Indent() + val);
         }
 
         [ScriptMethod("warn", "val")]
         public static void ConsoleWarnImpl(ScriptVar var, object userData)
         {
             var val = var.GetParameter("val").GetParsableString();
-            Console.Error.WriteLine(Indent() + "[WARN] " + val);
+            _stderr(Indent() + "[WARN] " + val);
         }
 
         [ScriptMethod("info", "val")]
         public static void ConsoleInfoImpl(ScriptVar var, object userData)
         {
             var val = var.GetParameter("val").GetParsableString();
-            Console.WriteLine(Indent() + "[INFO] " + val);
+            _stdout(Indent() + "[INFO] " + val);
         }
 
         [ScriptMethod("debug", "val")]
         public static void ConsoleDebugImpl(ScriptVar var, object userData)
         {
             var val = var.GetParameter("val").GetParsableString();
-            Console.WriteLine(Indent() + "[DEBUG] " + val);
+            _stdout(Indent() + "[DEBUG] " + val);
         }
 
         [ScriptMethod("assert", "cond", "msg")]
@@ -80,7 +96,7 @@ namespace DScript.Extras.FunctionProviders
             {
                 var msgVar = var.GetParameter("msg");
                 var msg = msgVar.IsUndefined ? "Assertion failed" : msgVar.GetParsableString();
-                Console.Error.WriteLine(Indent() + "[ASSERT] " + msg);
+                _stderr(Indent() + "[ASSERT] " + msg);
             }
         }
 
@@ -101,8 +117,17 @@ namespace DScript.Extras.FunctionProviders
             {
                 sw.Stop();
                 _timers.Remove(label);
-                Console.WriteLine(Indent() + $"{label}: {sw.Elapsed.TotalMilliseconds:0.###}ms");
+                _stdout(Indent() + $"{label}: {sw.Elapsed.TotalMilliseconds:0.###}ms");
             }
+        }
+
+        [ScriptMethod("timeLog", "label")]
+        public static void ConsoleTimeLogImpl(ScriptVar var, object userData)
+        {
+            var labelVar = var.GetParameter("label");
+            var label = labelVar.IsUndefined ? "default" : labelVar.String;
+            if (_timers.TryGetValue(label, out var sw))
+                _stdout(Indent() + $"{label}: {sw.Elapsed.TotalMilliseconds:0.###}ms");
         }
 
         [ScriptMethod("count", "label")]
@@ -112,7 +137,7 @@ namespace DScript.Extras.FunctionProviders
             var label = labelVar.IsUndefined ? "default" : labelVar.String;
             _counters.TryGetValue(label, out var n);
             _counters[label] = ++n;
-            Console.WriteLine(Indent() + $"{label}: {n}");
+            _stdout(Indent() + $"{label}: {n}");
         }
 
         [ScriptMethod("countReset", "label")]
@@ -128,7 +153,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var labelVar = var.GetParameter("label");
             if (!labelVar.IsUndefined)
-                Console.WriteLine(Indent() + labelVar.String);
+                _stdout(Indent() + labelVar.String);
             _indentLevel++;
         }
 
@@ -151,7 +176,6 @@ namespace DScript.Extras.FunctionProviders
             var len = arr.GetArrayLength();
             if (len == 0) return;
 
-            // Collect all column names from the first row
             var cols = new List<string>();
             var first = arr.GetArrayIndex(0);
             var link = first.FirstChild;
@@ -162,7 +186,6 @@ namespace DScript.Extras.FunctionProviders
                 link = link.Next;
             }
 
-            // Measure column widths
             var widths = new int[cols.Count];
             for (var c = 0; c < cols.Count; c++)
                 widths[c] = cols[c].Length;
@@ -176,21 +199,18 @@ namespace DScript.Extras.FunctionProviders
                 }
             }
 
-            // Print header
             var sb = new StringBuilder(Indent());
             for (var c = 0; c < cols.Count; c++)
                 sb.Append("| ").Append(cols[c].PadRight(widths[c])).Append(' ');
             sb.Append('|');
-            Console.WriteLine(sb.ToString());
+            _stdout(sb.ToString());
 
-            // Separator
             sb.Clear().Append(Indent());
             for (var c = 0; c < cols.Count; c++)
                 sb.Append("+-").Append(new string('-', widths[c])).Append('-');
             sb.Append('+');
-            Console.WriteLine(sb.ToString());
+            _stdout(sb.ToString());
 
-            // Rows
             for (var r = 0; r < len; r++)
             {
                 var row = arr.GetArrayIndex(r);
@@ -201,14 +221,15 @@ namespace DScript.Extras.FunctionProviders
                     sb.Append("| ").Append(cell.PadRight(widths[c])).Append(' ');
                 }
                 sb.Append('|');
-                Console.WriteLine(sb.ToString());
+                _stdout(sb.ToString());
             }
         }
 
+        [ExcludeFromCodeCoverage]
         [ScriptMethod("clear")]
         public static void ConsoleClearImpl(ScriptVar var, object userData)
         {
-            Console.Clear();
+            try { Console.Clear(); } catch { /* non-TTY environments throw */ }
         }
     }
 }

@@ -1,4 +1,4 @@
-/*
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
 namespace DScript.Extras.FunctionProviders
@@ -28,6 +29,7 @@ namespace DScript.Extras.FunctionProviders
     [ScriptClass("process")]
     public static class ProcessFunctionProvider
     {
+        [ExcludeFromCodeCoverage]
         [ScriptMethod("exit", "code")]
         public static void ProcessExitImpl(ScriptVar var, object userData)
         {

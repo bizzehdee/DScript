@@ -365,15 +365,18 @@ namespace DScript.Extras.FunctionProviders
             var str = var.GetParameter("this").String;
             var index = var.GetParameter("index").Int;
             if (index < 0) index = str.Length + index;
-            if (index < 0 || index >= str.Length) { var.ReturnVar.String = ""; return; }
+            if (index < 0 || index >= str.Length) return; // leave ReturnVar undefined
             var.ReturnVar.String = str[index].ToString();
         }
+
+        private static Regex ToRegex(ScriptVar v)
+            => v.IsRegexp ? (Regex)v.GetData() : new Regex(v.String);
 
         [ScriptMethod("search", "regex")]
         public static void StringSearchImpl(ScriptVar var, object userData)
         {
             var str = var.GetParameter("this").String;
-            var regex = (Regex)var.GetParameter("regex").GetData();
+            var regex = ToRegex(var.GetParameter("regex"));
             var match = regex.Match(str);
             var.ReturnVar.Int = match.Success ? match.Index : -1;
         }
@@ -382,7 +385,7 @@ namespace DScript.Extras.FunctionProviders
         public static void StringMatchAllImpl(ScriptVar var, object userData)
         {
             var str = var.GetParameter("this").String;
-            var regex = (Regex)var.GetParameter("regex").GetData();
+            var regex = ToRegex(var.GetParameter("regex"));
             var matches = regex.Matches(str);
             var.ReturnVar.SetArray();
             for (var i = 0; i < matches.Count; i++)

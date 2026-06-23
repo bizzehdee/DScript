@@ -20,9 +20,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-using System.Collections.Generic;
-using System.Linq;
-
 namespace DScript.Extras.FunctionProviders
 {
     [ScriptClass("Set")]
@@ -31,11 +28,18 @@ namespace DScript.Extras.FunctionProviders
         private static SetObject GetSet(ScriptVar thisVar)
             => thisVar.GetData() as SetObject ?? new SetObject();
 
-        private static bool SetContains(SetObject set, ScriptVar val)
+        /// <summary>
+        /// Creates a new Set ScriptVar whose prototype link is inherited from
+        /// <paramref name="thisVar"/> so that method dispatch works on the result.
+        /// </summary>
+        private static ScriptVar NewSetVarFrom(SetObject setObj, ScriptVar thisVar)
         {
-            foreach (var item in set.Data)
-                if (item.Equal(val)) return true;
-            return false;
+            var sv = setObj.ToScriptVar();
+            // Copy the prototype link from 'this' so the caller can invoke
+            // methods on the returned set instance.
+            var proto = thisVar.FindChild(ScriptVar.PrototypeClassName)?.Var;
+            if (proto != null) sv.AddChild(ScriptVar.PrototypeClassName, proto);
+            return sv;
         }
 
         [ScriptMethod("add", "val")]
@@ -44,15 +48,14 @@ namespace DScript.Extras.FunctionProviders
             var thisVar = var.GetParameter("this");
             var set = GetSet(thisVar);
             var val = var.GetParameter("val");
-            if (!SetContains(set, val))
-                set.Data.Add(val.DeepCopy());
+            set.TryAdd(val);
             var.ReturnVar = thisVar;
         }
 
         [ScriptMethod("has", "val")]
         public static void SetHasImpl(ScriptVar var, object userData)
         {
-            var.ReturnVar.Int = SetContains(GetSet(var.GetParameter("this")), var.GetParameter("val")) ? 1 : 0;
+            var.ReturnVar.Int = GetSet(var.GetParameter("this")).Contains(var.GetParameter("val")) ? 1 : 0;
         }
 
         [ScriptMethod("delete", "val")]
@@ -73,7 +76,9 @@ namespace DScript.Extras.FunctionProviders
             GetSet(var.GetParameter("this")).Data.Clear();
         }
 
-        [ScriptProperty("size")]
+        // size is surfaced as a dynamic property by INativeContainer.GetSize() in
+        // VirtualMachine — no static [ScriptProperty] registration is needed (a
+        // static one would always return the count at registration time, i.e. 0).
         public static void SetSizeImpl(ScriptVar var, object userData)
         {
             var.Int = GetSet(var).Data.Count;
@@ -123,35 +128,38 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("union", "other")]
         public static void SetUnionImpl(ScriptVar var, object userData)
         {
-            var a = GetSet(var.GetParameter("this"));
+            var thisVar = var.GetParameter("this");
+            var a = GetSet(thisVar);
             var b = GetSet(var.GetParameter("other"));
             var result = new SetObject();
             foreach (var item in a.Data) result.Data.Add(item);
             foreach (var item in b.Data)
-                if (!SetContains(result, item)) result.Data.Add(item);
-            var.ReturnVar = result.ToScriptVar();
+                if (!result.Contains(item)) result.Data.Add(item);
+            var.ReturnVar = NewSetVarFrom(result, thisVar);
         }
 
         [ScriptMethod("intersection", "other")]
         public static void SetIntersectionImpl(ScriptVar var, object userData)
         {
-            var a = GetSet(var.GetParameter("this"));
+            var thisVar = var.GetParameter("this");
+            var a = GetSet(thisVar);
             var b = GetSet(var.GetParameter("other"));
             var result = new SetObject();
             foreach (var item in a.Data)
-                if (SetContains(b, item)) result.Data.Add(item);
-            var.ReturnVar = result.ToScriptVar();
+                if (b.Contains(item)) result.Data.Add(item);
+            var.ReturnVar = NewSetVarFrom(result, thisVar);
         }
 
         [ScriptMethod("difference", "other")]
         public static void SetDifferenceImpl(ScriptVar var, object userData)
         {
-            var a = GetSet(var.GetParameter("this"));
+            var thisVar = var.GetParameter("this");
+            var a = GetSet(thisVar);
             var b = GetSet(var.GetParameter("other"));
             var result = new SetObject();
             foreach (var item in a.Data)
-                if (!SetContains(b, item)) result.Data.Add(item);
-            var.ReturnVar = result.ToScriptVar();
+                if (!b.Contains(item)) result.Data.Add(item);
+            var.ReturnVar = NewSetVarFrom(result, thisVar);
         }
 
         [ScriptMethod("isSubsetOf", "other")]
@@ -160,7 +168,7 @@ namespace DScript.Extras.FunctionProviders
             var a = GetSet(var.GetParameter("this"));
             var b = GetSet(var.GetParameter("other"));
             foreach (var item in a.Data)
-                if (!SetContains(b, item)) { var.ReturnVar.Int = 0; return; }
+                if (!b.Contains(item)) { var.ReturnVar.Int = 0; return; }
             var.ReturnVar.Int = 1;
         }
     }

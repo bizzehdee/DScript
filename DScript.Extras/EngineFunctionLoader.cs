@@ -36,10 +36,15 @@ namespace DScript.Extras
         /// </summary>
         public void RegisterFunctions(ScriptEngine engine)
         {
-            GeneratedFunctionRegistrar.RegisterAll(engine, engine);
-            DateRegistrar.Register(engine);
+            // Map and Set constructors must be registered before the generated
+            // method registrar so that AddNative("function Map.get(...)", ...)
+            // attaches methods directly onto the constructor var rather than
+            // creating a separate plain-Object placeholder that the constructor
+            // var would later shadow in the child list.
             MapRegistrar.Register(engine);
             SetRegistrar.Register(engine);
+            DateRegistrar.Register(engine);
+            GeneratedFunctionRegistrar.RegisterAll(engine, engine);
         }
 
         /// <summary>

@@ -76,34 +76,34 @@ namespace DScript.Compiler
                     lexer.Match((ScriptLex.LexTypes)'(');
                     CompileBase();
                     lexer.Match((ScriptLex.LexTypes)')');
-                    return;
+                    break;
 
                 case ScriptLex.LexTypes.RTrue:
                     lexer.Match(ScriptLex.LexTypes.RTrue);
                     chunk.Emit(OpCode.PushTrue);
-                    return;
+                    break;
 
                 case ScriptLex.LexTypes.RFalse:
                     lexer.Match(ScriptLex.LexTypes.RFalse);
                     chunk.Emit(OpCode.PushFalse);
-                    return;
+                    break;
 
                 case ScriptLex.LexTypes.RNull:
                     lexer.Match(ScriptLex.LexTypes.RNull);
                     chunk.Emit(OpCode.PushNull);
-                    return;
+                    break;
 
                 case ScriptLex.LexTypes.RUndefined:
                     lexer.Match(ScriptLex.LexTypes.RUndefined);
                     chunk.Emit(OpCode.PushUndefined);
-                    return;
+                    break;
 
                 case ScriptLex.LexTypes.Int:
                 {
                     var value = new ScriptVar(lexer.TokenString, ScriptVar.Flags.Integer).Int;
                     lexer.Match(ScriptLex.LexTypes.Int);
                     EmitConstantInt(value);
-                    return;
+                    break;
                 }
 
                 case ScriptLex.LexTypes.Float:
@@ -111,7 +111,7 @@ namespace DScript.Compiler
                     var value = new ScriptVar(lexer.TokenString, ScriptVar.Flags.Double).Float;
                     lexer.Match(ScriptLex.LexTypes.Float);
                     chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Double(value)));
-                    return;
+                    break;
                 }
 
                 case ScriptLex.LexTypes.Str:
@@ -119,7 +119,7 @@ namespace DScript.Compiler
                     var value = lexer.TokenString;
                     lexer.Match(ScriptLex.LexTypes.Str);
                     chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.String(value)));
-                    return;
+                    break;
                 }
 
                 case ScriptLex.LexTypes.RegExp:
@@ -127,20 +127,20 @@ namespace DScript.Compiler
                     var value = lexer.TokenString;
                     lexer.Match(ScriptLex.LexTypes.RegExp);
                     chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Regex(value)));
-                    return;
+                    break;
                 }
 
                 case ScriptLex.LexTypes.TemplateLiteral:
                     CompileTemplateLiteral();
-                    return;
+                    break;
 
                 case (ScriptLex.LexTypes)'{':
                     CompileObjectLiteral();
-                    return;
+                    break;
 
                 case (ScriptLex.LexTypes)'[':
                     CompileArrayLiteral();
-                    return;
+                    break;
 
                 case ScriptLex.LexTypes.RAsync:
                 {
@@ -156,7 +156,7 @@ namespace DScript.Compiler
                     var idx = CompileFunctionRest(fnName, isGenerator: false, isAsync: true);
                     chunk.Emit(OpCode.MakeClosure, idx);
                     chunk.MakesClosure = true;
-                    return;
+                    break;
                 }
 
                 case ScriptLex.LexTypes.RFunction:
@@ -173,12 +173,12 @@ namespace DScript.Compiler
                     var idx = CompileFunctionRest(fnName, isGenerator);
                     chunk.Emit(OpCode.MakeClosure, idx);
                     chunk.MakesClosure = true;
-                    return;
+                    break;
                 }
 
                 case ScriptLex.LexTypes.RNew:
                     CompileNew();
-                    return;
+                    break;
 
                 case ScriptLex.LexTypes.RSuper:
                     CompileSuper();
@@ -187,10 +187,16 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.Id:
                     CompileIdentifierChain(canAssign);
                     return;
+
+                default:
+                    // unexpected token for the current (phase-limited) grammar
+                    lexer.Match(ScriptLex.LexTypes.Eof);
+                    return;
             }
 
-            // unexpected token for the current (phase-limited) grammar
-            lexer.Match(ScriptLex.LexTypes.Eof);
+            // Allow member access / calls on any primary expression:
+            // 'str'.method(), [1,2].indexOf(x), (expr).prop, new Foo().bar, etc.
+            CompileMemberChain(false);
         }
 
         // identifier, optionally followed by an assignment, increment, or a
