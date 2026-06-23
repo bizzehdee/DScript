@@ -27,6 +27,7 @@ namespace DScript.Extras.FunctionProviders
     public sealed class DateObject
     {
         public DateTimeOffset Value { get; set; }
+        public bool IsInvalid { get; set; }
 
         public DateObject(DateTimeOffset value) { Value = value; }
 

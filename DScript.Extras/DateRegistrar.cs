@@ -77,12 +77,16 @@ namespace DScript.Extras
                 }
                 else
                 {
-                    // String form
+                    // String form — set data to null to signal an invalid date (NaN)
                     if (DateTimeOffset.TryParse(a0.String, CultureInfo.InvariantCulture,
-                            DateTimeStyles.None, out var parsed))
+                            DateTimeStyles.RoundtripKind, out var parsed))
                         dto = parsed;
                     else
-                        dto = DateTimeOffset.UtcNow;
+                    {
+                        var thisVar2 = scope.FindChild("this")?.Var;
+                        thisVar2?.SetData(new DateObject(DateTimeOffset.MinValue) { IsInvalid = true });
+                        return;
+                    }
                 }
 
                 var dateObj = new DateObject(dto);
@@ -98,6 +102,50 @@ namespace DScript.Extras
                     new ScriptVar(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
             }, null);
             dateCtorVar.AddChild("now", dateNowFn);
+
+            // Date.parse(str) — returns Unix ms or NaN on failure
+            var dateParseFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            dateParseFn.AddChild("str", new ScriptVar(ScriptVar.Flags.Undefined));
+            dateParseFn.SetCallback((scope, _) =>
+            {
+                var str = scope.FindChild("str")?.Var?.String ?? "";
+                var ret = scope.FindChildOrCreate(ScriptVar.ReturnVarName);
+                if (DateTimeOffset.TryParse(str, CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind, out var parsed))
+                    ret.ReplaceWith(new ScriptVar(parsed.ToUnixTimeMilliseconds()));
+                else
+                    ret.ReplaceWith(new ScriptVar(double.NaN));
+            }, null);
+            dateCtorVar.AddChild("parse", dateParseFn);
+
+            // Date.UTC(year, month[, day, h, m, s, ms]) — UTC milliseconds
+            var dateUTCFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            dateUTCFn.AddChild("y", new ScriptVar(ScriptVar.Flags.Undefined));
+            dateUTCFn.AddChild("mo", new ScriptVar(ScriptVar.Flags.Undefined));
+            dateUTCFn.AddChild("d", new ScriptVar(ScriptVar.Flags.Undefined));
+            dateUTCFn.AddChild("h", new ScriptVar(ScriptVar.Flags.Undefined));
+            dateUTCFn.AddChild("mi", new ScriptVar(ScriptVar.Flags.Undefined));
+            dateUTCFn.AddChild("s", new ScriptVar(ScriptVar.Flags.Undefined));
+            dateUTCFn.AddChild("ms", new ScriptVar(ScriptVar.Flags.Undefined));
+            dateUTCFn.SetCallback((scope, _) =>
+            {
+                int Get(string name, int def)
+                {
+                    var v = scope.FindChild(name)?.Var;
+                    return (v == null || v.IsUndefined) ? def : v.Int;
+                }
+                var year = scope.FindChild("y")?.Var?.Int ?? 1970;
+                var month = Get("mo", 0) + 1;
+                var day = Get("d", 1);
+                var hour = Get("h", 0);
+                var min = Get("mi", 0);
+                var sec = Get("s", 0);
+                var milli = Get("ms", 0);
+                var dto = new DateTimeOffset(new DateTime(year, month, day, hour, min, sec, milli, DateTimeKind.Utc));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(
+                    new ScriptVar(dto.ToUnixTimeMilliseconds()));
+            }, null);
+            dateCtorVar.AddChild("UTC", dateUTCFn);
 
             engine.Root.AddChild("Date", dateCtorVar);
         }

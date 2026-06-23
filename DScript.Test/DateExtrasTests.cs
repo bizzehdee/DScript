@@ -289,5 +289,63 @@ namespace DScript.Test
         {
             Assert.DoesNotThrow(() => RunScript("var d = new Date(); var __result__ = d.toLocaleString();"));
         }
+
+        // ── Phase 3: new methods and edge cases ───────────────────────────────
+
+        [Test]
+        public void DateNow_TypeofIsNumber()
+        {
+            var r = RunScript("var __result__ = typeof Date.now() === 'number' ? 1 : 0;");
+            Assert.That(r.Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void NewDate_Zero_ToISOString_IsEpoch()
+        {
+            var r = RunScript("var __result__ = new Date(0).toISOString();");
+            Assert.That(r.String, Is.EqualTo("1970-01-01T00:00:00.000Z"));
+        }
+
+        [Test]
+        public void NewDate_Components_GetFullYear()
+        {
+            var r = RunScript("var __result__ = new Date(2024, 0, 15).getFullYear();");
+            Assert.That(r.Int, Is.EqualTo(2024));
+        }
+
+        [Test]
+        public void DateParse_ValidISO_ReturnsMs()
+        {
+            var r = RunScript("var __result__ = Date.parse('2024-01-01T00:00:00.000Z');");
+            Assert.That(r.Float, Is.EqualTo(1704067200000).Within(1));
+        }
+
+        [Test]
+        public void DateParse_Invalid_ReturnsNaN()
+        {
+            var r = RunScript("var __result__ = isNaN(Date.parse('not-a-date')) ? 1 : 0;");
+            Assert.That(r.Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void DateUTC_ReturnsMs()
+        {
+            var r = RunScript("var __result__ = Date.UTC(2024, 0, 1);");
+            Assert.That(r.Float, Is.EqualTo(1704067200000).Within(1));
+        }
+
+        [Test]
+        public void NewDate_InvalidString_GetTimeIsNaN()
+        {
+            var r = RunScript("var d = new Date('invalid'); var __result__ = isNaN(d.getTime()) ? 1 : 0;");
+            Assert.That(r.Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ToJSON_EqualToISOString()
+        {
+            var r = RunScript("var d = new Date(0); var __result__ = d.toJSON() === d.toISOString() ? 1 : 0;");
+            Assert.That(r.Int, Is.EqualTo(1));
+        }
     }
 }

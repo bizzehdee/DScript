@@ -58,7 +58,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Number.isNaN` / `Number.isFinite` / `Number.isInteger` | ✅ | |
 | `Number.parseInt` / `Number.parseFloat` | ✅ | |
 | `Number.EPSILON` / `MAX_SAFE_INTEGER` / `MIN_SAFE_INTEGER` | ✅ | |
-| `Date` object | ❌ | No Date constructor or methods |
+| `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ⚠️ | `Error`, `TypeError`, `RangeError`, `SyntaxError` constructable; `error.message` and `error.name` set; `Error.cause` (ES2022) not implemented; no `stack` trace |
 | `Function.prototype.bind` / `call` / `apply` | ✅ | |
 | Strict mode (`"use strict"`) | ❌ | Parsed and ignored |

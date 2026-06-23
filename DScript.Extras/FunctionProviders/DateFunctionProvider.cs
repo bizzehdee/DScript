@@ -49,7 +49,18 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("getTime")]
         public static void DateGetTimeImpl(ScriptVar var, object userData)
         {
-            var.ReturnVar.Float = GetDateObject(var.GetParameter("this")).Value.ToUnixTimeMilliseconds();
+            var d = GetDateObject(var.GetParameter("this"));
+            if (d.IsInvalid) { var.ReturnVar.Float = double.NaN; return; }
+            var.ReturnVar.Float = d.Value.ToUnixTimeMilliseconds();
+        }
+
+        [ScriptMethod("toJSON")]
+        public static void DateToJSONImpl(ScriptVar var, object userData)
+        {
+            var d = GetDateObject(var.GetParameter("this"));
+            if (d.IsInvalid) { var.ReturnVar = new ScriptVar(ScriptVar.Flags.Null); return; }
+            var utc = d.Value.UtcDateTime;
+            var.ReturnVar.String = utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
         }
 
         [ScriptMethod("getFullYear")]
@@ -290,7 +301,9 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("valueOf")]
         public static void DateValueOfImpl(ScriptVar var, object userData)
         {
-            var.ReturnVar.Float = GetDateObject(var.GetParameter("this")).Value.ToUnixTimeMilliseconds();
+            var d = GetDateObject(var.GetParameter("this"));
+            if (d.IsInvalid) { var.ReturnVar.Float = double.NaN; return; }
+            var.ReturnVar.Float = d.Value.ToUnixTimeMilliseconds();
         }
     }
 }
