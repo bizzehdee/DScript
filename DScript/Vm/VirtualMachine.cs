@@ -913,6 +913,27 @@ namespace DScript.Vm
                         Push(meta);
                         break;
                     }
+                    case OpCode.DynamicImport:
+                    {
+                        var specifier = Pop();
+                        ScriptVar importedExports;
+                        try
+                        {
+                            var globalVars = env.Global().Vars;
+                            var requireFn = globalVars.FindChild("require")?.Var;
+                            if (requireFn == null)
+                                throw new ScriptException($"Cannot dynamic import: require not available");
+                            importedExports = InvokeCallable(requireFn, null, new[] { specifier });
+                        }
+                        catch (ScriptException ex)
+                        {
+                            var errorVar = new ScriptVar(ex.Message);
+                            Push(PromiseObject.Rejected(errorVar).ToScriptVar(this));
+                            break;
+                        }
+                        Push(PromiseObject.Resolved(importedExports).ToScriptVar(this));
+                        break;
+                    }
                     case OpCode.New:
                     {
                         var argc = ReadOperand(code, ref ip);

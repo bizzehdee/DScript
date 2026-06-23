@@ -165,5 +165,9 @@ namespace DScript.Vm
         // Pops key, peeks obj (does not pop it), pushes GetMember(obj, key).
         // Stack: [obj, key] → [obj, fn].  Preserves receiver for CallMethod.
         GetIndexMethod,
+
+        // --- Phase 10: dynamic import() -------------------------------------
+        // Pops specifier string, loads module via ModuleLoader, pushes Promise<exports>.
+        DynamicImport,
     }
 }

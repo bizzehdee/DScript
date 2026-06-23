@@ -200,13 +200,24 @@ namespace DScript.Compiler
 
                 case ScriptLex.LexTypes.RImport:
                 {
-                    // import.meta — the only valid expression-position use of `import`
                     lexer.Match(ScriptLex.LexTypes.RImport);
-                    lexer.Match((ScriptLex.LexTypes)'.');
-                    if (lexer.TokenString != "meta")
-                        throw new JITException("Expected 'meta' after 'import.'");
-                    lexer.Match(ScriptLex.LexTypes.Id);
-                    chunk.Emit(OpCode.PushImportMeta);
+                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                    {
+                        // Dynamic import: import(specifier) → Promise<exports>
+                        lexer.Match((ScriptLex.LexTypes)'(');
+                        CompileBase();  // specifier expression
+                        lexer.Match((ScriptLex.LexTypes)')');
+                        chunk.Emit(OpCode.DynamicImport);
+                    }
+                    else
+                    {
+                        // import.meta
+                        lexer.Match((ScriptLex.LexTypes)'.');
+                        if (lexer.TokenString != "meta")
+                            throw new JITException("Expected 'meta' or '(' after 'import'");
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                        chunk.Emit(OpCode.PushImportMeta);
+                    }
                     break;
                 }
 
