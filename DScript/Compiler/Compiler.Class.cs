@@ -42,6 +42,7 @@ namespace DScript.Compiler
         ///   [SetupPrototypeChain]
         ///   For each method:   Name.prototype.method = function(...) { ... }
         ///   For each static:   Name.static = function(...) { ... }
+        ///   For each static initialisation block: (function(){...}).call(Name)
         /// </summary>
         private void CompileClass()
         {
@@ -64,6 +65,7 @@ namespace DScript.Compiler
 
             // Collect all members before emitting anything for the constructor.
             var methods = new List<(string Name, bool IsStatic, string Source)>();
+            var staticBlocks = new List<string>();  // static { ... } body sources
             string constructorSrc = null;
 
             lexer.Match((ScriptLex.LexTypes)'{');
@@ -75,6 +77,13 @@ namespace DScript.Compiler
                 {
                     lexer.Match(ScriptLex.LexTypes.RStatic);
                     isStatic = true;
+                }
+
+                // static initialisation block: static { ... }
+                if (isStatic && lexer.TokenType == (ScriptLex.LexTypes)'{')
+                {
+                    staticBlocks.Add(CaptureBlockSource());
+                    continue;
                 }
 
                 var methodName = lexer.TokenString;
@@ -131,6 +140,19 @@ namespace DScript.Compiler
                 chunk.Emit(OpCode.MakeClosure, methodIdx);
                 chunk.MakesClosure = true;
                 chunk.Emit(OpCode.SetProp, methodNameIdx);
+                chunk.Emit(OpCode.Pop);
+            }
+
+            // --- Emit static initialisation blocks ---
+            // Each `static { ... }` is compiled as an anonymous function called with
+            // the class constructor as `this`, so `this.x = 1` sets a static property.
+            foreach (var blockSrc in staticBlocks)
+            {
+                var blockIdx = CompileMethodSource("()" + blockSrc, "<static_init>");
+                chunk.Emit(OpCode.GetVar, classNameIdx);   // receiver (this)
+                chunk.Emit(OpCode.MakeClosure, blockIdx);
+                chunk.MakesClosure = true;
+                chunk.Emit(OpCode.CallMethod, 0);           // call with 0 args
                 chunk.Emit(OpCode.Pop);
             }
         }
@@ -222,6 +244,23 @@ namespace DScript.Compiler
             }
             lexer.Match((ScriptLex.LexTypes)'}');
 
+            return lexer.GetSubString(start);
+        }
+
+        // Capture a bare block `{ ... }` (no parameter list) and return its source
+        // including the braces, so it can be wrapped as a method body.
+        private string CaptureBlockSource()
+        {
+            var start = lexer.TokenStart;
+            lexer.Match((ScriptLex.LexTypes)'{');
+            var depth = 1;
+            while (lexer.TokenType != ScriptLex.LexTypes.Eof && depth > 0)
+            {
+                if (lexer.TokenType == (ScriptLex.LexTypes)'{') depth++;
+                else if (lexer.TokenType == (ScriptLex.LexTypes)'}') { depth--; if (depth == 0) break; }
+                lexer.GetNextToken();
+            }
+            lexer.Match((ScriptLex.LexTypes)'}');
             return lexer.GetSubString(start);
         }
 
