@@ -41,6 +41,7 @@ namespace DScript.Compiler
         private Chunk chunk;
         private int _destructureCounter;
         private int _importCounter;
+        private int _blockDepth;
         // Private names declared in the class currently being compiled.
         // Null when not inside a class body. Used to validate #name access.
         private System.Collections.Generic.HashSet<string> _currentClassPrivateNames;

@@ -132,20 +132,24 @@ namespace DScript.Compiler
 
             if (checkDirective) ConsumeUseStrictIfPresent();
 
-            // If the block contains any `let` or `const` declarations at the top
-            // level of this block (depth 0), we need a dedicated scope frame so
-            // those bindings are invisible outside the braces.
-            var needsBlockScope = PeekHasLetOrConst();
+            // In strict mode, function declarations inside nested blocks are
+            // block-scoped (not hoisted). Detect them here so EnterBlock/LeaveBlock
+            // is emitted when needed.
+            bool isNestedBlock = !checkDirective;
+            var needsBlockScope = PeekHasLetOrConst() ||
+                (isNestedBlock && chunk.IsStrict && PeekHasStrictFunctionDecl());
             if (needsBlockScope) chunk.Emit(OpCode.EnterBlock);
 
             // Push a propagation scope so `const` declarations inside this block
             // are visible within it but not after the closing brace.
             _constScopes?.Push(new Dictionary<string, ConstantValue>());
 
+            if (isNestedBlock) _blockDepth++;
             while (lexer.TokenType != (ScriptLex.LexTypes)'}' && lexer.TokenType != ScriptLex.LexTypes.Eof)
             {
                 CompileStatement();
             }
+            if (isNestedBlock) _blockDepth--;
 
             _constScopes?.Pop();
 
@@ -165,6 +169,34 @@ namespace DScript.Compiler
                 if (t == (ScriptLex.LexTypes)'}' && depth == 0) break;
                 if (depth == 0 && (t == ScriptLex.LexTypes.RLet || t == ScriptLex.LexTypes.RConst))
                     return true;
+                if (t == (ScriptLex.LexTypes)'{') depth++;
+                else if (t == (ScriptLex.LexTypes)'}') depth--;
+                clone.GetNextToken();
+            }
+            return false;
+        }
+
+        // Lookahead: does the current block contain a function declaration at depth 0?
+        // Used in strict mode to decide whether nested blocks need a scope frame.
+        private bool PeekHasStrictFunctionDecl()
+        {
+            var clone = lexer.CloneToEnd(lexer.TokenStart);
+            var depth = 0;
+            while (clone.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = clone.TokenType;
+                if (t == (ScriptLex.LexTypes)'}' && depth == 0) break;
+                if (depth == 0)
+                {
+                    if (t == ScriptLex.LexTypes.RFunction) return true;
+                    // async function ...
+                    if (t == ScriptLex.LexTypes.RAsync)
+                    {
+                        var next = clone.CloneToEnd(clone.TokenStart);
+                        next.GetNextToken();
+                        if (next.TokenType == ScriptLex.LexTypes.RFunction) return true;
+                    }
+                }
                 if (t == (ScriptLex.LexTypes)'{') depth++;
                 else if (t == (ScriptLex.LexTypes)'}') depth--;
                 clone.GetNextToken();
@@ -899,7 +931,9 @@ namespace DScript.Compiler
 
             var idx = CompileFunctionRest(name, isGenerator);
 
-            chunk.Emit(OpCode.DeclareVar, nameIndex);
+            // In strict mode inside a nested block, function declarations are block-scoped.
+            var declOp = chunk.IsStrict && _blockDepth > 0 ? OpCode.DeclareLocal : OpCode.DeclareVar;
+            chunk.Emit(declOp, nameIndex);
             chunk.Emit(OpCode.MakeClosure, idx);  // captures the current environment
             chunk.MakesClosure = true;
             chunk.Emit(OpCode.SetVar, nameIndex);
@@ -918,7 +952,9 @@ namespace DScript.Compiler
 
             var idx = CompileFunctionRest(name, isGenerator: isGenerator, isAsync: true);
 
-            chunk.Emit(OpCode.DeclareVar, nameIndex);
+            // In strict mode inside a nested block, function declarations are block-scoped.
+            var declOp = chunk.IsStrict && _blockDepth > 0 ? OpCode.DeclareLocal : OpCode.DeclareVar;
+            chunk.Emit(declOp, nameIndex);
             chunk.Emit(OpCode.MakeClosure, idx);
             chunk.MakesClosure = true;
             chunk.Emit(OpCode.SetVar, nameIndex);

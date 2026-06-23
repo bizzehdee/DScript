@@ -336,5 +336,69 @@ namespace DScript.Test
             ");
             Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(1));
         }
+
+        // ── T16: block-scoped function declarations in strict mode ────────────
+
+        [Test]
+        public void Strict_FunctionInBlock_IsBlockScoped()
+        {
+            // The inner `function f` is scoped to the if-block; outside it f is undefined.
+            var src = @"
+                ""use strict"";
+                var reached = false;
+                if (true) {
+                    function f() { return 1; }
+                    reached = true;
+                }
+                var r = typeof f;
+            ";
+            Assert.That(RunStr(src), Is.EqualTo("undefined"));
+        }
+
+        [Test]
+        public void Strict_FunctionInBlock_IsCallableInsideBlock()
+        {
+            // Inside the block the function is visible and callable.
+            var src = @"
+                ""use strict"";
+                var r = 0;
+                if (true) {
+                    function add(a, b) { return a + b; }
+                    r = add(3, 4);
+                }
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(7));
+        }
+
+        [Test]
+        public void NonStrict_FunctionInBlock_IsHoisted()
+        {
+            // Without strict mode the function declaration is hoisted (DeclareVar)
+            // so it should be visible at the program level even after the block.
+            var src = @"
+                if (true) {
+                    function f() { return 42; }
+                }
+                var r = f();
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void Strict_NestedBlocks_InnerFunctionNotVisibleInOuter()
+        {
+            // f declared in an inner block is not visible in the outer block.
+            var src = @"
+                ""use strict"";
+                var r = 0;
+                if (true) {
+                    if (true) {
+                        function inner() { return 5; }
+                    }
+                    r = typeof inner;
+                }
+            ";
+            Assert.That(RunStr(src), Is.EqualTo("undefined"));
+        }
     }
 }

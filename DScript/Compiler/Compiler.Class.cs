@@ -289,7 +289,7 @@ namespace DScript.Compiler
 
             var saved = chunk;
             chunk = fnChunk;
-            EnterFunctionBody(out var savedLoops, out var savedFinally);
+            EnterFunctionBody(out var savedLoops, out var savedFinally, out var savedBlockDepth);
 
             EmitDefaultParamGuards(paramDefaults);
             // Optional preamble (e.g. instance private field initializers)
@@ -306,7 +306,7 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
 
-            ExitFunctionBody(savedLoops, savedFinally);
+            ExitFunctionBody(savedLoops, savedFinally, savedBlockDepth);
             chunk = saved;
             lexer = savedLexer;
 

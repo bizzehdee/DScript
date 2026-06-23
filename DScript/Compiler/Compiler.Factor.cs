@@ -770,7 +770,7 @@ namespace DScript.Compiler
 
             var saved = chunk;
             chunk = fnChunk;
-            EnterFunctionBody(out var savedLoops, out var savedFinally);
+            EnterFunctionBody(out var savedLoops, out var savedFinally, out var savedBlockDepth);
 
             // Emit default-value guards at the start of the function body.
             EmitDefaultParamGuards(paramDefaults);
@@ -778,7 +778,7 @@ namespace DScript.Compiler
             CompileBlock(checkDirective: true);
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
-            ExitFunctionBody(savedLoops, savedFinally);
+            ExitFunctionBody(savedLoops, savedFinally, savedBlockDepth);
             chunk = saved;
 
             _constScopes?.Pop();
@@ -951,7 +951,7 @@ namespace DScript.Compiler
 
             var saved = chunk;
             chunk = fnChunk;
-            EnterFunctionBody(out var savedLoops, out var savedFinally);
+            EnterFunctionBody(out var savedLoops, out var savedFinally, out var savedBlockDepth);
 
             // Emit default-value guards at the start of the function body.
             EmitDefaultParamGuards(paramDefaults);
@@ -970,7 +970,7 @@ namespace DScript.Compiler
                 chunk.Emit(OpCode.Return);
             }
 
-            ExitFunctionBody(savedLoops, savedFinally);
+            ExitFunctionBody(savedLoops, savedFinally, savedBlockDepth);
             chunk = saved;
 
             _constScopes?.Pop();
@@ -986,19 +986,27 @@ namespace DScript.Compiler
         // finally contexts so that break/continue/return inside the body don't
         // accidentally target the outer function's control structures.
         private void EnterFunctionBody(out Stack<LoopContext> savedLoops,
-                                       out Stack<FinallyContext> savedFinally)
+                                       out Stack<FinallyContext> savedFinally,
+                                       out int savedBlockDepth)
         {
-            savedLoops   = loops;
-            savedFinally = finallyStack;
-            loops        = new Stack<LoopContext>();
-            finallyStack = new Stack<FinallyContext>();
+            savedLoops       = loops;
+            savedFinally     = finallyStack;
+            savedBlockDepth  = _blockDepth;
+            loops            = new Stack<LoopContext>();
+            finallyStack     = new Stack<FinallyContext>();
+            // Reset block depth: function declarations at the top of a function
+            // body are still hoisted; only declarations inside nested blocks are
+            // block-scoped in strict mode.
+            _blockDepth      = 0;
         }
 
         private void ExitFunctionBody(Stack<LoopContext> savedLoops,
-                                      Stack<FinallyContext> savedFinally)
+                                      Stack<FinallyContext> savedFinally,
+                                      int savedBlockDepth)
         {
             loops        = savedLoops;
             finallyStack = savedFinally;
+            _blockDepth  = savedBlockDepth;
         }
 
         // Parse the raw template string into alternating (cooked, raw, isExpr) segments.
