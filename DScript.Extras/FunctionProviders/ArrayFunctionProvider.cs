@@ -232,26 +232,13 @@ namespace DScript.Extras.FunctionProviders
         {
             var arr = var.GetParameter("this");
             var len = arr.GetArrayLength();
-
-            var startVar = var.GetParameter("start");
-            var endVar = var.GetParameter("end");
-
-            var start = startVar.IsUndefined ? 0 : startVar.Int;
-            var end = endVar.IsUndefined ? len : endVar.Int;
-
-            //negative indices count from the end; everything is clamped to range
-            if (start < 0) start = Math.Max(len + start, 0);
-            if (end < 0) end = Math.Max(len + end, 0);
-            if (start > len) start = len;
-            if (end > len) end = len;
+            var (start, end) = ProviderHelpers.NormalizeSliceRange(
+                var.GetParameter("start"), var.GetParameter("end"), len);
 
             var.ReturnVar.SetArray();
-
             var idx = 0;
             for (var x = start; x < end; x++)
-            {
                 var.ReturnVar.SetArrayIndex(idx++, arr.GetArrayIndex(x).DeepCopy());
-            }
         }
 
         [ScriptMethod("reverse")]
@@ -558,14 +545,8 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var val = var.GetParameter("val");
             var len = arr.GetArrayLength();
-            var startVar = var.GetParameter("start");
-            var endVar = var.GetParameter("end");
-            var start = startVar.IsUndefined ? 0 : startVar.Int;
-            var end = endVar.IsUndefined ? len : endVar.Int;
-            if (start < 0) start = Math.Max(len + start, 0);
-            if (end < 0) end = Math.Max(len + end, 0);
-            if (start > len) start = len;
-            if (end > len) end = len;
+            var (start, end) = ProviderHelpers.NormalizeSliceRange(
+                var.GetParameter("start"), var.GetParameter("end"), len);
             for (var x = start; x < end; x++)
                 arr.SetArrayIndex(x, val.DeepCopy());
             var.ReturnVar = arr;
@@ -597,9 +578,7 @@ namespace DScript.Extras.FunctionProviders
             var deleteCountVar = var.GetParameter("deleteCount");
             var item = var.GetParameter("item");
 
-            var start = startVar.IsUndefined ? 0 : startVar.Int;
-            if (start < 0) start = Math.Max(len + start, 0);
-            if (start > len) start = len;
+            var start = ProviderHelpers.NormalizeIndex(startVar.IsUndefined ? 0 : startVar.Int, len);
 
             var deleteCount = deleteCountVar.IsUndefined ? len - start : Math.Min(Math.Max(deleteCountVar.Int, 0), len - start);
 
@@ -791,9 +770,7 @@ namespace DScript.Extras.FunctionProviders
             var deleteCountVar = var.GetParameter("deleteCount");
             var item = var.GetParameter("item");
 
-            var start = startVar.IsUndefined ? 0 : startVar.Int;
-            if (start < 0) start = Math.Max(len + start, 0);
-            if (start > len) start = len;
+            var start = ProviderHelpers.NormalizeIndex(startVar.IsUndefined ? 0 : startVar.Int, len);
 
             var deleteCount = deleteCountVar.IsUndefined ? len - start : Math.Min(Math.Max(deleteCountVar.Int, 0), len - start);
 

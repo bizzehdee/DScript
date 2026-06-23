@@ -310,10 +310,8 @@ namespace DScript.Extras.FunctionProviders
             var fillVar = var.GetParameter("fill");
             var fill = fillVar.IsUndefined ? " " : fillVar.String;
             if (fill.Length == 0 || str.Length >= len) { var.ReturnVar.String = str; return; }
-            var needed = len - str.Length;
-            var repeated = string.Concat(System.Linq.Enumerable.Repeat(fill, (needed / fill.Length) + 1))
-                                 .Substring(0, needed);
-            var.ReturnVar.String = repeated + str;
+            var padding = ProviderHelpers.BuildPadding(fill, len - str.Length);
+            var.ReturnVar.String = padding + str;
         }
 
         [ScriptMethod("padEnd", "len", "fill")]
@@ -324,29 +322,17 @@ namespace DScript.Extras.FunctionProviders
             var fillVar = var.GetParameter("fill");
             var fill = fillVar.IsUndefined ? " " : fillVar.String;
             if (fill.Length == 0 || str.Length >= len) { var.ReturnVar.String = str; return; }
-            var needed = len - str.Length;
-            var repeated = string.Concat(System.Linq.Enumerable.Repeat(fill, (needed / fill.Length) + 1))
-                                 .Substring(0, needed);
-            var.ReturnVar.String = str + repeated;
+            var padding = ProviderHelpers.BuildPadding(fill, len - str.Length);
+            var.ReturnVar.String = str + padding;
         }
 
         [ScriptMethod("slice", "start", "end")]
         public static void StringSliceImpl(ScriptVar var, object userData)
         {
             var str = var.GetParameter("this").String;
-            var startVar = var.GetParameter("start");
-            var endVar = var.GetParameter("end");
-            var len = str.Length;
-
-            var start = startVar.IsUndefined ? 0 : startVar.Int;
-            var end = endVar.IsUndefined ? len : endVar.Int;
-
-            if (start < 0) start = Math.Max(len + start, 0);
-            if (end < 0) end = Math.Max(len + end, 0);
-            if (start > len) start = len;
-            if (end > len) end = len;
+            var (start, end) = ProviderHelpers.NormalizeSliceRange(
+                var.GetParameter("start"), var.GetParameter("end"), str.Length);
             if (end <= start) { var.ReturnVar.String = ""; return; }
-
             var.ReturnVar.String = str.Substring(start, end - start);
         }
 

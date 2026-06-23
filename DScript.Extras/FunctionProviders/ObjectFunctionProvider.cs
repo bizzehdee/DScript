@@ -45,19 +45,10 @@ namespace DScript.Extras.FunctionProviders
         public static void ObjectKeysImpl(ScriptVar var, object userData)
         {
             var obj = var.GetParameter("obj");
-
             var.ReturnVar.SetArray();
-
             var idx = 0;
-            var link = obj.FirstChild;
-            while (link != null)
-            {
-                if (link.Name != ScriptVar.PrototypeClassName && link.Enumerable)
-                {
-                    var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name));
-                }
-                link = link.Next;
-            }
+            ProviderHelpers.ForEachEnumerableChild(obj, link =>
+                var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name)));
         }
 
         [ScriptMethod("hasOwnProperty", "name")]
@@ -75,13 +66,8 @@ namespace DScript.Extras.FunctionProviders
             var obj = var.GetParameter("obj");
             var.ReturnVar.SetArray();
             var idx = 0;
-            var link = obj.FirstChild;
-            while (link != null)
-            {
-                if (link.Name != ScriptVar.PrototypeClassName && link.Enumerable)
-                    var.ReturnVar.SetArrayIndex(idx++, link.Var.DeepCopy());
-                link = link.Next;
-            }
+            ProviderHelpers.ForEachEnumerableChild(obj, link =>
+                var.ReturnVar.SetArrayIndex(idx++, link.Var.DeepCopy()));
         }
 
         [ScriptMethod("entries", "obj")]
@@ -90,19 +76,14 @@ namespace DScript.Extras.FunctionProviders
             var obj = var.GetParameter("obj");
             var.ReturnVar.SetArray();
             var idx = 0;
-            var link = obj.FirstChild;
-            while (link != null)
+            ProviderHelpers.ForEachEnumerableChild(obj, link =>
             {
-                if (link.Name != ScriptVar.PrototypeClassName && link.Enumerable)
-                {
-                    var pair = new ScriptVar();
-                    pair.SetArray();
-                    pair.SetArrayIndex(0, new ScriptVar(link.Name));
-                    pair.SetArrayIndex(1, link.Var.DeepCopy());
-                    var.ReturnVar.SetArrayIndex(idx++, pair);
-                }
-                link = link.Next;
-            }
+                var pair = new ScriptVar();
+                pair.SetArray();
+                pair.SetArrayIndex(0, new ScriptVar(link.Name));
+                pair.SetArrayIndex(1, link.Var.DeepCopy());
+                var.ReturnVar.SetArrayIndex(idx++, pair);
+            });
         }
 
         [ScriptMethod("assign", "target", "s0", "s1", "s2", "s3")]
@@ -113,13 +94,8 @@ namespace DScript.Extras.FunctionProviders
             {
                 var source = var.GetParameter(name);
                 if (source.IsUndefined || source.IsNull) continue;
-                var link = source.FirstChild;
-                while (link != null)
-                {
-                    if (link.Name != ScriptVar.PrototypeClassName)
-                        target.AddChildNoDup(link.Name, link.Var.DeepCopy());
-                    link = link.Next;
-                }
+                ProviderHelpers.ForEachOwnChild(source, link =>
+                    target.AddChildNoDup(link.Name, link.Var.DeepCopy()));
             }
             var.ReturnVar = target;
         }
@@ -171,13 +147,8 @@ namespace DScript.Extras.FunctionProviders
             var obj = var.GetParameter("obj");
             var.ReturnVar.SetArray();
             var idx = 0;
-            var link = obj.FirstChild;
-            while (link != null)
-            {
-                if (link.Name != ScriptVar.PrototypeClassName)
-                    var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name));
-                link = link.Next;
-            }
+            ProviderHelpers.ForEachOwnChild(obj, link =>
+                var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name)));
         }
 
         [ScriptMethod("hasOwn", "obj", "key")]
@@ -270,7 +241,20 @@ namespace DScript.Extras.FunctionProviders
             var key = var.GetParameter("key").String;
             var link = obj.FindChild(key);
             if (link == null) { var.ReturnVar.SetUndefined(); return; }
+            var.ReturnVar = BuildDescriptor(link);
+        }
 
+        [ScriptMethod("getOwnPropertyDescriptors", "obj")]
+        public static void ObjectGetOwnPropertyDescriptorsImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            var result = new ScriptVar();
+            ProviderHelpers.ForEachOwnChild(obj, link => result.AddChildNoDup(link.Name, BuildDescriptor(link)));
+            var.ReturnVar = result;
+        }
+
+        private static ScriptVar BuildDescriptor(ScriptVarLink link)
+        {
             var desc = new ScriptVar();
             if (link.IsAccessor)
             {
@@ -284,85 +268,14 @@ namespace DScript.Extras.FunctionProviders
             }
             desc.AddChildNoDup("enumerable", new ScriptVar(link.Enumerable ? 1 : 0));
             desc.AddChildNoDup("configurable", new ScriptVar(link.Configurable ? 1 : 0));
-            var.ReturnVar = desc;
-        }
-
-        [ScriptMethod("getOwnPropertyDescriptors", "obj")]
-        public static void ObjectGetOwnPropertyDescriptorsImpl(ScriptVar var, object userData)
-        {
-            var obj = var.GetParameter("obj");
-            var result = new ScriptVar();
-            var link = obj.FirstChild;
-            while (link != null)
-            {
-                if (link.Name != ScriptVar.PrototypeClassName)
-                {
-                    var desc = new ScriptVar();
-                    if (link.IsAccessor)
-                    {
-                        desc.AddChildNoDup("get", link.Getter ?? new ScriptVar());
-                        desc.AddChildNoDup("set", link.Setter ?? new ScriptVar());
-                    }
-                    else
-                    {
-                        desc.AddChildNoDup("value", link.Var.DeepCopy());
-                        desc.AddChildNoDup("writable", new ScriptVar(link.Writable ? 1 : 0));
-                    }
-                    desc.AddChildNoDup("enumerable", new ScriptVar(link.Enumerable ? 1 : 0));
-                    desc.AddChildNoDup("configurable", new ScriptVar(link.Configurable ? 1 : 0));
-                    result.AddChildNoDup(link.Name, desc);
-                }
-                link = link.Next;
-            }
-            var.ReturnVar = result;
+            return desc;
         }
 
         [ScriptMethod("defineProperty", "obj", "key", "descriptor")]
         public static void ObjectDefinePropertyImpl(ScriptVar var, object userData)
         {
             var obj = var.GetParameter("obj");
-            var key = var.GetParameter("key").String;
-            var desc = var.GetParameter("descriptor");
-
-            var link = obj.FindChild(key);
-
-            var getterLink = desc.FindChild("get");
-            var setterLink = desc.FindChild("set");
-
-            if (getterLink != null || setterLink != null)
-            {
-                // Accessor descriptor
-                if (link == null)
-                    link = obj.AddChild(key, new ScriptVar());
-                if (getterLink != null) link.Getter = getterLink.Var;
-                if (setterLink != null) link.Setter = setterLink.Var;
-            }
-            else
-            {
-                // Data descriptor
-                var valueLink = desc.FindChild("value");
-                if (valueLink != null)
-                {
-                    if (link == null)
-                        link = obj.AddChild(key, valueLink.Var.DeepCopy());
-                    else
-                        link.ReplaceWith(valueLink.Var);
-                }
-                else if (link == null)
-                {
-                    link = obj.AddChild(key, new ScriptVar());
-                }
-
-                var writableLink = desc.FindChild("writable");
-                if (writableLink != null) link.Writable = writableLink.Var.Bool;
-            }
-
-            var enumerableLink = desc.FindChild("enumerable");
-            if (enumerableLink != null) link.Enumerable = enumerableLink.Var.Bool;
-
-            var configurableLink = desc.FindChild("configurable");
-            if (configurableLink != null) link.Configurable = configurableLink.Var.Bool;
-
+            ApplyDescriptor(obj, var.GetParameter("key").String, var.GetParameter("descriptor"));
             var.ReturnVar = obj;
         }
 
@@ -370,48 +283,43 @@ namespace DScript.Extras.FunctionProviders
         public static void ObjectDefinePropertiesImpl(ScriptVar var, object userData)
         {
             var obj = var.GetParameter("obj");
-            var descriptors = var.GetParameter("descriptors");
-            var link = descriptors.FirstChild;
-            while (link != null)
-            {
-                if (link.Name != ScriptVar.PrototypeClassName)
-                {
-                    var desc = link.Var;
-                    var propLink = obj.FindChild(link.Name);
-
-                    var getterLink = desc.FindChild("get");
-                    var setterLink = desc.FindChild("set");
-
-                    if (getterLink != null || setterLink != null)
-                    {
-                        if (propLink == null) propLink = obj.AddChild(link.Name, new ScriptVar());
-                        if (getterLink != null) propLink.Getter = getterLink.Var;
-                        if (setterLink != null) propLink.Setter = setterLink.Var;
-                    }
-                    else
-                    {
-                        var valueLink = desc.FindChild("value");
-                        if (valueLink != null)
-                        {
-                            if (propLink == null) propLink = obj.AddChild(link.Name, valueLink.Var.DeepCopy());
-                            else propLink.ReplaceWith(valueLink.Var);
-                        }
-                        else if (propLink == null)
-                        {
-                            propLink = obj.AddChild(link.Name, new ScriptVar());
-                        }
-                        var writableLink = desc.FindChild("writable");
-                        if (writableLink != null) propLink.Writable = writableLink.Var.Bool;
-                    }
-
-                    var enumerableLink = desc.FindChild("enumerable");
-                    if (enumerableLink != null) propLink.Enumerable = enumerableLink.Var.Bool;
-                    var configurableLink = desc.FindChild("configurable");
-                    if (configurableLink != null) propLink.Configurable = configurableLink.Var.Bool;
-                }
-                link = link.Next;
-            }
+            ProviderHelpers.ForEachOwnChild(var.GetParameter("descriptors"),
+                link => ApplyDescriptor(obj, link.Name, link.Var));
             var.ReturnVar = obj;
+        }
+
+        private static void ApplyDescriptor(ScriptVar obj, string key, ScriptVar desc)
+        {
+            var link = obj.FindChild(key);
+            var getterLink = desc.FindChild("get");
+            var setterLink = desc.FindChild("set");
+
+            if (getterLink != null || setterLink != null)
+            {
+                if (link == null) link = obj.AddChild(key, new ScriptVar());
+                if (getterLink != null) link.Getter = getterLink.Var;
+                if (setterLink != null) link.Setter = setterLink.Var;
+            }
+            else
+            {
+                var valueLink = desc.FindChild("value");
+                if (valueLink != null)
+                {
+                    if (link == null) link = obj.AddChild(key, valueLink.Var.DeepCopy());
+                    else link.ReplaceWith(valueLink.Var);
+                }
+                else if (link == null)
+                {
+                    link = obj.AddChild(key, new ScriptVar());
+                }
+                var writableLink = desc.FindChild("writable");
+                if (writableLink != null) link.Writable = writableLink.Var.Bool;
+            }
+
+            var enumerableLink = desc.FindChild("enumerable");
+            if (enumerableLink != null) link.Enumerable = enumerableLink.Var.Bool;
+            var configurableLink = desc.FindChild("configurable");
+            if (configurableLink != null) link.Configurable = configurableLink.Var.Bool;
         }
 
         [ScriptMethod("groupBy", "arr", "keyFn")]

@@ -30,39 +30,43 @@ namespace DScript.Extras.FunctionProviders
     {
         private const double MaxSafeInteger = 9007199254740991.0;
 
+        // Returns false (and leaves d as 0) when x is not a numeric type,
+        // allowing callers to early-return false without duplicating the type check.
+        private static bool TryGetNumericFloat(ScriptVar x, out double d)
+        {
+            d = 0.0;
+            if (!x.IsInt && !x.IsDouble) return false;
+            d = x.Float;
+            return true;
+        }
+
         // ── Static type-test methods ──────────────────────────────────────────
 
         [ScriptMethod("isInteger", "x")]
         public static void NumberIsIntegerImpl(ScriptVar var, object userData)
         {
-            var x = var.GetParameter("x");
-            if (!x.IsInt && !x.IsDouble) { var.ReturnVar.Int = 0; return; }
-            var d = x.Float;
+            if (!TryGetNumericFloat(var.GetParameter("x"), out var d)) { var.ReturnVar.Int = 0; return; }
             var.ReturnVar.Int = (!double.IsNaN(d) && !double.IsInfinity(d) && Math.Floor(d) == d) ? 1 : 0;
         }
 
         [ScriptMethod("isFinite", "x")]
         public static void NumberIsFiniteImpl(ScriptVar var, object userData)
         {
-            var x = var.GetParameter("x");
-            if (!x.IsInt && !x.IsDouble) { var.ReturnVar.Int = 0; return; }
-            var.ReturnVar.Int = double.IsFinite(x.Float) ? 1 : 0;
+            if (!TryGetNumericFloat(var.GetParameter("x"), out var d)) { var.ReturnVar.Int = 0; return; }
+            var.ReturnVar.Int = double.IsFinite(d) ? 1 : 0;
         }
 
         [ScriptMethod("isNaN", "x")]
         public static void NumberIsNaNImpl(ScriptVar var, object userData)
         {
-            var x = var.GetParameter("x");
-            if (!x.IsInt && !x.IsDouble) { var.ReturnVar.Int = 0; return; }
-            var.ReturnVar.Int = double.IsNaN(x.Float) ? 1 : 0;
+            if (!TryGetNumericFloat(var.GetParameter("x"), out var d)) { var.ReturnVar.Int = 0; return; }
+            var.ReturnVar.Int = double.IsNaN(d) ? 1 : 0;
         }
 
         [ScriptMethod("isSafeInteger", "x")]
         public static void NumberIsSafeIntegerImpl(ScriptVar var, object userData)
         {
-            var x = var.GetParameter("x");
-            if (!x.IsInt && !x.IsDouble) { var.ReturnVar.Int = 0; return; }
-            var d = x.Float;
+            if (!TryGetNumericFloat(var.GetParameter("x"), out var d)) { var.ReturnVar.Int = 0; return; }
             var.ReturnVar.Int = (!double.IsNaN(d) && !double.IsInfinity(d) &&
                                  Math.Floor(d) == d && Math.Abs(d) <= MaxSafeInteger) ? 1 : 0;
         }
