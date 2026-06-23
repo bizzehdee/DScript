@@ -524,7 +524,17 @@ namespace DScript.Vm
                     {
                         var ctor = Pop();
                         var value = Pop();
-                        Push(new ScriptVar(IsInstanceOf(value, ctor)));
+                        // Check for [Symbol.hasInstance] override on the constructor
+                        var hasInstanceLink = ctor.FindChild(WellKnownSymbols.HasInstance.GetSymbolKey());
+                        if (hasInstanceLink != null && hasInstanceLink.Var.IsFunction)
+                        {
+                            var result = InvokeCallable(hasInstanceLink.Var, ctor, new[] { value });
+                            Push(new ScriptVar(result?.Bool ?? false));
+                        }
+                        else
+                        {
+                            Push(new ScriptVar(IsInstanceOf(value, ctor)));
+                        }
                         break;
                     }
 
@@ -813,6 +823,14 @@ namespace DScript.Vm
                         if (nextLink != null)
                         {
                             Push(iterable);
+                            break;
+                        }
+                        // Check for [Symbol.iterator] method
+                        var symIterLink = iterable.FindChild(WellKnownSymbols.Iterator.GetSymbolKey());
+                        if (symIterLink != null && symIterLink.Var.IsFunction)
+                        {
+                            var iterator = InvokeCallable(symIterLink.Var, iterable, System.Array.Empty<ScriptVar>());
+                            Push(iterator ?? new ScriptVar(ScriptVar.Flags.Object));
                             break;
                         }
                         // If it's an array, wrap it in an index-based iterator
@@ -1581,8 +1599,10 @@ namespace DScript.Vm
         // Resolve a computed [] key to its property-name string. Integer keys go
         // through ScriptVar's cached index names, so array element access does not
         // allocate a fresh Int.ToString() string on every get/set/delete.
+        // Symbol keys use their internal @@symbol:<id> representation.
         private static string KeyName(ScriptVar key)
         {
+            if (key.IsSymbol) return key.GetSymbolKey();
             return key.IsInt ? ScriptVar.IndexName(key.Int) : key.String;
         }
 

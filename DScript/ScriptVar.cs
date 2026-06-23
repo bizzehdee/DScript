@@ -98,6 +98,19 @@ namespace DScript
         private double doubleData;
         private int cachedArrayLength = -1;  // -1 means not cached
 
+        private static int _symbolCounter;
+
+        public static ScriptVar CreateSymbol(string description = null)
+        {
+            var sym = new ScriptVar();
+            sym.flags = Flags.Symbol;
+            sym.intData = System.Threading.Interlocked.Increment(ref _symbolCounter);
+            sym.scriptData = description;
+            return sym;
+        }
+
+        public string GetSymbolKey() => IsSymbol ? $"@@symbol:{intData}" : null;
+
         // Native callbacks are rare (registered once per built-in function) but the
         // two dedicated fields they needed used to sit on every ScriptVar — including
         // the millions of short-lived primitives the VM allocates. They are folded
@@ -152,8 +165,9 @@ namespace DScript
             Null = 64,
             Native = 128,
             Regexp = 256,
+            Symbol = 512,
             NumericMask = Null | Double | Integer,
-            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp
+            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol
         }
 
         public ScriptVarLink FirstChild { get; set; }
@@ -294,6 +308,8 @@ namespace DScript
         
         public bool IsRegexp => (flags & Flags.Regexp) != 0;
 
+        public bool IsSymbol => (flags & Flags.Symbol) != 0;
+
         public bool IsBasic => FirstChild == null;
 
         public ScriptVar this[string index] => GetParameter(index);
@@ -351,6 +367,11 @@ namespace DScript
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
+            if (IsSymbol)
+            {
+                var desc = scriptData as string;
+                return desc != null ? $"Symbol({desc})" : "Symbol()";
+            }
 
             if (scriptData is Vm.VmFunction fn) return fn.Source;
 
@@ -378,7 +399,8 @@ namespace DScript
             if (IsFunction) return "function";
             if (IsString) return "string";
             if (IsNull) return "null";
-            
+            if (IsSymbol) return "symbol";
+
             return "undefined";
         }
 
@@ -865,6 +887,18 @@ namespace DScript
                         case ScriptLex.LexTypes.NEqual: return new ScriptVar(a != b);
 
                         default: throw new ScriptException("Operation not supported on the Object datatype");
+                    }
+                }
+
+                // Symbols are equal only if they share the same unique ID.
+                if (a.IsSymbol || b.IsSymbol)
+                {
+                    var symEqual = a.IsSymbol && b.IsSymbol && a.intData == b.intData;
+                    switch (op)
+                    {
+                        case ScriptLex.LexTypes.Equal: return new ScriptVar(symEqual);
+                        case ScriptLex.LexTypes.NEqual: return new ScriptVar(!symEqual);
+                        default: throw new ScriptException("Operation not supported on the Symbol datatype");
                     }
                 }
 

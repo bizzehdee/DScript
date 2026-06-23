@@ -123,6 +123,7 @@ namespace DScript
 
             RegisterPromiseBuiltin();
             RegisterRequireBuiltin();
+            SymbolRegistrar.Register(this);
 
             globalEnvironment = new VmEnvironment(Root, null);
         }
