@@ -34,11 +34,19 @@ namespace DScript.Extras.FunctionProviders
             return obj;
         }
 
-        [ScriptMethod("Error", "msg", AppearAtRoot = true)]
+        [ScriptMethod("Error", "msg", "options", AppearAtRoot = true)]
         public static void ErrorImpl(ScriptVar var, object userData)
         {
             var msgVar = var.GetParameter("msg");
-            var.ReturnVar = MakeError("Error", msgVar.IsUndefined ? "" : msgVar.String);
+            var obj = MakeError("Error", msgVar.IsUndefined ? "" : msgVar.String);
+            var options = var.GetParameter("options");
+            if (!options.IsUndefined && !options.IsNull)
+            {
+                var cause = options.FindChild("cause");
+                if (cause != null)
+                    obj.AddChild("cause", cause.Var.DeepCopy());
+            }
+            var.ReturnVar = obj;
         }
 
         [ScriptMethod("TypeError", "msg", AppearAtRoot = true)]
@@ -81,6 +89,16 @@ namespace DScript.Extras.FunctionProviders
         {
             var msgVar = var.GetParameter("msg");
             var.ReturnVar = MakeError("EvalError", msgVar.IsUndefined ? "" : msgVar.String);
+        }
+
+        [ScriptMethod("AggregateError", "errors", "msg", AppearAtRoot = true)]
+        public static void AggregateErrorImpl(ScriptVar var, object userData)
+        {
+            var msgVar = var.GetParameter("msg");
+            var errors = var.GetParameter("errors");
+            var obj = MakeError("AggregateError", msgVar.IsUndefined ? "" : msgVar.String);
+            obj.AddChild("errors", errors.IsUndefined ? new ScriptVar() : errors.DeepCopy());
+            var.ReturnVar = obj;
         }
     }
 }

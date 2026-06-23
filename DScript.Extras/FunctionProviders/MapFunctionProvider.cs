@@ -141,5 +141,38 @@ namespace DScript.Extras.FunctionProviders
             foreach (var kvp in map.Data)
                 engine.CallFunction(callback, null, kvp.Value, kvp.Key);
         }
+
+        [ScriptMethod("groupBy", "arr", "keyFn")]
+        public static void MapGroupByImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("arr");
+            var keyFn = var.GetParameter("keyFn");
+            var len = arr.GetArrayLength();
+
+            var mapObj = new MapObject();
+            for (var i = 0; i < len; i++)
+            {
+                var elem = arr.GetArrayIndex(i);
+                var key = engine.CallFunction(keyFn, null, elem, new ScriptVar(i));
+
+                // Find existing group for this key
+                ScriptVar group = null;
+                foreach (var k in mapObj.Data.Keys)
+                {
+                    if (k.Equal(key)) { group = mapObj.Data[k]; break; }
+                }
+
+                if (group == null)
+                {
+                    group = new ScriptVar();
+                    group.SetArray();
+                    mapObj.Data[key.DeepCopy()] = group;
+                }
+                group.SetArrayIndex(group.GetArrayLength(), elem.DeepCopy());
+            }
+
+            var.ReturnVar = mapObj.ToScriptVar();
+        }
     }
 }

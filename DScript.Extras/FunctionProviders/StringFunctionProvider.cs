@@ -398,5 +398,37 @@ namespace DScript.Extras.FunctionProviders
                 var.ReturnVar.SetArrayIndex(i, matchArr);
             }
         }
+
+        [ScriptMethod("normalize", "form")]
+        public static void StringNormalizeImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var formVar = var.GetParameter("form");
+            var form = formVar.IsUndefined ? "NFC" : formVar.String;
+            var normForm = form switch
+            {
+                "NFD"  => System.Text.NormalizationForm.FormD,
+                "NFKC" => System.Text.NormalizationForm.FormKC,
+                "NFKD" => System.Text.NormalizationForm.FormKD,
+                _      => System.Text.NormalizationForm.FormC,
+            };
+            var.ReturnVar.String = str.Normalize(normForm);
+        }
+
+        [ScriptMethod("codePointAt", "pos")]
+        public static void StringCodePointAtImpl(ScriptVar var, object userData)
+        {
+            var str = var.GetParameter("this").String;
+            var pos = var.GetParameter("pos").Int;
+            if (pos < 0 || pos >= str.Length) { var.ReturnVar.SetUndefined(); return; }
+            var.ReturnVar.Int = char.ConvertToUtf32(str, pos);
+        }
+
+        [ScriptMethod("fromCodePoint", "code")]
+        public static void StringFromCodePointImpl(ScriptVar var, object userData)
+        {
+            var code = var.GetParameter("code").Int;
+            var.ReturnVar.String = char.ConvertFromUtf32(code);
+        }
     }
 }

@@ -720,5 +720,113 @@ namespace DScript.Extras.FunctionProviders
                 result.SetArrayIndex(0, val.DeepCopy());
             var.ReturnVar = result;
         }
+
+        // ── ES2023 copy-on-write methods ──────────────────────────────────────
+
+        [ScriptMethod("reduceRight", "callback", "initial")]
+        public static void ArrayReduceRightImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var callback = var.GetParameter("callback");
+            var len = arr.GetArrayLength();
+
+            var accumulator = var.GetParameter("initial");
+            var start = len - 1;
+
+            if (accumulator.IsUndefined && len > 0)
+            {
+                accumulator = arr.GetArrayIndex(len - 1).DeepCopy();
+                start = len - 2;
+            }
+
+            for (var x = start; x >= 0; x--)
+                accumulator = engine.CallFunction(callback, null, accumulator, arr.GetArrayIndex(x), new ScriptVar(x), arr);
+
+            var.ReturnVar = accumulator;
+        }
+
+        [ScriptMethod("toSorted", "compare")]
+        public static void ArrayToSortedImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("this");
+            var compare = var.GetParameter("compare");
+            var len = arr.GetArrayLength();
+
+            var values = new List<ScriptVar>();
+            for (var x = 0; x < len; x++)
+                values.Add(arr.GetArrayIndex(x).DeepCopy());
+
+            if (compare.IsFunction)
+                values.Sort((a, b) => engine.CallFunction(compare, null, a, b).Int);
+            else
+                values.Sort((a, b) => string.CompareOrdinal(a.String, b.String));
+
+            var result = new ScriptVar();
+            result.SetArray();
+            for (var x = 0; x < len; x++)
+                result.SetArrayIndex(x, values[x]);
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("toReversed")]
+        public static void ArrayToReversedImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var len = arr.GetArrayLength();
+            var result = new ScriptVar();
+            result.SetArray();
+            for (var x = 0; x < len; x++)
+                result.SetArrayIndex(x, arr.GetArrayIndex(len - 1 - x).DeepCopy());
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("toSpliced", "start", "deleteCount", "item")]
+        public static void ArrayToSplicedImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var len = arr.GetArrayLength();
+            var startVar = var.GetParameter("start");
+            var deleteCountVar = var.GetParameter("deleteCount");
+            var item = var.GetParameter("item");
+
+            var start = startVar.IsUndefined ? 0 : startVar.Int;
+            if (start < 0) start = Math.Max(len + start, 0);
+            if (start > len) start = len;
+
+            var deleteCount = deleteCountVar.IsUndefined ? len - start : Math.Min(Math.Max(deleteCountVar.Int, 0), len - start);
+
+            var items = new List<ScriptVar>();
+            for (var i = 0; i < start; i++)
+                items.Add(arr.GetArrayIndex(i).DeepCopy());
+            if (!item.IsUndefined)
+                items.Add(item.DeepCopy());
+            for (var i = start + deleteCount; i < len; i++)
+                items.Add(arr.GetArrayIndex(i).DeepCopy());
+
+            var result = new ScriptVar();
+            result.SetArray();
+            for (var i = 0; i < items.Count; i++)
+                result.SetArrayIndex(i, items[i]);
+            var.ReturnVar = result;
+        }
+
+        [ScriptMethod("with", "index", "val")]
+        public static void ArrayWithImpl(ScriptVar var, object userData)
+        {
+            var arr = var.GetParameter("this");
+            var len = arr.GetArrayLength();
+            var index = var.GetParameter("index").Int;
+            var val = var.GetParameter("val");
+
+            if (index < 0) index = len + index;
+
+            var result = new ScriptVar();
+            result.SetArray();
+            for (var i = 0; i < len; i++)
+                result.SetArrayIndex(i, i == index ? val.DeepCopy() : arr.GetArrayIndex(i).DeepCopy());
+            var.ReturnVar = result;
+        }
     }
 }

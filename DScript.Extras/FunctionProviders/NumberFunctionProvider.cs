@@ -151,5 +151,19 @@ namespace DScript.Extras.FunctionProviders
             var digits = digitsVar.IsUndefined ? 6 : Math.Clamp(digitsVar.Int, 0, 100);
             var.ReturnVar.String = d.ToString("E" + digits, CultureInfo.InvariantCulture).ToLower();
         }
+
+        [ScriptMethod("toPrecision", "digits")]
+        public static void NumberToPrecisionImpl(ScriptVar var, object userData)
+        {
+            var d = var.GetParameter("this").Float;
+            var digitsVar = var.GetParameter("digits");
+            if (digitsVar.IsUndefined)
+            {
+                var.ReturnVar.String = d.ToString(CultureInfo.InvariantCulture);
+                return;
+            }
+            var digits = Math.Clamp(digitsVar.Int, 1, 100);
+            var.ReturnVar.String = d.ToString("G" + digits, CultureInfo.InvariantCulture);
+        }
     }
 }

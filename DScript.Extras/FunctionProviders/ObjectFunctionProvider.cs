@@ -20,6 +20,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System;
+
 namespace DScript.Extras.FunctionProviders
 {
     [ScriptClass("Object")]
@@ -177,6 +179,82 @@ namespace DScript.Extras.FunctionProviders
                     var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name));
                 link = link.Next;
             }
+        }
+
+        [ScriptMethod("hasOwn", "obj", "key")]
+        public static void ObjectHasOwnImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            var key = var.GetParameter("key").String;
+            var.ReturnVar.Int = obj.FindChild(key) != null ? 1 : 0;
+        }
+
+        [ScriptMethod("is", "a", "b")]
+        public static void ObjectIsImpl(ScriptVar var, object userData)
+        {
+            var a = var.GetParameter("a");
+            var b = var.GetParameter("b");
+
+            if (a.IsDouble || b.IsDouble)
+            {
+                var da = a.Float;
+                var db = b.Float;
+                if (double.IsNaN(da) && double.IsNaN(db)) { var.ReturnVar.Int = 1; return; }
+                // distinguish +0 and -0
+                if (da == 0.0 && db == 0.0)
+                {
+                    var.ReturnVar.Int = (1.0 / da == 1.0 / db) ? 1 : 0;
+                    return;
+                }
+                var.ReturnVar.Int = da == db ? 1 : 0;
+                return;
+            }
+
+            var.ReturnVar.Int = a.Equal(b) ? 1 : 0;
+        }
+
+        [ScriptMethod("seal", "obj")]
+        public static void ObjectSealImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            obj.AddChildNoDup("__sealed__", new ScriptVar(1));
+            var.ReturnVar = obj;
+        }
+
+        [ScriptMethod("isSealed", "obj")]
+        public static void ObjectIsSealedImpl(ScriptVar var, object userData)
+        {
+            var obj = var.GetParameter("obj");
+            var sealed_ = obj.FindChild("__sealed__");
+            var.ReturnVar.Int = (sealed_ != null && sealed_.Var.Bool) ? 1 : 0;
+        }
+
+        [ScriptMethod("groupBy", "arr", "keyFn")]
+        public static void ObjectGroupByImpl(ScriptVar var, object userData)
+        {
+            var engine = (ScriptEngine)userData;
+            var arr = var.GetParameter("arr");
+            var keyFn = var.GetParameter("keyFn");
+            var len = arr.GetArrayLength();
+
+            var result = new ScriptVar(ScriptVar.Flags.Object);
+            for (var i = 0; i < len; i++)
+            {
+                var elem = arr.GetArrayIndex(i);
+                var key = engine.CallFunction(keyFn, null, elem, new ScriptVar(i)).String;
+
+                var group = result.FindChild(key);
+                if (group == null)
+                {
+                    var newArr = new ScriptVar();
+                    newArr.SetArray();
+                    result.AddChild(key, newArr);
+                    group = result.FindChild(key);
+                }
+                var groupLen = group.Var.GetArrayLength();
+                group.Var.SetArrayIndex(groupLen, elem.DeepCopy());
+            }
+            var.ReturnVar = result;
         }
     }
 }
