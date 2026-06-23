@@ -1631,6 +1631,7 @@ namespace DScript.Vm
                 var argObj = new ScriptVar(ScriptVar.Flags.Array);
                 for (var j = 0; j < (args?.Length ?? 0); j++)
                     argObj.SetArrayIndex(j, BindArg(args, j));
+                if (vmfn.Body.IsStrict) AddStrictArgumentsPoisonPills(argObj);
                 vars.AddChild("arguments", argObj);
             }
 
@@ -1723,6 +1724,7 @@ namespace DScript.Vm
                 var argObj = new ScriptVar(ScriptVar.Flags.Array);
                 for (var j = 0; j < argc; j++)
                     argObj.SetArrayIndex(j, BindArgValue(stack[argBase + j]));
+                if (vmfn.Body.IsStrict) AddStrictArgumentsPoisonPills(argObj);
                 vars.AddChild("arguments", argObj);
             }
 
@@ -1989,6 +1991,22 @@ namespace DScript.Vm
             iterObj.AddChild(WellKnownSymbols.AsyncIterator.GetSymbolKey(), asyncIterSelf);
 
             return iterObj;
+        }
+
+        // Installs poison-pill `callee` and `caller` accessors on the arguments object
+        // for strict-mode functions (ES5 §10.6).
+        private static void AddStrictArgumentsPoisonPills(ScriptVar argObj)
+        {
+            var poison = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            poison.SetCallback((_, _) =>
+                throw new ScriptException("TypeError: 'callee' and 'caller' are not accessible in strict mode"), null);
+
+            var calleeLink = argObj.AddChild("callee", new ScriptVar(ScriptVar.Flags.Undefined));
+            calleeLink.Getter = poison;
+            calleeLink.Setter = poison;
+            var callerLink = argObj.AddChild("caller", new ScriptVar(ScriptVar.Flags.Undefined));
+            callerLink.Getter = poison;
+            callerLink.Setter = poison;
         }
 
         // primitives are passed by value, objects/functions by reference

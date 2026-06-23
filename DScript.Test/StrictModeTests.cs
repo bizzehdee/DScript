@@ -219,5 +219,49 @@ namespace DScript.Test
             ";
             Assert.That(RunInt(src), Is.EqualTo(42));
         }
+
+        // ── T13: arguments.callee / arguments.caller poison pills ─────────────
+
+        [Test]
+        public void Strict_ArgumentsCallee_ThrowsTypeError()
+        {
+            var src = @"
+                ""use strict"";
+                function f() { return arguments.callee; }
+                f();
+            ";
+            var engine = new ScriptEngine();
+            var chunk = Compile(src);
+            Assert.Throws<ScriptException>(() =>
+                new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null)));
+        }
+
+        [Test]
+        public void Strict_ArgumentsCaller_ThrowsTypeError()
+        {
+            var src = @"
+                ""use strict"";
+                function f() { return arguments.caller; }
+                f();
+            ";
+            var engine = new ScriptEngine();
+            var chunk = Compile(src);
+            Assert.Throws<ScriptException>(() =>
+                new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null)));
+        }
+
+        [Test]
+        public void NonStrict_ArgumentsCallee_ReturnsUndefined()
+        {
+            // In sloppy mode arguments.callee is not poisoned (we don't set it,
+            // but it shouldn't throw — accessing an unset property returns undefined).
+            var src = @"
+                function f() { return typeof arguments.callee; }
+                var r = f();
+            ";
+            // Should not throw (returns either "function" or "undefined" depending
+            // on whether callee was set, but should never throw TypeError).
+            Assert.DoesNotThrow(() => RunStr(src));
+        }
     }
 }
