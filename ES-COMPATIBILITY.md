@@ -136,7 +136,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `async` / `await` | ✅ | Async functions, async arrow functions |
 | `Object.entries` | ✅ | |
 | `Object.values` | ✅ | |
-| `Object.getOwnPropertyDescriptors` | ❌ | |
+| `Object.getOwnPropertyDescriptors` | ✅ | |
 | `String.prototype.padStart` / `padEnd` | ✅ | |
 | Trailing commas in function parameter lists | ✅ | |
 | Shared memory and atomics (`SharedArrayBuffer`, `Atomics`) | ❌ | Out of scope — requires multi-threading and typed arrays; see notes |
