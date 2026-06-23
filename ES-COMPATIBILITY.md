@@ -169,7 +169,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Optional `catch` binding (`catch { }`) | ✅ | |
 | `Symbol.prototype.description` | ✅ | |
 | `Array.prototype.sort` stability | ✅ | Backed by .NET's stable sort |
-| `Function.prototype.toString` | ⚠️ | Returns the source string of compiled functions; native functions return an empty string |
+| `Function.prototype.toString` | ✅ | Compiled functions return source; native functions return `function name() { [native code] }` |
 | Well-formed `JSON.stringify` | ✅ | |
 
 ---

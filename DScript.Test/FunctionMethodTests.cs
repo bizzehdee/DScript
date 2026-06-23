@@ -141,5 +141,47 @@ namespace DScript.Test
             ");
             Assert.That(result.String, Is.EqualTo("First"));
         }
+
+        // ── Function.prototype.toString ───────────────────────────────────────
+
+        [Test]
+        public void ToString_CompiledFunctionReturnsSource()
+        {
+            var result = RunScript(@"
+                function add(a, b) { return a + b; }
+                var __result__ = add.toString();
+            ");
+            Assert.That(result.String, Does.Contain("add"));
+        }
+
+        [Test]
+        public void ToString_NativeFunctionContainsNativeCode()
+        {
+            var result = RunScript(@"
+                var __result__ = Math.abs.toString();
+            ");
+            Assert.That(result.String, Does.Contain("[native code]"));
+        }
+
+        [Test]
+        public void ToString_AnonymousFunctionHasEmptyName()
+        {
+            var result = RunScript(@"
+                var fn = function() { return 1; };
+                var __result__ = fn.toString();
+            ");
+            Assert.That(result.String, Does.Contain("function"));
+        }
+
+        [Test]
+        public void ToString_BoundFunctionContainsNativeCode()
+        {
+            var result = RunScript(@"
+                function add(a, b) { return a + b; }
+                var bound = add.bind(null, 1);
+                var __result__ = bound.toString();
+            ");
+            Assert.That(result.String, Does.Contain("[native code]"));
+        }
     }
 }

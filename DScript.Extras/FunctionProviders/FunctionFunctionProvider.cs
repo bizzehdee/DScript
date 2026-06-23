@@ -64,6 +64,24 @@ namespace DScript.Extras.FunctionProviders
             return "";
         }
 
+        [ScriptMethod("toString")]
+        public static void FunctionToStringImpl(ScriptVar scope, object userData)
+        {
+            var fn = scope.GetParameter("this");
+            string result;
+            if (fn.IsNative)
+            {
+                var name = GetFunctionName(fn);
+                result = $"function {name}() {{ [native code] }}";
+            }
+            else
+            {
+                var vmfn = fn.GetData() as Vm.VmFunction;
+                result = vmfn?.Source ?? "function() {}";
+            }
+            scope.ReturnVar = new ScriptVar(result);
+        }
+
         [ScriptMethod("call", "thisArg", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9")]
         public static void FunctionCallImpl(ScriptVar var, object userData)
         {
