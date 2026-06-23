@@ -243,6 +243,106 @@ namespace DScript
             }, null);
             promiseVar.AddChild("reject", rejectFnStatic);
 
+            // Promise.all(arr)
+            var allFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            allFn.AddChild("arr", new ScriptVar(ScriptVar.Flags.Undefined));
+            allFn.SetCallback((scope, _) =>
+            {
+                var arr = scope.FindChild("arr")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var vm2 = new VirtualMachine(this);
+                var len = arr.IsArray ? arr.GetArrayLength() : 0;
+                if (len == 0)
+                {
+                    var emptyArr = new ScriptVar(); emptyArr.SetArray();
+                    scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(
+                        Vm.PromiseObject.Resolved(emptyArr).ToScriptVar(vm2));
+                    return;
+                }
+                var result = new Vm.PromiseObject();
+                var values = new ScriptVar[len];
+                var remaining = new[] { len };
+                for (var i = 0; i < len; i++)
+                {
+                    var idx = i;
+                    var p = Vm.PromiseObject.Wrap(arr.GetArrayIndex(i));
+                    if (p.Status == Vm.PromiseObject.PromiseState.Rejected)
+                    { result.Reject(p.Reason); break; }
+                    p.Then(v => { values[idx] = v; remaining[0]--; if (remaining[0] == 0) { var r = new ScriptVar(); r.SetArray(); for (var j = 0; j < len; j++) r.SetArrayIndex(j, values[j] ?? new ScriptVar(ScriptVar.Flags.Undefined)); result.Resolve(r); } },
+                           reason => result.Reject(reason));
+                }
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result.ToScriptVar(vm2));
+            }, null);
+            promiseVar.AddChild("all", allFn);
+
+            // Promise.allSettled(arr)
+            var allSettledFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            allSettledFn.AddChild("arr", new ScriptVar(ScriptVar.Flags.Undefined));
+            allSettledFn.SetCallback((scope, _) =>
+            {
+                var arr = scope.FindChild("arr")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var vm2 = new VirtualMachine(this);
+                var len = arr.IsArray ? arr.GetArrayLength() : 0;
+                var result = new Vm.PromiseObject();
+                var results = new ScriptVar[len];
+                var remaining = new[] { len == 0 ? -1 : len };
+                if (len == 0) { var emptyArr = new ScriptVar(); emptyArr.SetArray(); result.Resolve(emptyArr); }
+                for (var i = 0; i < len; i++)
+                {
+                    var idx = i;
+                    var p = Vm.PromiseObject.Wrap(arr.GetArrayIndex(i));
+                    Action<ScriptVar, bool> settle = (v, fulfilled) =>
+                    {
+                        var entry = new ScriptVar(ScriptVar.Flags.Object);
+                        entry.AddChild("status", new ScriptVar(fulfilled ? "fulfilled" : "rejected"));
+                        if (fulfilled) entry.AddChild("value", v); else entry.AddChild("reason", v);
+                        results[idx] = entry;
+                        remaining[0]--;
+                        if (remaining[0] == 0) { var r = new ScriptVar(); r.SetArray(); for (var j = 0; j < len; j++) r.SetArrayIndex(j, results[j]); result.Resolve(r); }
+                    };
+                    p.Then(v => settle(v, true), r => settle(r, false));
+                }
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result.ToScriptVar(vm2));
+            }, null);
+            promiseVar.AddChild("allSettled", allSettledFn);
+
+            // Promise.race(arr)
+            var raceFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            raceFn.AddChild("arr", new ScriptVar(ScriptVar.Flags.Undefined));
+            raceFn.SetCallback((scope, _) =>
+            {
+                var arr = scope.FindChild("arr")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var vm2 = new VirtualMachine(this);
+                var len = arr.IsArray ? arr.GetArrayLength() : 0;
+                var result = new Vm.PromiseObject();
+                for (var i = 0; i < len; i++)
+                {
+                    var p = Vm.PromiseObject.Wrap(arr.GetArrayIndex(i));
+                    p.Then(v => result.Resolve(v), r => result.Reject(r));
+                }
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result.ToScriptVar(vm2));
+            }, null);
+            promiseVar.AddChild("race", raceFn);
+
+            // Promise.any(arr)
+            var anyFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            anyFn.AddChild("arr", new ScriptVar(ScriptVar.Flags.Undefined));
+            anyFn.SetCallback((scope, _) =>
+            {
+                var arr = scope.FindChild("arr")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var vm2 = new VirtualMachine(this);
+                var len = arr.IsArray ? arr.GetArrayLength() : 0;
+                var result = new Vm.PromiseObject();
+                var rejectedCount = new[] { 0 };
+                for (var i = 0; i < len; i++)
+                {
+                    var p = Vm.PromiseObject.Wrap(arr.GetArrayIndex(i));
+                    p.Then(v => result.Resolve(v), r => { rejectedCount[0]++; if (rejectedCount[0] == len) result.Reject(new ScriptVar("All promises were rejected")); });
+                }
+                if (len == 0) result.Reject(new ScriptVar("All promises were rejected"));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result.ToScriptVar(vm2));
+            }, null);
+            promiseVar.AddChild("any", anyFn);
+
             Root.AddChild("Promise", promiseVar);
         }
 
