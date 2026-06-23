@@ -1735,7 +1735,14 @@ namespace DScript.Vm
             {
                 var result = InvokeCallable(ctor, instance, args);
                 // a constructor that returns an object replaces the instance
-                if (result != null && result.IsObject) return result;
+                if (result != null && result.IsObject)
+                {
+                    // Propagate the prototype link so instanceof still works
+                    // against the constructor (and its ancestor chain).
+                    if (result.FindChild(ScriptVar.PrototypeClassName) == null)
+                        result.AddChildNoDup(ScriptVar.PrototypeClassName, ctor);
+                    return result;
+                }
             }
 
             return instance;

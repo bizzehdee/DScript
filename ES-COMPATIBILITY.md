@@ -59,7 +59,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Number.parseInt` / `Number.parseFloat` | ✅ | |
 | `Number.EPSILON` / `MAX_SAFE_INTEGER` / `MIN_SAFE_INTEGER` | ✅ | |
 | `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |
-| `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ⚠️ | `Error`, `TypeError`, `RangeError`, `SyntaxError` constructable; `error.message` and `error.name` set; `Error.cause` (ES2022) not implemented; no `stack` trace |
+| `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ✅ | Constructable via `new` or call; `message`, `name`, `stack` set; `instanceof Error` works through prototype chain; `Error.cause` (ES2022) not implemented |
 | `Function.prototype.bind` / `call` / `apply` | ✅ | |
 | Strict mode (`"use strict"`) | ❌ | Parsed and ignored |
 | Eval | ⚠️ | `eval(str)` executes code; indirect eval semantics not guaranteed |
@@ -221,7 +221,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Array.prototype.at` | ✅ | |
 | `String.prototype.at` | ✅ | |
 | `Object.hasOwn(obj, key)` | ✅ | |
-| `Error.cause` | ❌ | `new Error('msg', { cause: err })` — cause is not stored |
+| `Error.cause` | ✅ | `new Error('msg', { cause: err })` — `cause` stored on the error object |
 | `RegExp` `d` (indices) flag | ❌ | |
 | `#x in obj` (ergonomic brand checks) | ❌ | Private field existence check via `in` not implemented |
 

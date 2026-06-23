@@ -56,6 +56,22 @@ namespace DScript.Extras
             BufferRegistrar.Register(engine);
             EventEmitterRegistrar.Register(engine);
             GeneratedFunctionRegistrar.RegisterAll(engine, engine);
+            SetupErrorPrototypeChain(engine);
+        }
+
+        private static void SetupErrorPrototypeChain(ScriptEngine engine)
+        {
+            // Error hierarchy: TypeError/RangeError/etc.prototype → Error
+            // This enables `new TypeError() instanceof Error` by adding a "prototype"
+            // child on each subtype constructor pointing to the Error constructor.
+            var errorCtor = engine.Root.FindChild("Error")?.Var;
+            if (errorCtor == null) return;
+            foreach (var subtype in new[] { "TypeError", "RangeError", "ReferenceError", "SyntaxError", "URIError", "EvalError", "AggregateError" })
+            {
+                var subCtor = engine.Root.FindChild(subtype)?.Var;
+                if (subCtor != null && subCtor.FindChild(ScriptVar.PrototypeClassName) == null)
+                    subCtor.AddChild(ScriptVar.PrototypeClassName, errorCtor);
+            }
         }
 
         /// <summary>

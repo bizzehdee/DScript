@@ -30,7 +30,7 @@ namespace DScript.Extras.FunctionProviders
             var obj = new ScriptVar(ScriptVar.Flags.Object);
             obj.AddChild("name", new ScriptVar(name));
             obj.AddChild("message", new ScriptVar(message));
-            obj.AddChild("stack", new ScriptVar(""));
+            obj.AddChild("stack", new ScriptVar(message.Length > 0 ? $"{name}: {message}" : name));
             return obj;
         }
 
