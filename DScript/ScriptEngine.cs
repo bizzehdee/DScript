@@ -127,6 +127,7 @@ namespace DScript
             BigIntRegistrar.Register(this);
             ReflectRegistrar.Register(this);
             ProxyRegistrar.Register(this);
+            IntlRegistrar.Register(this);
 
             globalEnvironment = new VmEnvironment(Root, null);
         }
