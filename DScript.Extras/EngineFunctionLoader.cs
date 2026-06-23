@@ -44,6 +44,7 @@ namespace DScript.Extras
             MapRegistrar.Register(engine);
             SetRegistrar.Register(engine);
             DateRegistrar.Register(engine);
+            RegExpRegistrar.Register(engine);
             GeneratedFunctionRegistrar.RegisterAll(engine, engine);
         }
 
