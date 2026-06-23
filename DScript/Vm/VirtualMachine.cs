@@ -1076,6 +1076,36 @@ namespace DScript.Vm
                         break;
                     }
 
+                    case OpCode.TaggedTemplate:
+                    {
+                        var numStrings = ReadOperand(code, ref ip);
+                        var numExprs   = ReadOperand(code, ref ip);
+
+                        var exprs = new ScriptVar[numExprs];
+                        for (var k = numExprs - 1; k >= 0; k--)
+                            exprs[k] = Pop();
+
+                        var rawArr = new ScriptVar(ScriptVar.Flags.Array);
+                        for (var k = numStrings - 1; k >= 0; k--)
+                            rawArr.SetArrayIndex(k, Pop());
+
+                        var cookedArr = new ScriptVar(ScriptVar.Flags.Array);
+                        for (var k = numStrings - 1; k >= 0; k--)
+                            cookedArr.SetArrayIndex(k, Pop());
+
+                        cookedArr.AddChild("raw", rawArr);
+
+                        var tag = Pop();
+
+                        var callArgs = new ScriptVar[1 + numExprs];
+                        callArgs[0] = cookedArr;
+                        for (var k = 0; k < numExprs; k++)
+                            callArgs[k + 1] = exprs[k];
+
+                        Push(InvokeCallable(tag, null, callArgs));
+                        break;
+                    }
+
                     case OpCode.Throw:
                     {
                         var ex = new JITException(Pop());
@@ -1323,6 +1353,10 @@ namespace DScript.Vm
                     i++;
                     p = p.Next;
                 }
+                // Bind extra args (beyond declared params) by numeric index so
+                // varargs native functions can access them via GetParameter("1") etc.
+                for (; i < args.Length; i++)
+                    scope.AddChild(i.ToString(), BindArg(args, i));
 
                 var returnLink = scope.AddChild(ScriptVar.ReturnVarName, null);
                 callee.GetCallback()?.Invoke(scope, callee.GetCallbackUserData());

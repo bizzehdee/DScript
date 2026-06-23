@@ -173,5 +173,10 @@ namespace DScript.Vm
         // --- Property accessors (ES5 get/set syntax) ------------------------
         DefineGetter,    // [i nameIndex]  pops fn, peeks obj, defines getter on obj[name]
         DefineSetter,    // [i nameIndex]  pops fn, peeks obj, defines setter on obj[name]
+
+        // --- Tagged template literals (ES2015) -------------------------------
+        // Stack: tag, cooked[0..n-1], raw[0..n-1], expr[0..m-1]
+        // Builds the strings array (with .raw), calls tag(strings, expr0..exprM), pushes result.
+        TaggedTemplate,  // [i numStrings] [i numExprs]
     }
 }

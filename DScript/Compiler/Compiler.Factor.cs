@@ -340,7 +340,8 @@ namespace DScript.Compiler
         private void CompileMemberChain(bool canAssign)
         {
             while (lexer.TokenType is (ScriptLex.LexTypes)'.' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'('
-                                   or ScriptLex.LexTypes.QuestionDot)
+                                   or ScriptLex.LexTypes.QuestionDot
+                                   or ScriptLex.LexTypes.TemplateLiteral)
             {
                 // Optional chaining: `?.` — skip the access if the base is null/undefined.
                 // JumpIfNullOrUndefined: pop; if null/undef push undefined + jump to end; else push back.
@@ -582,6 +583,10 @@ namespace DScript.Compiler
                     }
 
                     chunk.Emit(OpCode.GetIndex);
+                }
+                else if (lexer.TokenType == ScriptLex.LexTypes.TemplateLiteral)
+                {
+                    CompileTaggedTemplateLiteralCall();
                 }
                 else // '(' : call the value already on the stack (this = undefined)
                 {
@@ -944,41 +949,42 @@ namespace DScript.Compiler
             finallyStack = savedFinally;
         }
 
-        // Compile a template literal `...${expr}...` into a sequence of string
-        // constants and expressions joined by the + (string-concatenation) operator.
-        private void CompileTemplateLiteral()
+        // Parse the raw template string into alternating (cooked, raw, isExpr) segments.
+        // Returns list of (isExpr: bool, cooked: string, raw: string) tuples.
+        // Literal segments have isExpr=false; expression segments have isExpr=true and
+        // contain the expression source in 'cooked' (raw is unused for expressions).
+        private static System.Collections.Generic.List<(bool IsExpr, string Cooked, string Raw)>
+            ParseTemplateParts(string raw)
         {
-            var raw = lexer.TokenString;
-            lexer.Match(ScriptLex.LexTypes.TemplateLiteral);
-
-            // Split raw into alternating literal/expression segments and collect them.
-            var parts = new System.Collections.Generic.List<(bool IsExpr, string Text)>();
-            var sb = new System.Text.StringBuilder();
+            var parts = new System.Collections.Generic.List<(bool, string, string)>();
+            var cooked = new System.Text.StringBuilder();
+            var rawSeg = new System.Text.StringBuilder();
             var i = 0;
 
             while (i < raw.Length)
             {
                 if (raw[i] == '\\' && i + 1 < raw.Length)
                 {
+                    rawSeg.Append('\\');
+                    rawSeg.Append(raw[i + 1]);
                     switch (raw[i + 1])
                     {
-                        case 'n':  sb.Append('\n'); break;
-                        case 'r':  sb.Append('\r'); break;
-                        case 't':  sb.Append('\t'); break;
-                        case '\\': sb.Append('\\'); break;
-                        case '`':  sb.Append('`');  break;
-                        case '$':  sb.Append('$');  break; // \$ → literal, no interpolation
-                        default:   sb.Append('\\'); sb.Append(raw[i + 1]); break;
+                        case 'n':  cooked.Append('\n'); break;
+                        case 'r':  cooked.Append('\r'); break;
+                        case 't':  cooked.Append('\t'); break;
+                        case '\\': cooked.Append('\\'); break;
+                        case '`':  cooked.Append('`');  break;
+                        case '$':  cooked.Append('$');  break;
+                        default:   cooked.Append('\\'); cooked.Append(raw[i + 1]); break;
                     }
                     i += 2;
                 }
                 else if (raw[i] == '$' && i + 1 < raw.Length && raw[i + 1] == '{')
                 {
-                    parts.Add((false, sb.ToString()));
-                    sb.Clear();
-                    i += 2; // skip '${'
-
-                    // Find matching '}', tracking { } depth.
+                    parts.Add((false, cooked.ToString(), rawSeg.ToString()));
+                    cooked.Clear();
+                    rawSeg.Clear();
+                    i += 2;
                     int depth = 1, exprStart = i;
                     while (i < raw.Length && depth > 0)
                     {
@@ -986,40 +992,91 @@ namespace DScript.Compiler
                         else if (raw[i] == '}') { if (--depth == 0) break; }
                         i++;
                     }
-                    parts.Add((true, raw.Substring(exprStart, i - exprStart)));
-                    if (i < raw.Length) i++; // skip '}'
+                    parts.Add((true, raw.Substring(exprStart, i - exprStart), string.Empty));
+                    if (i < raw.Length) i++;
                 }
                 else
                 {
-                    sb.Append(raw[i]);
+                    rawSeg.Append(raw[i]);
+                    cooked.Append(raw[i]);
                     i++;
                 }
             }
-            parts.Add((false, sb.ToString())); // trailing literal (possibly empty)
+            parts.Add((false, cooked.ToString(), rawSeg.ToString()));
+            return parts;
+        }
+
+        // Compile a tagged template call: tag`...${expr}...`
+        // The tag function is already on the stack; this method emits the strings
+        // array (with .raw), each expression value, and a TaggedTemplate opcode.
+        private void CompileTaggedTemplateLiteralCall()
+        {
+            var raw = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.TemplateLiteral);
+
+            var parts = ParseTemplateParts(raw);
+
+            // Separate literal and expression parts
+            var literals = new System.Collections.Generic.List<(string Cooked, string Raw)>();
+            var exprTexts = new System.Collections.Generic.List<string>();
+            foreach (var (isExpr, cooked, rawStr) in parts)
+            {
+                if (isExpr) exprTexts.Add(cooked);
+                else literals.Add((cooked, rawStr));
+            }
+
+            // Emit cooked strings
+            foreach (var (cookedStr, _) in literals)
+                chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.String(cookedStr)));
+
+            // Emit raw strings
+            foreach (var (_, rawStr) in literals)
+                chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.String(rawStr)));
+
+            // Compile each expression
+            foreach (var exprText in exprTexts)
+            {
+                var savedLexer = lexer;
+                using var subLexer = new ScriptLex(exprText);
+                lexer = subLexer;
+                CompileBase();
+                lexer = savedLexer;
+            }
+
+            chunk.Emit(OpCode.TaggedTemplate, literals.Count, exprTexts.Count);
+        }
+
+        // Compile a template literal `...${expr}...` into a sequence of string
+        // constants and expressions joined by the + (string-concatenation) operator.
+        private void CompileTemplateLiteral()
+        {
+            var rawStr = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.TemplateLiteral);
+
+            var parts = ParseTemplateParts(rawStr);
 
             // Emit code: push each part; concatenate all with Binary '+'.
-            // Skip leading/trailing empty literal strings where possible.
+            // Skip subsequent empty literal strings between/after expressions.
             var emitted = 0;
-            foreach (var (isExpr, text) in parts)
+            foreach (var (isExpr, cooked, _) in parts)
             {
                 if (isExpr)
                 {
                     var savedLexer = lexer;
-                    using var subLexer = new ScriptLex(text);
+                    using var subLexer = new ScriptLex(cooked);
                     lexer = subLexer;
                     CompileBase();
                     lexer = savedLexer;
                 }
-                else if (emitted == 0 || text.Length > 0)
+                else if (emitted == 0 || cooked.Length > 0)
                 {
                     // Always emit the first part (even if empty) to guarantee a string
                     // is on the stack; skip subsequent empty literal segments.
                     chunk.Emit(OpCode.Constant,
-                        chunk.AddConstant(ConstantValue.String(text)));
+                        chunk.AddConstant(ConstantValue.String(cooked)));
                 }
                 else
                 {
-                    // Empty literal segment between/after expressions: skip it.
                     continue;
                 }
 

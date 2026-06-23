@@ -78,7 +78,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Spread in array literals (`[...a, ...b]`) | ✅ | |
 | Object spread (`{...obj}`) | ✅ | |
 | Template literals (tagged and untagged) | ✅ | Nested expressions supported |
-| Tagged template literals | ⚠️ | Untagged fully supported; tagged templates (function call on a template) compile but tag function receives a flat string, not a `strings` array with `raw` |
+| Tagged template literals | ✅ | Tag receives `strings` array with `.raw` property; interpolated values passed as further args |
 | Array destructuring | ✅ | Including rest element and defaults |
 | Object destructuring | ✅ | Including rename, nested, and defaults |
 | Destructuring in parameters | ✅ | |
@@ -112,7 +112,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Array.prototype.keys` / `values` / `entries` | ✅ | |
 | `Object.assign` | ✅ | |
 | `Object.is` | ✅ | |
-| `String.raw` | ❌ | |
+| `String.raw` | ✅ | Works as a template tag; raw strings preserve escape sequences |
 | `String.fromCharCode` / `fromCodePoint` | ✅ | |
 | `Number.EPSILON` etc. | ✅ | |
 | Binary (`0b`) and octal (`0o`) literals | ✅ | |

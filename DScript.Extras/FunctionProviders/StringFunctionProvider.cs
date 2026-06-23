@@ -461,5 +461,26 @@ namespace DScript.Extras.FunctionProviders
             var code = var.GetParameter("code").Int;
             var.ReturnVar.String = char.ConvertFromUtf32(code);
         }
+
+        // String.raw is called by the VM as: String.raw(stringsArr, sub0, sub1, ...)
+        // Extra substitutions beyond the first named param are bound as "1", "2", etc.
+        [ScriptMethod("raw", "callSite")]
+        public static void StringRawImpl(ScriptVar var, object userData)
+        {
+            var callSite = var.GetParameter("callSite");
+            var rawArr = callSite.FindChild("raw")?.Var;
+            if (rawArr == null) { var.ReturnVar.SetUndefined(); return; }
+
+            var numStrings = rawArr.GetArrayLength();
+            var sb = new System.Text.StringBuilder();
+            for (var i = 0; i < numStrings; i++)
+            {
+                sb.Append(rawArr.GetArrayIndex(i).String);
+                // Substitution i is at callArgs index i+1, bound as numeric name i+1
+                var sub = var.GetParameter((i + 1).ToString());
+                if (!sub.IsUndefined) sb.Append(sub.String);
+            }
+            var.ReturnVar.String = sb.ToString();
+        }
     }
 }
