@@ -142,3 +142,15 @@ dotnet build --configuration Release
 ```
 
 Both `net8.0` and `net10.0` targets must build cleanly with zero errors.
+
+## Safety: avoid circular references and resource exhaustion
+
+DScript's `ScriptVar` tree is the live object graph. Introducing cycles into it (e.g. making a variable a child of itself, or registering the root object as a named variable inside itself) will cause any tree-walk operation — printing, serialisation, GC, or test assertions — to recurse infinitely and exhaust the stack or heap, crashing the process.
+
+**Rules to follow:**
+
+- **Never add a node as a child of itself.** Do not call `root.AddChild("name", root)` or any equivalent.
+- **`globalThis` must not be a real child node of root.** The canonical fix is to intercept the `GetVar "globalThis"` opcode in the VM and push the root directly, without registering a child.  
+- **Prototype chains must be acyclic.** Setting `A.prototype = A` or creating longer cycles will loop forever in `FindInParentClasses`.
+- **Before adding a new `ScriptVar` relationship** (child, prototype, closure upvalue), ask: is there any code path that could cause this node to reach itself transitively? If yes, do not create the relationship.
+- **Test: run the full suite after adding any new VM object graph wiring.** A test that consumes all RAM instead of completing is a symptom of a cycle.
