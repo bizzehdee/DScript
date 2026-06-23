@@ -37,6 +37,70 @@ namespace DScript
         // Cache compiled regex patterns to avoid recompilation (performance optimization)
         private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
 
+        // Mapping from JS Unicode property names to .NET \p{} category codes.
+        private static readonly System.Collections.Generic.Dictionary<string, string> UnicodePropertyMap
+            = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["Letter"] = "L",            ["L"] = "L",
+            ["Number"] = "N",            ["N"] = "N",
+            ["Mark"] = "M",              ["M"] = "M",
+            ["Punctuation"] = "P",       ["P"] = "P",
+            ["Symbol"] = "S",            ["S"] = "S",
+            ["Separator"] = "Z",         ["Z"] = "Z",
+            ["Other"] = "C",             ["C"] = "C",
+            ["Uppercase_Letter"] = "Lu", ["Lu"] = "Lu",
+            ["Lowercase_Letter"] = "Ll", ["Ll"] = "Ll",
+            ["Titlecase_Letter"] = "Lt", ["Lt"] = "Lt",
+            ["Modifier_Letter"] = "Lm",  ["Lm"] = "Lm",
+            ["Other_Letter"] = "Lo",     ["Lo"] = "Lo",
+            ["Nonspacing_Mark"] = "Mn",  ["Mn"] = "Mn",
+            ["Spacing_Mark"] = "Mc",     ["Mc"] = "Mc",
+            ["Enclosing_Mark"] = "Me",   ["Me"] = "Me",
+            ["Decimal_Number"] = "Nd",   ["Nd"] = "Nd",
+            ["Letter_Number"] = "Nl",    ["Nl"] = "Nl",
+            ["Other_Number"] = "No",     ["No"] = "No",
+            ["Connector_Punctuation"] = "Pc", ["Pc"] = "Pc",
+            ["Dash_Punctuation"] = "Pd", ["Pd"] = "Pd",
+            ["Open_Punctuation"] = "Ps", ["Ps"] = "Ps",
+            ["Close_Punctuation"] = "Pe",["Pe"] = "Pe",
+            ["Initial_Punctuation"] = "Pi",["Pi"] = "Pi",
+            ["Final_Punctuation"] = "Pf",["Pf"] = "Pf",
+            ["Other_Punctuation"] = "Po",["Po"] = "Po",
+            ["Math_Symbol"] = "Sm",      ["Sm"] = "Sm",
+            ["Currency_Symbol"] = "Sc",  ["Sc"] = "Sc",
+            ["Modifier_Symbol"] = "Sk",  ["Sk"] = "Sk",
+            ["Other_Symbol"] = "So",     ["So"] = "So",
+            ["Space_Separator"] = "Zs",  ["Zs"] = "Zs",
+            ["Line_Separator"] = "Zl",   ["Zl"] = "Zl",
+            ["Paragraph_Separator"] = "Zp", ["Zp"] = "Zp",
+            ["Space"] = "Zs",
+            ["ASCII"] = "IsBasicLatin",
+            ["Alpha"] = "L",
+        };
+
+        /// <summary>
+        /// Translates JS Unicode property escapes (\p{Name}) to .NET equivalents.
+        /// Call this when the u or v flag is present.
+        /// </summary>
+        public static string TranslateUnicodeProperties(string pattern)
+        {
+            return Regex.Replace(pattern, @"\\([pP])\{([^}]+)\}", m =>
+            {
+                var isLower = m.Groups[1].Value == "p";
+                var name = m.Groups[2].Value;
+                string dotNetName;
+                if (name.StartsWith("Script=", System.StringComparison.OrdinalIgnoreCase))
+                    dotNetName = "Is" + name.Substring(7);
+                else if (name.StartsWith("Script_Extensions=", System.StringComparison.OrdinalIgnoreCase))
+                    dotNetName = "Is" + name.Substring(18);
+                else if (UnicodePropertyMap.TryGetValue(name, out var mapped))
+                    dotNetName = mapped;
+                else
+                    dotNetName = name; // pass through unchanged; .NET may or may not support it
+                return isLower ? $"\\p{{{dotNetName}}}" : $"\\P{{{dotNetName}}}";
+            });
+        }
+
         // RegexOptions.Compiled emits IL at runtime via Reflection.Emit, which
         // Native AOT cannot do (the runtime silently ignores it there). Script
         // regex patterns are supplied at runtime, so the [GeneratedRegex] source
@@ -272,6 +336,7 @@ namespace DScript
                 var regexOpts = RegexOptions.ECMAScript | CompiledIfSupported;
 
                 var hasIndices = false;
+                var hasUnicode = false;
                 foreach (var c in opts)
                 {
                     switch (c)
@@ -282,12 +347,25 @@ namespace DScript
                         case 'm':
                             regexOpts |= RegexOptions.Multiline;
                             break;
+                        case 's':
+                            regexOpts |= RegexOptions.Singleline;
+                            break;
                         case 'd':
                             hasIndices = true;
+                            break;
+                        case 'u':
+                        case 'v':
+                            hasUnicode = true;
                             break;
                     }
                 }
                 if (hasIndices) intData |= 1;
+                if (hasUnicode)
+                {
+                    regexOpts &= ~RegexOptions.ECMAScript;
+                    regexOpts |= RegexOptions.CultureInvariant;
+                    regexStr = TranslateUnicodeProperties(regexStr);
+                }
 
                 // Use cache key combining pattern and options
                 var cacheKey = $"{regexStr}|{regexOpts}";

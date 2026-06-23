@@ -389,5 +389,39 @@ namespace DScript.Test
             engine.Execute("var re = new RegExp('ab(c)', 'd'); var m = 'xabcy'.match(re); var result = m.indices[0][0];");
             Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(1));
         }
+
+        // --- u flag (Unicode property escapes) ---
+
+        [Test]
+        public void UFlag_MatchesUnicodeLetterCategory()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('\\\\p{L}+', 'u'); var m = re.exec('hello'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("hello"));
+        }
+
+        [Test]
+        public void UFlag_UppercaseLetterCategory()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('\\\\p{Lu}', 'u'); var m = re.exec('Hello'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("H"));
+        }
+
+        [Test]
+        public void UFlag_NegatedCategory()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('\\\\P{N}+', 'u'); var m = re.exec('abc123'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("abc"));
+        }
+
+        [Test]
+        public void UFlag_DecimalNumberCategory()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('\\\\p{Decimal_Number}+', 'u'); var m = re.exec('abc123def'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("123"));
+        }
     }
 }

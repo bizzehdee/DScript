@@ -41,6 +41,7 @@ namespace DScript.Extras
                 var global = false;
                 var hasS = false;
                 var hasIndices = false;
+                var hasUnicode = false;
                 foreach (var c in flags)
                 {
                     switch (c)
@@ -50,15 +51,20 @@ namespace DScript.Extras
                         case 's': opts |= RegexOptions.Singleline; hasS = true; break;
                         case 'g': global = true; break;
                         case 'd': hasIndices = true; break;
-                        // 'u' and 'v' are accepted and stored but map to no extra .NET option
+                        case 'u': case 'v': hasUnicode = true; break;
                     }
                 }
+
+                var translatedPattern = hasUnicode
+                    ? ScriptVar.TranslateUnicodeProperties(pattern)
+                    : pattern;
+                if (hasUnicode) opts |= RegexOptions.CultureInvariant;
 
                 // Produce the sorted canonical flags string (ES spec order: d,g,i,m,s,u,v,y)
                 var sortedFlags = string.Concat(
                     System.Linq.Enumerable.Where("dgimsuyv", f => flags.Contains(f)));
 
-                var regex = new Regex(pattern, opts);
+                var regex = new Regex(translatedPattern, opts);
                 var thisVar = scope.FindChild("this")?.Var;
                 if (thisVar != null)
                 {

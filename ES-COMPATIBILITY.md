@@ -153,7 +153,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Rest/spread in object literals | ✅ | |
 | Named capture groups in RegExp | ✅ | `(?<name>...)` syntax; `.groups` on exec/match result |
 | `s` (dotAll) RegExp flag | ✅ | `dotAll` property exposed on RegExp instances |
-| Unicode property escapes in RegExp (`\p{...}`) | ❌ | |
+| Unicode property escapes in RegExp (`\p{...}`) | ✅ | `u`/`v` flag accepted; `\p{Category}`, `\p{Script=X}`, and two-letter Unicode category codes translated to .NET equivalents |
 | Lookbehind assertions in RegExp | ✅ | `(?<=...)` and `(?<!...)` both supported |
 
 ---
@@ -304,7 +304,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 
 ## Known limitations and out-of-scope features
 
-- **Regular expression advanced features**: Unicode property escapes (`\p{...}`) and the `d`/`v` flags are not supported.
+- **Regular expression `v` flag sticky semantics**: The `v` flag is accepted and triggers Unicode property escape translation but does not implement the full set-notation difference from `u` (e.g. `[A--Z]` syntax is not supported).
 - **Typed arrays** (`Uint8Array`, `Int32Array`, `Float64Array`, etc.): Not implemented.
 - **ArrayBuffer** / **SharedArrayBuffer** / **Atomics**: Will not be implemented. `SharedArrayBuffer` requires multiple concurrently-executing VM instances sharing an address space, and `Atomics` only operates through typed array views. DScript is a single-threaded embedded engine with no Worker/thread model, so there is nothing to synchronise across. The prerequisites (typed arrays, thread-safe `ScriptVar` and scope chain, `Atomics.wait` blocking without deadlocking the host) make this impractical without a fundamental redesign of the engine.
 - **Async generators** (`async function*`) and `for await...of`: Not implemented.
