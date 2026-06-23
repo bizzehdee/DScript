@@ -214,6 +214,14 @@ namespace DScript
                 {
                     intData = Convert.ToInt32(val, 16);
                 }
+                else if (val.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
+                {
+                    intData = Convert.ToInt32(val.Substring(2), 2);
+                }
+                else if (val.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
+                {
+                    intData = Convert.ToInt32(val.Substring(2), 8);
+                }
                 else if(val.StartsWith("0", StringComparison.OrdinalIgnoreCase))
                 {
                     intData = Convert.ToInt32(val, 8);
@@ -1116,7 +1124,7 @@ namespace DScript
             // Write children count
             var childCount = GetChildren();
             writer.Write(childCount);
-            
+
             // Write each child
             var link = FirstChild;
             while (link != null)

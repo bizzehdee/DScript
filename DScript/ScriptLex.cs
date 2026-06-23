@@ -334,56 +334,115 @@ namespace DScript
             {
                 tokenBuilder.Clear();
                 var isHex = false;
+                var isBinary = false;
+                var isOctal = false;
+
                 if (CurrentChar == '0')
                 {
                     tokenBuilder.Append(CurrentChar);
                     GetNextChar();
                 }
 
-                if (CurrentChar == 'x')
+                if (CurrentChar == 'x' || CurrentChar == 'X')
                 {
                     isHex = true;
                     tokenBuilder.Append(CurrentChar);
                     GetNextChar();
+                    if (CurrentChar == '_') throw new ScriptException("Numeric separator cannot appear after 0x prefix");
+                }
+                else if (CurrentChar == 'b' || CurrentChar == 'B')
+                {
+                    isBinary = true;
+                    tokenBuilder.Append(CurrentChar);
+                    GetNextChar();
+                    if (CurrentChar == '_') throw new ScriptException("Numeric separator cannot appear after 0b prefix");
+                }
+                else if (CurrentChar == 'o' || CurrentChar == 'O')
+                {
+                    isOctal = true;
+                    tokenBuilder.Append(CurrentChar);
+                    GetNextChar();
+                    if (CurrentChar == '_') throw new ScriptException("Numeric separator cannot appear after 0o prefix");
                 }
 
                 TokenType = LexTypes.Int;
 
-                while (CurrentChar.IsNumeric() || (isHex && CurrentChar.IsHexadecimal()))
+                // Read integer digits, skipping numeric separators
+                var prevWasSep = false;
+                while (true)
                 {
+                    if (CurrentChar == '_')
+                    {
+                        if (prevWasSep) throw new ScriptException("Consecutive numeric separators are not allowed");
+                        prevWasSep = true;
+                        GetNextChar();
+                        continue;
+                    }
+                    bool valid = isHex    ? CurrentChar.IsHexadecimal() :
+                                 isBinary ? (CurrentChar == '0' || CurrentChar == '1') :
+                                 isOctal  ? (CurrentChar >= '0' && CurrentChar <= '7') :
+                                            CurrentChar.IsNumeric();
+                    if (!valid) break;
+                    prevWasSep = false;
                     tokenBuilder.Append(CurrentChar);
                     GetNextChar();
                 }
+                if (prevWasSep) throw new ScriptException("Numeric separator cannot appear at the end of a numeric literal");
 
-                if (!isHex && CurrentChar == '.')
+                if (!isHex && !isBinary && !isOctal && CurrentChar == '.')
                 {
                     TokenType = LexTypes.Float;
                     tokenBuilder.Append('.');
                     GetNextChar();
-                    while (CurrentChar.IsNumeric())
+                    if (CurrentChar == '_') throw new ScriptException("Numeric separator cannot appear after decimal point");
+                    prevWasSep = false;
+                    while (true)
                     {
+                        if (CurrentChar == '_')
+                        {
+                            if (prevWasSep) throw new ScriptException("Consecutive numeric separators are not allowed");
+                            prevWasSep = true;
+                            GetNextChar();
+                            continue;
+                        }
+                        if (!CurrentChar.IsNumeric()) break;
+                        prevWasSep = false;
                         tokenBuilder.Append(CurrentChar);
                         GetNextChar();
                     }
+                    if (prevWasSep) throw new ScriptException("Numeric separator cannot appear at the end of a numeric literal");
                 }
 
-                if (!isHex && (CurrentChar == 'e' || CurrentChar == 'E'))
+                if (!isHex && !isBinary && !isOctal && (CurrentChar == 'e' || CurrentChar == 'E'))
                 {
                     TokenType = LexTypes.Float;
                     tokenBuilder.Append(CurrentChar);
                     GetNextChar();
-                    if (CurrentChar == '-')
+                    if (CurrentChar == '_') throw new ScriptException("Numeric separator cannot appear after exponent marker");
+                    if (CurrentChar == '-' || CurrentChar == '+')
                     {
                         tokenBuilder.Append(CurrentChar);
                         GetNextChar();
                     }
-                    while (CurrentChar.IsNumeric())
+                    if (CurrentChar == '_') throw new ScriptException("Numeric separator cannot appear after exponent marker");
+                    prevWasSep = false;
+                    while (true)
                     {
+                        if (CurrentChar == '_')
+                        {
+                            if (prevWasSep) throw new ScriptException("Consecutive numeric separators are not allowed");
+                            prevWasSep = true;
+                            GetNextChar();
+                            continue;
+                        }
+                        if (!CurrentChar.IsNumeric()) break;
+                        prevWasSep = false;
                         tokenBuilder.Append(CurrentChar);
                         GetNextChar();
                     }
+                    if (prevWasSep) throw new ScriptException("Numeric separator cannot appear at the end of a numeric literal");
                 }
-                
+
                 TokenString = tokenBuilder.ToString();
             }
             else if (CurrentChar == '`') // Template literal — store raw content, compiler handles interpolation
