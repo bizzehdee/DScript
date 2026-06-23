@@ -20,6 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 namespace DScript
@@ -36,6 +37,7 @@ namespace DScript
             return ch is >= '0' and <= '9';
         }
 
+        [ExcludeFromCodeCoverage] // dead code — no callers in this assembly; InternalsVisibleTo not configured
         internal static bool IsNumber(this string str)
         {
             foreach (var ch in str)
@@ -55,6 +57,7 @@ namespace DScript
             return ch is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or '_' or '$';
         }
 
+        [ExcludeFromCodeCoverage] // dead code — no callers in this assembly; InternalsVisibleTo not configured
         internal static bool IsIDString(this string str)
         {
             foreach (var ch in str)

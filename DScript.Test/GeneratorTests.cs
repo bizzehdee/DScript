@@ -146,5 +146,39 @@ namespace DScript.Test
             ";
             Assert.That(RunInt(src), Is.EqualTo(30)); // 10+20
         }
+
+        [Test]
+        public void Generator_ExhaustedCallsNextAgain_ReturnsDone()
+        {
+            // Calling .next() after the generator is exhausted must keep returning {done: true}.
+            var src = @"
+                function* gen() { yield 1; }
+                var it = gen();
+                it.next();   // exhausts generator (yield 1)
+                it.next();   // one past end -> done=true
+                var res = it.next();
+                var r = '';
+                if (res.done) r += 'done';
+            ";
+            Assert.That(RunStr(src), Is.EqualTo("done"));
+        }
+
+        [Test]
+        public void Generator_ThrowsInBody_PropagatesAsScriptException()
+        {
+            // An unhandled error inside the generator body should propagate to
+            // the caller as a ScriptException (via GeneratorObject.Next error path).
+            var src = @"
+                function* bad() { throw 'boom'; yield 0; }
+                var it = bad();
+                try {
+                    it.next();
+                    var r = 'nothrown';
+                } catch(e) {
+                    var r = 'caught';
+                }
+            ";
+            Assert.That(RunStr(src), Is.EqualTo("caught"));
+        }
     }
 }

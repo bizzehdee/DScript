@@ -67,5 +67,18 @@ namespace DScript.Test
         {
             Assert.That(() => BytecodeSerializer.Load(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }), Throws.TypeOf<ScriptException>());
         }
+
+        [Test]
+        public void RoundTrips_RegexVar_TypeIsPreserved()
+        {
+            // Serializing a ScriptVar that contains a regex value must round-trip
+            // through the IsRegexp branch in Serialize/Deserialize.
+            var engine = new ScriptEngine();
+            var compiled = ScriptEngine.Compile("var rx = /hello/;");
+            var bytes = BytecodeSerializer.Save(compiled);
+            var loaded = BytecodeSerializer.Load(bytes);
+            engine.Run(loaded);
+            Assert.That(engine.Root.GetParameter("rx").IsRegexp, Is.True);
+        }
     }
 }
