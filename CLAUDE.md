@@ -125,6 +125,13 @@ Record the `best ms` column for each workload. Variance between runs is normal; 
 
 - Match the style of the surrounding file (existing indentation, brace placement, `var` usage)
 - No new warnings. The CI treats warnings as informational but all `CA*` and `CS*` warnings shown in CI output must be resolved before merging
+- Follow **SOLID** and **DRY** principles where practical:
+  - **Single Responsibility**: each class/method has one reason to change
+  - **Open/Closed**: extend behaviour without modifying existing code where possible
+  - **Liskov Substitution**: subtypes must be substitutable for their base types
+  - **Interface Segregation**: prefer small, focused interfaces over large ones
+  - **Dependency Inversion**: depend on abstractions, not concretions
+  - **DRY (Don't Repeat Yourself)**: extract shared logic into helpers; avoid duplicating non-trivial code across files or methods
 - Do not suppress warnings with `#pragma warning disable` without a comment explaining why
 
 ## Commit messages
