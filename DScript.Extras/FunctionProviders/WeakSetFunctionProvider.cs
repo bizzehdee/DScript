@@ -28,12 +28,19 @@ namespace DScript.Extras.FunctionProviders
         private static WeakSetObject GetSet(ScriptVar thisVar)
             => thisVar.GetData() as WeakSetObject ?? new WeakSetObject();
 
+        private static void RequireObjectValue(ScriptVar value)
+        {
+            if (!value.IsObject && !value.IsArray && !value.IsFunction)
+                throw new ScriptException("TypeError: WeakSet value must be an object");
+        }
+
         [ScriptMethod("add", "value")]
         public static void WeakSetAddImpl(ScriptVar var, object userData)
         {
+            var value = var.GetParameter("value");
+            RequireObjectValue(value);
             var thisVar = var.GetParameter("this");
             var set = GetSet(thisVar);
-            var value = var.GetParameter("value");
             set.Data.Add(value);
             var.ReturnVar = thisVar;
         }
@@ -41,16 +48,18 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("has", "value")]
         public static void WeakSetHasImpl(ScriptVar var, object userData)
         {
-            var set = GetSet(var.GetParameter("this"));
             var value = var.GetParameter("value");
+            RequireObjectValue(value);
+            var set = GetSet(var.GetParameter("this"));
             var.ReturnVar.Int = set.Data.Contains(value) ? 1 : 0;
         }
 
         [ScriptMethod("delete", "value")]
         public static void WeakSetDeleteImpl(ScriptVar var, object userData)
         {
-            var set = GetSet(var.GetParameter("this"));
             var value = var.GetParameter("value");
+            RequireObjectValue(value);
+            var set = GetSet(var.GetParameter("this"));
             var.ReturnVar.Int = set.Data.Remove(value) ? 1 : 0;
         }
     }

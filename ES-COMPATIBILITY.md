@@ -96,8 +96,8 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Generators (`function*`, `yield`) | ✅ | Including `yield*` delegation |
 | `Map` | ✅ | |
 | `Set` | ✅ | |
-| `WeakMap` | ❌ | |
-| `WeakSet` | ❌ | |
+| `WeakMap` | ✅ | `set`/`get`/`has`/`delete`; primitive keys throw `TypeError` |
+| `WeakSet` | ✅ | `add`/`has`/`delete`; primitive values throw `TypeError` |
 | `Proxy` | ✅ | get, set, has, deleteProperty, apply, construct, ownKeys traps |
 | `Proxy.revocable` | ✅ | |
 | `Reflect` | ✅ | apply, construct, get, set, has, deleteProperty, ownKeys, defineProperty, getOwnPropertyDescriptor, getPrototypeOf, setPrototypeOf, isExtensible, preventExtensions |

@@ -28,11 +28,18 @@ namespace DScript.Extras.FunctionProviders
         private static WeakMapObject GetMap(ScriptVar thisVar)
             => thisVar.GetData() as WeakMapObject ?? new WeakMapObject();
 
+        private static void RequireObjectKey(ScriptVar key)
+        {
+            if (!key.IsObject && !key.IsArray && !key.IsFunction)
+                throw new ScriptException("TypeError: WeakMap key must be an object");
+        }
+
         [ScriptMethod("get", "key")]
         public static void WeakMapGetImpl(ScriptVar var, object userData)
         {
-            var map = GetMap(var.GetParameter("this"));
             var key = var.GetParameter("key");
+            RequireObjectKey(key);
+            var map = GetMap(var.GetParameter("this"));
             if (map.Data.TryGetValue(key, out var val))
                 var.ReturnVar = val;
             else
@@ -42,9 +49,10 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("set", "key", "val")]
         public static void WeakMapSetImpl(ScriptVar var, object userData)
         {
+            var key = var.GetParameter("key");
+            RequireObjectKey(key);
             var thisVar = var.GetParameter("this");
             var map = GetMap(thisVar);
-            var key = var.GetParameter("key");
             var val = var.GetParameter("val").DeepCopy();
             map.Data[key] = val;
             var.ReturnVar = thisVar;
@@ -53,16 +61,18 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("has", "key")]
         public static void WeakMapHasImpl(ScriptVar var, object userData)
         {
-            var map = GetMap(var.GetParameter("this"));
             var key = var.GetParameter("key");
+            RequireObjectKey(key);
+            var map = GetMap(var.GetParameter("this"));
             var.ReturnVar.Int = map.Data.ContainsKey(key) ? 1 : 0;
         }
 
         [ScriptMethod("delete", "key")]
         public static void WeakMapDeleteImpl(ScriptVar var, object userData)
         {
-            var map = GetMap(var.GetParameter("this"));
             var key = var.GetParameter("key");
+            RequireObjectKey(key);
+            var map = GetMap(var.GetParameter("this"));
             var.ReturnVar.Int = map.Data.Remove(key) ? 1 : 0;
         }
     }

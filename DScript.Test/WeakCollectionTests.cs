@@ -22,6 +22,7 @@ SOFTWARE.
 
 using DScript.Extras;
 using NUnit.Framework;
+using DScript;
 
 namespace DScript.Test
 {
@@ -113,6 +114,15 @@ __result__ = wm.get(k1) + wm.get(k2);
             Assert.That(r, Is.EqualTo(3));
         }
 
+        [Test]
+        public void WeakMap_PrimitiveKeyThrowsScriptException()
+        {
+            var engine = new ScriptEngine();
+            new EngineFunctionLoader().RegisterFunctions(engine);
+            var chunk = ScriptEngine.Compile("var wm = new WeakMap(); wm.set(42, 'v');");
+            Assert.Throws<ScriptException>(() => engine.Run(chunk));
+        }
+
         // -------------------------------------------------------------------
         // WeakSet
         // -------------------------------------------------------------------
@@ -164,6 +174,15 @@ ws.add(o1);
 __result__ = (ws.has(o1) && !ws.has(o2)) ? 1 : 0;
 ").Int;
             Assert.That(r, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void WeakSet_PrimitiveValueThrowsScriptException()
+        {
+            var engine = new ScriptEngine();
+            new EngineFunctionLoader().RegisterFunctions(engine);
+            var chunk = ScriptEngine.Compile("var ws = new WeakSet(); ws.add('hello');");
+            Assert.Throws<ScriptException>(() => engine.Run(chunk));
         }
 
         // -------------------------------------------------------------------
