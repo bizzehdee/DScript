@@ -151,10 +151,10 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Async generators (`async function*`) | ❌ | Async and generators work independently; combined is not implemented |
 | `for await...of` | ❌ | |
 | Rest/spread in object literals | ✅ | |
-| Named capture groups in RegExp | ❌ | |
-| `s` (dotAll) RegExp flag | ❌ | |
+| Named capture groups in RegExp | ✅ | `(?<name>...)` syntax; `.groups` on exec/match result |
+| `s` (dotAll) RegExp flag | ✅ | `dotAll` property exposed on RegExp instances |
 | Unicode property escapes in RegExp (`\p{...}`) | ❌ | |
-| Lookbehind assertions in RegExp | ❌ | |
+| Lookbehind assertions in RegExp | ✅ | `(?<=...)` and `(?<!...)` both supported |
 
 ---
 
@@ -188,7 +188,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Promise.allSettled` | ✅ | |
 | `Promise.any` | ✅ | Rejects with `AggregateError` |
 | `AggregateError` | ✅ | |
-| `String.prototype.matchAll` | ❌ | |
+| `String.prototype.matchAll` | ✅ | Requires `g` flag on RegExp argument; returns array with `.index`, `.input`, `.groups` per match |
 | Dynamic `import()` | ✅ | Returns a Promise; module caching applies |
 | `import.meta` | ✅ | `.url`, `.filename`, `.dirname` |
 | `for...in` ordering guarantee | ✅ | Property insertion order is preserved |
@@ -204,7 +204,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Numeric separators (`1_000`) | ✅ | Integer, float, hex, binary, octal, and BigInt literals |
 | `Promise.any` | ✅ | |
 | `String.prototype.replaceAll` | ✅ | |
-| `WeakRef` | ❌ | |
+| `WeakRef` | ✅ | `deref()` returns the target object |
 | `FinalizationRegistry` | ❌ | No GC hooks available |
 
 ---
@@ -305,14 +305,10 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 
 ## Known limitations and out-of-scope features
 
-- **Date**: No `Date` object. Use a host-registered callback or pass timestamps as plain numbers.
-- **Regular expression advanced features**: Named capture groups, lookahead/lookbehind, Unicode property escapes, and the `d`/`v` flags are not supported. Patterns are compiled with `RegexOptions.ECMAScript` which limits features to ECMAScript 3 semantics.
+- **Regular expression advanced features**: Unicode property escapes (`\p{...}`) and the `d`/`v` flags are not supported.
 - **Typed arrays** (`Uint8Array`, `Int32Array`, `Float64Array`, etc.): Not implemented.
 - **ArrayBuffer** / **SharedArrayBuffer**: Not implemented.
 - **Atomics**: Not implemented.
-- **`Function.prototype.bind` / `call` / `apply`**: Implemented in Phase 2.
-- **`Object.create`, `Object.defineProperty`, `Object.getOwnPropertyDescriptor`, getter/setter syntax**: Implemented in Phase 1.
-- **`WeakRef` / `FinalizationRegistry`**: Not implemented (no GC hooks in the VM).
 - **Async generators** (`async function*`) and `for await...of`: Not implemented.
-- **`Error.cause`**: Constructable errors exist, but the `cause` option is ignored.
-- **`WeakRef`**: Implemented (`deref()` returns the target); `FinalizationRegistry` is not implemented (no GC hooks in the VM).
+- **`FinalizationRegistry`**: No GC hooks available in the VM.
+- **`Object.getOwnPropertyDescriptors`**: Not implemented.
