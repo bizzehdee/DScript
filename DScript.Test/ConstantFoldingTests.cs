@@ -124,5 +124,55 @@ namespace DScript.Test
             var src = "const PI = 3; function area(r) { return PI * r * r; } var r = area(2);";
             Assert.That(RunStr(src), Is.EqualTo("12"));
         }
+
+        // --- Constant branch-fold tests ---
+
+        [Test]
+        public void ConstantBranchFold_IfTrue_BodyExecutes()
+        {
+            // if (true) branch taken; else body becomes dead and is swept away
+            var src = "var r; if (true) { r = 1; } else { r = 2; }";
+            Assert.That(RunStr(src), Is.EqualTo("1"));
+        }
+
+        [Test]
+        public void ConstantBranchFold_IfFalse_ElseExecutes()
+        {
+            // if (false) body becomes dead; else branch executes
+            var src = "var r; if (false) { r = 1; } else { r = 2; }";
+            Assert.That(RunStr(src), Is.EqualTo("2"));
+        }
+
+        [Test]
+        public void ConstantBranchFold_WhileTrue_BreaksOnCondition()
+        {
+            // while (true) folds to an unconditional loop; break exits it correctly
+            var src = "var i = 0; while (true) { i = i + 1; if (i >= 5) break; } var r = i;";
+            Assert.That(RunStr(src), Is.EqualTo("5"));
+        }
+
+        [Test]
+        public void ConstantBranchFold_ConstPropThenFold()
+        {
+            // const propagation substitutes the literal; branch fold removes the conditional jump
+            var src = "const ACTIVE = true; var r; if (ACTIVE) { r = 42; } else { r = 0; }";
+            Assert.That(RunStr(src), Is.EqualTo("42"));
+        }
+
+        [Test]
+        public void ConstantBranchFold_ConstFalsePropThenFold()
+        {
+            // const propagation + fold when constant is false: else branch wins
+            var src = "const FLAG = false; var r; if (FLAG) { r = 1; } else { r = 99; }";
+            Assert.That(RunStr(src), Is.EqualTo("99"));
+        }
+
+        [Test]
+        public void ConstantBranchFold_NestedFolds()
+        {
+            // Both conditionals fold independently
+            var src = "var r = 0; if (true) { r = r + 10; } if (false) { r = r + 1; } else { r = r + 2; }";
+            Assert.That(RunStr(src), Is.EqualTo("12"));
+        }
     }
 }

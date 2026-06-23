@@ -795,6 +795,247 @@ namespace DScript.Vm
             list.Add((byte)((value >> 24) & 0xFF));
         }
 
+        // Returns the JavaScript truthiness of a compile-time constant, or null if
+        // the kind is unknown. NaN is falsy in JS despite being != 0.0 in C#.
+        private static bool? ConstantTruthiness(ConstantValue cv) => cv.Kind switch
+        {
+            ConstantKind.Int    => cv.IntValue != 0,
+            ConstantKind.Double => !double.IsNaN(cv.DoubleValue) && cv.DoubleValue != 0.0,
+            ConstantKind.String => cv.StringValue.Length > 0,
+            ConstantKind.Regex  => true,
+            ConstantKind.BigInt => cv.BigIntValue != System.Numerics.BigInteger.Zero,
+            _                   => null
+        };
+
+        /// <summary>
+        /// Fold conditional jumps whose condition is a compile-time constant:
+        /// <list type="bullet">
+        ///   <item>Always-taken: remove the push, convert the conditional jump to an
+        ///   unconditional <see cref="OpCode.Jump"/> — the dead body is swept by
+        ///   <see cref="EliminateDeadCode"/> in the next pass.</item>
+        ///   <item>Never-taken: remove both the push and the conditional jump.</item>
+        /// </list>
+        /// Handles <c>PushTrue</c>, <c>PushFalse</c>, <c>PushNull</c>,
+        /// <c>PushUndefined</c>, <c>Constant</c>, and <c>ConstantN</c> preceding
+        /// <c>JumpIfTrue</c> or <c>JumpIfFalse</c>.
+        ///
+        /// Call between <see cref="CollapseJumpChains"/> and
+        /// <see cref="EliminateDeadCode"/> so chains are already resolved and
+        /// dead bodies left by this pass are swept in the next step.
+        /// </summary>
+        public void FoldConstantBranches()
+        {
+            // Pass 0: collect all jump targets — we must not fold a pair if either
+            // instruction is itself a landing point.
+            var jumpTargets = new HashSet<int>();
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op = (OpCode)Code[ip];
+                    if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                             or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                             or OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined
+                             or OpCode.ForOfStep
+                             or OpCode.LeaveTry or OpCode.LeaveCatch)
+                    {
+                        jumpTargets.Add(ReadIntFromCode(ip + 1));
+                    }
+                    else if (op is OpCode.EnterTry)
+                    {
+                        var catchPC   = ReadIntFromCode(ip + 1);
+                        var finallyPC = ReadIntFromCode(ip + 5);
+                        if (catchPC   >= 0) jumpTargets.Add(catchPC);
+                        if (finallyPC >= 0) jumpTargets.Add(finallyPC);
+                    }
+                    ip += InstructionSize(op);
+                }
+            }
+
+            // Pass 1: find foldable pairs (constant push followed by JumpIfTrue/JumpIfFalse).
+            // Key = offset of push instruction; value = (alwaysTaken, jumpTarget, pushSize).
+            // alwaysTaken = true means the jump always fires → replace with unconditional Jump.
+            // alwaysTaken = false means the jump never fires → remove both.
+            var folds = new Dictionary<int, (bool alwaysTaken, int target, int pushSize)>();
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op   = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+
+                    bool? boolVal = op switch
+                    {
+                        OpCode.PushTrue      => true,
+                        OpCode.PushFalse     => false,
+                        OpCode.PushNull      => false,
+                        OpCode.PushUndefined => false,
+                        _                    => null
+                    };
+
+                    if (boolVal == null && op == OpCode.Constant)
+                    {
+                        var idx = ReadIntFromCode(ip + 1);
+                        if (idx >= 0 && idx < Constants.Count)
+                            boolVal = ConstantTruthiness(Constants[idx]);
+                    }
+                    else if (boolVal == null && op == OpCode.ConstantN)
+                    {
+                        var idx = Code[ip + 1];
+                        if (idx < Constants.Count)
+                            boolVal = ConstantTruthiness(Constants[idx]);
+                    }
+
+                    if (boolVal.HasValue && !jumpTargets.Contains(ip))
+                    {
+                        var nextIp = ip + size;
+                        if (nextIp < Code.Count && !jumpTargets.Contains(nextIp))
+                        {
+                            var nextOp = (OpCode)Code[nextIp];
+                            if (nextOp is OpCode.JumpIfTrue or OpCode.JumpIfFalse)
+                            {
+                                var target = ReadIntFromCode(nextIp + 1);
+                                // JumpIfTrue fires when value is truthy; JumpIfFalse fires when falsy.
+                                var alwaysTaken = (nextOp == OpCode.JumpIfTrue) == boolVal.Value;
+                                folds[ip] = (alwaysTaken, target, size);
+                                ip += size + 5;
+                                continue;
+                            }
+                        }
+                    }
+
+                    ip += size;
+                }
+            }
+
+            if (folds.Count == 0)
+            {
+                foreach (var fn in Functions) fn.FoldConstantBranches();
+                return;
+            }
+
+            // Pass 2: build cumulative-savings array.
+            //   savings[i] = bytes removed strictly before position i.
+            //   remap(old) = old - savings[old]
+            var savings = new int[Code.Count + 1];
+            {
+                var cumSavings = 0;
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op   = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+
+                    if (folds.TryGetValue(ip, out var fold))
+                    {
+                        // Push instruction: always removed.
+                        for (var k = 0; k < fold.pushSize; k++) savings[ip + k] = cumSavings;
+                        cumSavings += fold.pushSize;
+                        ip += fold.pushSize;
+                        // Conditional jump (5 bytes): removed only for never-taken.
+                        for (var k = 0; k < 5; k++) savings[ip + k] = cumSavings;
+                        if (!fold.alwaysTaken) cumSavings += 5;
+                        ip += 5;
+                    }
+                    else
+                    {
+                        for (var k = 0; k < size; k++) savings[ip + k] = cumSavings;
+                        ip += size;
+                    }
+                }
+                savings[Code.Count] = cumSavings;
+            }
+
+            // Pass 3: rebuild code, remapping all jump targets through savings[].
+            var totalRemoved = savings[Code.Count];
+            var newCode  = new List<byte>(Code.Count - totalRemoved);
+            var newLines = new List<int>(Code.Count - totalRemoved);
+            var newCols  = new List<int>(Code.Count - totalRemoved);
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op   = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+
+                    if (folds.TryGetValue(ip, out var fold))
+                    {
+                        ip += fold.pushSize; // skip push bytes
+
+                        if (fold.alwaysTaken)
+                        {
+                            // Replace with unconditional Jump to remapped target.
+                            newCode.Add((byte)OpCode.Jump);
+                            newLines.Add(Lines[ip]);
+                            newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
+                            AppendInt(newCode, fold.target - savings[fold.target]);
+                            for (var b = 1; b < 5; b++)
+                            {
+                                newLines.Add(Lines[ip + b]);
+                                newCols.Add((ip + b) < Cols.Count ? Cols[ip + b] : 0);
+                            }
+                        }
+                        // else never-taken: skip jump bytes without emitting anything.
+
+                        ip += 5; // skip conditional jump bytes
+                        continue;
+                    }
+
+                    // Normal instruction: emit opcode byte, then operands.
+                    newCode.Add(Code[ip]);
+                    newLines.Add(Lines[ip]);
+                    newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
+
+                    var src = ip + 1;
+                    var isJump = op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                                        or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                                        or OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined
+                                        or OpCode.ForOfStep
+                                        or OpCode.LeaveTry or OpCode.LeaveCatch;
+
+                    if (op is OpCode.EnterTry)
+                    {
+                        var catchPC = ReadIntFromCode(src);
+                        AppendInt(newCode, catchPC >= 0 ? catchPC - savings[catchPC] : -1);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                        var finallyPC = ReadIntFromCode(src);
+                        AppendInt(newCode, finallyPC >= 0 ? finallyPC - savings[finallyPC] : -1);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                    }
+                    else if (isJump)
+                    {
+                        var target = ReadIntFromCode(src);
+                        AppendInt(newCode, target - savings[target]);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                    }
+
+                    while (src < ip + size)
+                    {
+                        newCode.Add(Code[src]);
+                        newLines.Add(Lines[src]);
+                        newCols.Add(src < Cols.Count ? Cols[src] : 0);
+                        src++;
+                    }
+
+                    ip += size;
+                }
+            }
+
+            Code.Clear();
+            Code.AddRange(newCode);
+            Lines.Clear();
+            Lines.AddRange(newLines);
+            Cols.Clear();
+            Cols.AddRange(newCols);
+            codeArray = null;
+            inlineCache = null;
+
+            foreach (var fn in Functions) fn.FoldConstantBranches();
+        }
+
         /// <summary>
         /// Replace wide (5-byte) instructions whose single operand is a name or
         /// constant index &lt; 256 with their 2-byte narrow equivalents. All jump

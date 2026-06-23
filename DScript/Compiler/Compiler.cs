@@ -114,6 +114,7 @@ namespace DScript.Compiler
             if (EnableOptimizer)
             {
                 chunk.CollapseJumpChains();
+                chunk.FoldConstantBranches();
                 chunk.EliminateDeadCode();
                 chunk.NarrowEncodePass();
                 _constScopes = null;
@@ -145,6 +146,7 @@ namespace DScript.Compiler
             if (EnableOptimizer)
             {
                 chunk.CollapseJumpChains();
+                chunk.FoldConstantBranches();
                 chunk.EliminateDeadCode();
                 chunk.NarrowEncodePass();
                 _constScopes = null;
