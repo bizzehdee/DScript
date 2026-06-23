@@ -120,24 +120,36 @@ namespace DScript.Extras.FunctionProviders
         public static void StringMatchImpl(ScriptVar var, object userData)
         {
             var str = var.GetParameter("this").String;
-            var regex = (Regex)var.GetParameter("regex").GetData();
+            var regexVar = var.GetParameter("regex");
+            var regex = ToRegex(regexVar);
+
+            var globalLink = regexVar.FindChild("global");
+            var isGlobal = globalLink != null && globalLink.Var.Bool;
+
+            if (isGlobal)
+            {
+                // Global match: return all full matches as a flat array
+                var.ReturnVar.SetArray();
+                var allMatches = regex.Matches(str);
+                if (allMatches.Count == 0) { var.ReturnVar.SetUndefined(); return; }
+                for (var i = 0; i < allMatches.Count; i++)
+                    var.ReturnVar.SetArrayIndex(i, new ScriptVar(allMatches[i].Value));
+                return;
+            }
+
+            // Non-global: return first match array with groups and .groups
+            var match = regex.Match(str);
+            if (!match.Success) { var.ReturnVar.SetUndefined(); return; }
 
             var.ReturnVar.SetArray();
-
-            var match = regex.Match(str);
-
-            if (match.Success)
+            for (var i = 0; i < match.Groups.Count; i++)
             {
-                var idx = 0;
-                foreach (Group m in match.Groups)
-                {
-                    var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(m.Value));
-                }
+                var g = match.Groups[i];
+                var.ReturnVar.SetArrayIndex(i, g.Success ? new ScriptVar(g.Value) : new ScriptVar(ScriptVar.Flags.Undefined));
             }
-            else
-            {
-                var.ReturnVar.SetArrayIndex(0, new ScriptVar(""));
-            }
+            var.ReturnVar.AddChild("index", new ScriptVar(match.Index));
+            var.ReturnVar.AddChild("input", new ScriptVar(str));
+            var.ReturnVar.AddChild("groups", RegExpFunctionProvider.BuildNamedGroups(regex, match));
         }
 
         [ScriptMethod("trim")]
@@ -370,7 +382,12 @@ namespace DScript.Extras.FunctionProviders
         }
 
         private static Regex ToRegex(ScriptVar v)
-            => v.IsRegexp ? (Regex)v.GetData() : new Regex(v.String);
+        {
+            if (v.IsRegexp) return (Regex)v.GetData();
+            var data = v.GetData();
+            if (data is Regex r) return r;
+            return new Regex(v.String);
+        }
 
         [ScriptMethod("search", "regex")]
         public static void StringSearchImpl(ScriptVar var, object userData)
@@ -385,16 +402,30 @@ namespace DScript.Extras.FunctionProviders
         public static void StringMatchAllImpl(ScriptVar var, object userData)
         {
             var str = var.GetParameter("this").String;
-            var regex = ToRegex(var.GetParameter("regex"));
+            var regexVar = var.GetParameter("regex");
+
+            // ES2020: matchAll requires the g flag when the argument is a RegExp object.
+            // String arguments are allowed (treated as a literal pattern).
+            var globalLink = regexVar.FindChild("global");
+            if (globalLink != null && !globalLink.Var.Bool)
+                throw new ScriptException("TypeError: String.prototype.matchAll requires a global regex (g flag)");
+
+            var regex = ToRegex(regexVar);
             var matches = regex.Matches(str);
             var.ReturnVar.SetArray();
             for (var i = 0; i < matches.Count; i++)
             {
+                var m = matches[i];
                 var matchArr = new ScriptVar();
                 matchArr.SetArray();
-                var groups = matches[i].Groups;
-                for (var g = 0; g < groups.Count; g++)
-                    matchArr.SetArrayIndex(g, new ScriptVar(groups[g].Value));
+                for (var g = 0; g < m.Groups.Count; g++)
+                {
+                    var grp = m.Groups[g];
+                    matchArr.SetArrayIndex(g, grp.Success ? new ScriptVar(grp.Value) : new ScriptVar(ScriptVar.Flags.Undefined));
+                }
+                matchArr.AddChild("index", new ScriptVar(m.Index));
+                matchArr.AddChild("input", new ScriptVar(str));
+                matchArr.AddChild("groups", RegExpFunctionProvider.BuildNamedGroups(regex, m));
                 var.ReturnVar.SetArrayIndex(i, matchArr);
             }
         }

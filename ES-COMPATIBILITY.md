@@ -45,12 +45,12 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Array.prototype.flat` / `flatMap` | ✅ | |
 | `String.prototype` (`split`, `replace`, `trim`, `substring`, `slice`, `charAt`, `indexOf`, `lastIndexOf`, `startsWith`, `endsWith`, `includes`, `repeat`, `padStart`, `padEnd`, `toUpperCase`, `toLowerCase`, `charCodeAt`) | ✅ | |
 | `String.prototype.replaceAll` | ✅ | |
-| `String.prototype.matchAll` | ❌ | |
+| `String.prototype.matchAll` | ✅ | Requires `g` flag on RegExp argument; returns array with `.index`, `.input`, `.groups` per match |
 | `String.prototype.at` | ✅ | |
-| `RegExp` literals and `new RegExp` | ✅ | Flags: `g`, `i`, `m` |
-| `RegExp.prototype.test` / `exec` | ✅ | |
-| Named capture groups in RegExp | ❌ | |
-| Lookahead / lookbehind assertions | ❌ | Limited to whatever `System.Text.RegularExpressions` exposes via ECMAScript mode |
+| `RegExp` literals and `new RegExp` | ✅ | Flags: `g`, `i`, `m`, `s` (dotAll); `u`/`d`/`v`/`y` accepted |
+| `RegExp.prototype.test` / `exec` | ✅ | `.groups` populated for named captures |
+| Named capture groups in RegExp | ✅ | `(?<name>...)` syntax; `.groups` on exec/match result |
+| Lookahead / lookbehind assertions | ✅ | `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)` all supported |
 | `Math` object (all standard methods and constants) | ✅ | |
 | `JSON.parse` / `JSON.stringify` | ✅ | |
 | `parseInt` / `parseFloat` | ✅ | |

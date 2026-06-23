@@ -171,5 +171,173 @@ namespace DScript.Test
             engine.Execute("var r = new RegExp('[0-9]+'); var result = r.test('abc 42 def');");
             Assert.That(engine.Root.GetParameter("result").Bool, Is.True);
         }
+
+        // ── named capture groups (ES2018) ─────────────────────────────────────
+
+        [Test]
+        public void NamedCaptureGroup_Exec_GroupsObjectPopulated()
+        {
+            var engine = MakeEngine();
+            engine.Execute(@"
+                var re = new RegExp('(?<year>\\d{4})-(?<month>\\d{2})', '');
+                var m = re.exec('2024-01');
+                var result = m.groups.year;
+            ");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("2024"));
+        }
+
+        [Test]
+        public void NamedCaptureGroup_Match_GroupsObjectPopulated()
+        {
+            var engine = MakeEngine();
+            engine.Execute(@"
+                var re = new RegExp('(?<word>\\w+)', '');
+                var m = 'hello'.match(re);
+                var result = m.groups.word;
+            ");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("hello"));
+        }
+
+        [Test]
+        public void NoNamedGroups_Exec_GroupsIsUndefined()
+        {
+            var engine = MakeEngine();
+            engine.Execute(@"
+                var re = new RegExp('(\\d+)', '');
+                var m = re.exec('42');
+                var result = (m.groups === undefined) ? 'yes' : 'no';
+            ");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("yes"));
+        }
+
+        // ── lookahead / lookbehind (ES2018) ───────────────────────────────────
+
+        [Test]
+        public void PositiveLookahead_Matches()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('foo(?=bar)', ''); var m = re.exec('foobar'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("foo"));
+        }
+
+        [Test]
+        public void NegativeLookahead_MatchesWhenNotFollowed()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('foo(?!bar)', ''); var m = re.exec('foobaz'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("foo"));
+        }
+
+        [Test]
+        public void NegativeLookahead_DoesNotMatchWhenFollowedByBar()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('foo(?!bar)', ''); var m = re.exec('foobar'); var result = (m === undefined) ? 'null' : 'match';");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("null"));
+        }
+
+        [Test]
+        public void PositiveLookbehind_Matches()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('(?<=foo)bar', ''); var m = re.exec('foobar'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("bar"));
+        }
+
+        [Test]
+        public void NegativeLookbehind_MatchesWhenNotPreceded()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('(?<!foo)bar', ''); var m = re.exec('bazbar'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("bar"));
+        }
+
+        // ── s (dotAll) flag (ES2018) ──────────────────────────────────────────
+
+        [Test]
+        public void DotAllFlag_DotMatchesNewline()
+        {
+            var engine = MakeEngine();
+            // Use a multiline string via concat so the newline is a real JS newline character
+            engine.Execute("var re = new RegExp('a.b', 's'); var nl = 'a' + String.fromCharCode(10) + 'b'; var result = re.test(nl) ? 'yes' : 'no';");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("yes"));
+        }
+
+        [Test]
+        public void DotAllFlag_AbsentByDefault_DotDoesNotMatchNewline()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('a.b', ''); var nl = 'a' + String.fromCharCode(10) + 'b'; var result = re.test(nl) ? 'yes' : 'no';");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("no"));
+        }
+
+        // ── sorted flags property ─────────────────────────────────────────────
+
+        [Test]
+        public void FlagsProperty_ReturnsSortedCanonicalString()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('x', 'mig'); var result = re.flags;");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("gim"));
+        }
+
+        // ── matchAll (ES2020) ─────────────────────────────────────────────────
+
+        [Test]
+        public void MatchAll_GlobalFlag_ReturnsAllMatches()
+        {
+            var engine = MakeEngine();
+            engine.Execute(@"
+                var re = new RegExp('\\d+', 'g');
+                var matches = 'a1b2c3'.matchAll(re);
+                var result = matches.length;
+            ");
+            Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void MatchAll_EachMatch_HasIndexProperty()
+        {
+            var engine = MakeEngine();
+            engine.Execute(@"
+                var re = new RegExp('\\d+', 'g');
+                var matches = 'a1b2'.matchAll(re);
+                var result = matches[0].index;
+            ");
+            Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void MatchAll_EachMatch_HasInputProperty()
+        {
+            var engine = MakeEngine();
+            engine.Execute(@"
+                var re = new RegExp('\\d+', 'g');
+                var matches = 'a1b2'.matchAll(re);
+                var result = matches[0].input;
+            ");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("a1b2"));
+        }
+
+        [Test]
+        public void MatchAll_NamedGroups_PopulatedPerMatch()
+        {
+            var engine = MakeEngine();
+            engine.Execute(@"
+                var re = new RegExp('(?<n>\\d+)', 'g');
+                var matches = 'a1b2'.matchAll(re);
+                var result = matches[1].groups.n;
+            ");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("2"));
+        }
+
+        [Test]
+        public void MatchAll_WithoutGlobalFlag_ThrowsScriptException()
+        {
+            // engine.Execute() swallows exceptions — use Run() to propagate them
+            var engine = MakeEngine();
+            var chunk = ScriptEngine.Compile("var re = new RegExp('x'); 'axb'.matchAll(re);");
+            Assert.Throws<ScriptException>(() => engine.Run(chunk));
+        }
     }
 }

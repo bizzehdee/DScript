@@ -37,17 +37,24 @@ namespace DScript.Extras
                 var flagsVar = scope.FindChild("flags")?.Var;
                 var flags = (flagsVar == null || flagsVar.IsUndefined) ? "" : flagsVar.String;
 
-                var opts = RegexOptions.ECMAScript;
+                var opts = RegexOptions.None;
                 var global = false;
+                var hasS = false;
                 foreach (var c in flags)
                 {
                     switch (c)
                     {
                         case 'i': opts |= RegexOptions.IgnoreCase; break;
                         case 'm': opts |= RegexOptions.Multiline; break;
+                        case 's': opts |= RegexOptions.Singleline; hasS = true; break;
                         case 'g': global = true; break;
+                        // 'u' and 'd' are accepted and stored but map to no extra .NET option
                     }
                 }
+
+                // Produce the sorted canonical flags string (ES spec order: d,g,i,m,s,u,v,y)
+                var sortedFlags = string.Concat(
+                    System.Linq.Enumerable.Where("dgimsuyv", f => flags.Contains(f)));
 
                 var regex = new Regex(pattern, opts);
                 var thisVar = scope.FindChild("this")?.Var;
@@ -55,10 +62,11 @@ namespace DScript.Extras
                 {
                     thisVar.SetData(regex);
                     thisVar.AddChild("source", new ScriptVar(pattern));
-                    thisVar.AddChild("flags", new ScriptVar(flags));
+                    thisVar.AddChild("flags", new ScriptVar(sortedFlags));
                     thisVar.AddChild("global", new ScriptVar(global));
                     thisVar.AddChild("ignoreCase", new ScriptVar((opts & RegexOptions.IgnoreCase) != 0));
                     thisVar.AddChild("multiline", new ScriptVar((opts & RegexOptions.Multiline) != 0));
+                    thisVar.AddChild("dotAll", new ScriptVar(hasS));
                 }
             }, null);
 

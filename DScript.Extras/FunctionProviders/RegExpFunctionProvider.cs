@@ -59,14 +59,34 @@ namespace DScript.Extras.FunctionProviders
             for (var i = 0; i < match.Groups.Count; i++)
             {
                 var g = match.Groups[i];
-                if (g.Success)
-                    arr.SetArrayIndex(i, new ScriptVar(g.Value));
-                else
-                    arr.SetArrayIndex(i, new ScriptVar(ScriptVar.Flags.Undefined));
+                arr.SetArrayIndex(i, g.Success ? new ScriptVar(g.Value) : new ScriptVar(ScriptVar.Flags.Undefined));
             }
             arr.AddChild("index", new ScriptVar(match.Index));
             arr.AddChild("input", new ScriptVar(str));
+            // Build .groups for named captures
+            var groups = BuildNamedGroups(regex, match);
+            arr.AddChild("groups", groups);
             var.ReturnVar = arr;
+        }
+
+        /// <summary>Builds a groups object from named captures, or undefined if none.</summary>
+        internal static ScriptVar BuildNamedGroups(Regex regex, Match match)
+        {
+            var groupNames = regex.GetGroupNames();
+            var hasNamed = false;
+            foreach (var gn in groupNames)
+            {
+                if (!int.TryParse(gn, out _)) { hasNamed = true; break; }
+            }
+            if (!hasNamed) return new ScriptVar(ScriptVar.Flags.Undefined);
+            var groups = new ScriptVar(ScriptVar.Flags.Object);
+            foreach (var gn in groupNames)
+            {
+                if (int.TryParse(gn, out _)) continue;
+                var g = match.Groups[gn];
+                groups.AddChildNoDup(gn, g.Success ? new ScriptVar(g.Value) : new ScriptVar(ScriptVar.Flags.Undefined));
+            }
+            return groups;
         }
     }
 }
