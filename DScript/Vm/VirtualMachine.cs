@@ -48,6 +48,23 @@ namespace DScript.Vm
         // avoids allocating a throwaway zero on every Negate/Not.
         private static readonly ScriptVar Zero = new(0);
 
+        // Shared immutable singletons for the four primitive constants that are
+        // produced on virtually every bytecode tick (comparisons, undefined reads,
+        // null literals).  Made non-extensible so that property-assignment on a
+        // primitive (JS silently ignores it) cannot corrupt the shared instance.
+        private static readonly ScriptVar SharedTrue;
+        private static readonly ScriptVar SharedFalse;
+        private static readonly ScriptVar SharedUndefined;
+        private static readonly ScriptVar SharedNull;
+
+        static VirtualMachine()
+        {
+            SharedTrue      = new ScriptVar(1);      SharedTrue.PreventExtensionsSelf();
+            SharedFalse     = new ScriptVar(0);      SharedFalse.PreventExtensionsSelf();
+            SharedUndefined = new ScriptVar(ScriptVar.Flags.Undefined); SharedUndefined.PreventExtensionsSelf();
+            SharedNull      = new ScriptVar(ScriptVar.Flags.Null);      SharedNull.PreventExtensionsSelf();
+        }
+
         // --- structured exception handling ----------------------------------
 
         private struct TryFrame
@@ -324,16 +341,16 @@ namespace DScript.Vm
                         Push(chunk.Constants[ReadOperand(code, ref ip)].Materialize());
                         break;
                     case OpCode.PushUndefined:
-                        Push(new ScriptVar(ScriptVar.Flags.Undefined));
+                        Push(SharedUndefined);
                         break;
                     case OpCode.PushNull:
-                        Push(new ScriptVar(ScriptVar.Flags.Null));
+                        Push(SharedNull);
                         break;
                     case OpCode.PushTrue:
-                        Push(new ScriptVar(1));
+                        Push(SharedTrue);
                         break;
                     case OpCode.PushFalse:
-                        Push(new ScriptVar(0));
+                        Push(SharedFalse);
                         break;
 
                     case OpCode.Pop:
@@ -388,7 +405,7 @@ namespace DScript.Vm
                         // without creating a circular child reference in that object.
                         if (chunk.Names[nameIdx] == "globalThis") { Push(env.Global().Vars); break; }
                         var link = ResolveCached(cache, chunk, site, env, nameIdx);
-                        Push(link != null ? link.Var : new ScriptVar(ScriptVar.Flags.Undefined));
+                        Push(link != null ? link.Var : SharedUndefined);
                         break;
                     }
                     case OpCode.SetVar:
@@ -671,7 +688,7 @@ namespace DScript.Vm
                     case OpCode.Not:
                     {
                         var a = Pop();
-                        Push(a.MathsOp(Zero, ScriptLex.LexTypes.Equal));
+                        Push(a.Bool ? SharedFalse : SharedTrue);
                         break;
                     }
                     case OpCode.BitNot:
@@ -780,7 +797,7 @@ namespace DScript.Vm
                         var val = Pop();
                         if (val.IsNull || val.IsUndefined)
                         {
-                            Push(new ScriptVar(ScriptVar.Flags.Undefined));
+                            Push(SharedUndefined);
                             ip = target;
                         }
                         else
@@ -1682,9 +1699,7 @@ namespace DScript.Vm
         private static ScriptVar BindArg(ScriptVar[] args, int index)
         {
             if (args == null || index >= args.Length)
-            {
-                return new ScriptVar(ScriptVar.Flags.Undefined);
-            }
+                return SharedUndefined;
 
             return BindArgValue(args[index]);
         }
@@ -1693,9 +1708,7 @@ namespace DScript.Vm
         private static ScriptVar BindArgValue(ScriptVar value)
         {
             if (value == null)
-            {
-                return new ScriptVar(ScriptVar.Flags.Undefined);
-            }
+                return SharedUndefined;
 
             // Objects/arrays/functions are passed by reference — even empty ones.
             // IsBasic (FirstChild == null) is not a reliable type test because an
@@ -1965,12 +1978,12 @@ namespace DScript.Vm
                 case '|': result = new ScriptVar(a | b); return true;
                 case '^': result = new ScriptVar(a ^ b); return true;
                 case '%': result = b == 0 ? new ScriptVar(double.NaN) : new ScriptVar(a % b); return true;
-                case (char)ScriptLex.LexTypes.Equal: result = new ScriptVar(a == b); return true;
-                case (char)ScriptLex.LexTypes.NEqual: result = new ScriptVar(a != b); return true;
-                case '<': result = new ScriptVar(a < b); return true;
-                case (char)ScriptLex.LexTypes.LEqual: result = new ScriptVar(a <= b); return true;
-                case '>': result = new ScriptVar(a > b); return true;
-                case (char)ScriptLex.LexTypes.GEqual: result = new ScriptVar(a >= b); return true;
+                case (char)ScriptLex.LexTypes.Equal:  result = a == b ? SharedTrue : SharedFalse; return true;
+                case (char)ScriptLex.LexTypes.NEqual: result = a != b ? SharedTrue : SharedFalse; return true;
+                case '<':                              result = a <  b ? SharedTrue : SharedFalse; return true;
+                case (char)ScriptLex.LexTypes.LEqual: result = a <= b ? SharedTrue : SharedFalse; return true;
+                case '>':                              result = a >  b ? SharedTrue : SharedFalse; return true;
+                case (char)ScriptLex.LexTypes.GEqual: result = a >= b ? SharedTrue : SharedFalse; return true;
                 default: result = null; return false;
             }
         }
@@ -2002,9 +2015,11 @@ namespace DScript.Vm
 
         private static ScriptVar CoerceToNumber(ScriptVar value)
         {
-            if (value.IsInt) return new ScriptVar(value.Int);
-            if (value.IsDouble) return new ScriptVar(value.Float);
-            if (value.IsNull) return new ScriptVar(0);
+            // Already numeric: return the value directly (avoid an allocation on the
+            // common path where the operand is already the right type).
+            if (value.IsInt) return value;
+            if (value.IsDouble) return value;
+            if (value.IsNull) return SharedFalse; // 0
 
             if (value.IsString &&
                 double.TryParse(value.String, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))

@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -53,7 +54,8 @@ namespace DScript
         }
         #endregion
 
-        private readonly LexTypes[] notAllowedBeforeRegex =
+        // One allocation per app domain; O(1) Contains vs O(12) foreach scan.
+        private static readonly HashSet<LexTypes> NotAllowedBeforeRegex =
         [
             LexTypes.Id, LexTypes.Int, LexTypes.Float, LexTypes.Str, LexTypes.BigIntLiteral,
             LexTypes.RTrue, LexTypes.RFalse, LexTypes.RNull, (LexTypes)']',
@@ -252,28 +254,29 @@ namespace DScript
             TokenType = LexTypes.Eof;
             TokenString = string.Empty;
 
-            while (CurrentChar != (char)0 && CurrentChar.IsWhitespace())
+            // Skip whitespace and comments iteratively (avoids a call-stack entry
+            // per comment block and a function-call overhead per whitespace run).
+            while (true)
             {
-                GetNextChar();
-            }
+                while (CurrentChar != (char)0 && CurrentChar.IsWhitespace())
+                    GetNextChar();
 
-            //single line comment
-            if (CurrentChar == '/' && NextChar == '/')
-            {
-                while (CurrentChar != 0 && CurrentChar != '\n') GetNextChar();
-                GetNextChar();
-                GetNextToken();
-                return;
-            }
+                if (CurrentChar == '/' && NextChar == '/')
+                {
+                    while (CurrentChar != 0 && CurrentChar != '\n') GetNextChar();
+                    GetNextChar();
+                    continue;
+                }
 
-            //multi line comment
-            if (CurrentChar == '/' && NextChar == '*')
-            {
-                while (CurrentChar != 0 && (CurrentChar != '*' || NextChar != '/')) GetNextChar();
-                GetNextChar();
-                GetNextChar();
-                GetNextToken();
-                return;
+                if (CurrentChar == '/' && NextChar == '*')
+                {
+                    while (CurrentChar != 0 && (CurrentChar != '*' || NextChar != '/')) GetNextChar();
+                    GetNextChar();
+                    GetNextChar();
+                    continue;
+                }
+
+                break;
             }
 
             TokenStart = dataPos - 2;
@@ -536,24 +539,22 @@ namespace DScript
                                 break;
                             case 'x':
                                 {
-                                    var str = "";
                                     GetNextChar();
-                                    str += CurrentChar;
+                                    var hi = HexDigitValue(CurrentChar);
                                     GetNextChar();
-                                    str += CurrentChar;
-                                    tokenBuilder.Append((char)Convert.ToInt64(str, 16));
+                                    var lo = HexDigitValue(CurrentChar);
+                                    tokenBuilder.Append((char)((hi << 4) | lo));
                                 }
                                 break;
                             default:
                                 if (CurrentChar is >= '0' and <= '7')
                                 {
-                                    var str = "";
-                                    str += CurrentChar;
+                                    var v = (CurrentChar - '0') * 64;
                                     GetNextChar();
-                                    str += CurrentChar;
+                                    v += (CurrentChar - '0') * 8;
                                     GetNextChar();
-                                    str += CurrentChar;
-                                    tokenBuilder.Append((char)Convert.ToInt64(str, 8));
+                                    v += (CurrentChar - '0');
+                                    tokenBuilder.Append((char)v);
                                 }
                                 else
                                 {
@@ -720,15 +721,9 @@ namespace DScript
                 {
                     //omit regex for now
                     
-                    TokenType = LexTypes.RegExp;
-                    foreach (var item in notAllowedBeforeRegex)
-                    {
-                        if(item == PreviousTokenType)
-                        {
-                            TokenType = (LexTypes)'/';
-                            break;
-                        }
-                    }
+                    TokenType = NotAllowedBeforeRegex.Contains(PreviousTokenType)
+                        ? (LexTypes)'/'
+                        : LexTypes.RegExp;
 
                     if (TokenType == LexTypes.RegExp)
                     {
@@ -884,6 +879,15 @@ namespace DScript
             }
 
             return lexTypes.ToString();
+        }
+
+        // Convert a single ASCII hex digit to its integer value without allocating
+        // a string. Behaviour is undefined for non-hex characters.
+        private static int HexDigitValue(char c)
+        {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            return c - 'A' + 10; // 'A'..'F'
         }
     }
 }
