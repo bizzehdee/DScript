@@ -532,7 +532,7 @@ namespace DScript.Vm
                         var name = chunk.Names[ReadOperand(code, ref ip)];
                         var value = Pop();
                         var obj = Pop();
-                        SetMember(obj, name, value);
+                        SetMember(obj, name, value, chunk.IsStrict);
                         Push(value);
                         break;
                     }
@@ -558,7 +558,7 @@ namespace DScript.Vm
                         var value = Pop();
                         var key = Pop();
                         var obj = Pop();
-                        SetMember(obj, KeyName(key), value);
+                        SetMember(obj, KeyName(key), value, chunk.IsStrict);
                         Push(value);
                         break;
                     }
@@ -1408,7 +1408,7 @@ namespace DScript.Vm
                         var name = chunk.Names[code[ip++]];
                         var value = Pop();
                         var obj = Pop();
-                        SetMember(obj, name, value);
+                        SetMember(obj, name, value, chunk.IsStrict);
                         Push(value);
                         break;
                     }
@@ -2146,7 +2146,7 @@ namespace DScript.Vm
             return new ScriptVar(ScriptVar.Flags.Undefined);
         }
 
-        private void SetMember(ScriptVar obj, string name, ScriptVar value)
+        private void SetMember(ScriptVar obj, string name, ScriptVar value, bool strict = false)
         {
             // Proxy [[Set]] trap
             if (obj.IsProxy)
@@ -2169,7 +2169,11 @@ namespace DScript.Vm
                     InvokeCallable(link.Setter, obj, new[] { value });
                     return;
                 }
-                if (!link.Writable) return;
+                if (!link.Writable)
+                {
+                    if (strict) throw new ScriptException($"TypeError: Cannot assign to read-only property '{name}'");
+                    return;
+                }
                 link.ReplaceWith(value);
             }
             else

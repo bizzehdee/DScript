@@ -1,5 +1,6 @@
 using DScript;
 using DScript.Compiler;
+using DScript.Extras;
 using DScript.Vm;
 using NUnit.Framework;
 
@@ -294,6 +295,46 @@ namespace DScript.Test
             var chunk = Compile(src);
             new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             Assert.That(engine.Root.GetParameter("x").Int, Is.EqualTo(99));
+        }
+
+        // ── T15: non-writable property write throws TypeError ─────────────────
+
+        private static ScriptEngine MakeExtrasEngine()
+        {
+            var engine = new ScriptEngine();
+            new EngineFunctionLoader().RegisterFunctions(engine);
+            return engine;
+        }
+
+        private static void RunWithExtras(ScriptEngine engine, string source)
+        {
+            var chunk = Compile(source);
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
+        }
+
+        [Test]
+        public void Strict_WriteToNonWritableProperty_ThrowsTypeError()
+        {
+            var engine = MakeExtrasEngine();
+            Assert.Throws<ScriptException>(() => RunWithExtras(engine, @"
+                ""use strict"";
+                var obj = {};
+                Object.defineProperty(obj, 'x', { value: 1, writable: false });
+                obj.x = 2;
+            "));
+        }
+
+        [Test]
+        public void NonStrict_WriteToNonWritableProperty_IsSilentlyIgnored()
+        {
+            var engine = MakeExtrasEngine();
+            RunWithExtras(engine, @"
+                var obj = {};
+                Object.defineProperty(obj, 'x', { value: 1, writable: false });
+                obj.x = 2;
+                var r = obj.x;
+            ");
+            Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(1));
         }
     }
 }
