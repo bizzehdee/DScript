@@ -35,11 +35,27 @@ namespace DScript.Extras.FunctionProviders
                 EnginePermissionStore.Require(engine, EnginePermissions.ProcessSpawn);
         }
 
-        private static (string file, string args) ParseShellCmd(string cmd)
+        private static ProcessStartInfo MakeShellPsi(string cmd)
         {
+            var psi = OperatingSystem.IsWindows()
+                ? new ProcessStartInfo("cmd.exe")
+                : new ProcessStartInfo("/bin/sh");
+            // Use ArgumentList so each argument is passed verbatim without shell splitting.
+            // "/bin/sh -c <cmd>" requires the entire command as a single token after -c.
             if (OperatingSystem.IsWindows())
-                return ("cmd.exe", $"/c {cmd}");
-            return ("/bin/sh", $"-c {cmd}");
+            {
+                psi.ArgumentList.Add("/c");
+                psi.ArgumentList.Add(cmd);
+            }
+            else
+            {
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add(cmd);
+            }
+            psi.UseShellExecute = false;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            return psi;
         }
 
         private static int GetTimeout(ScriptVar opts)
@@ -75,19 +91,13 @@ namespace DScript.Extras.FunctionProviders
             RequireSpawn(userData);
             var cmd = var.GetParameter("cmd").String;
             var opts = var.GetParameter("opts");
-            var (file, args) = ParseShellCmd(cmd);
             var enc = GetEncoding(opts);
             var cwd = GetCwd(opts);
             var timeout = GetTimeout(opts);
 
-            var psi = new ProcessStartInfo(file, args)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                StandardOutputEncoding = enc,
-                StandardErrorEncoding = enc,
-            };
+            var psi = MakeShellPsi(cmd);
+            psi.StandardOutputEncoding = enc;
+            psi.StandardErrorEncoding = enc;
             if (cwd != null) psi.WorkingDirectory = cwd;
 
             using var proc = Process.Start(psi);
@@ -180,16 +190,9 @@ namespace DScript.Extras.FunctionProviders
             var engine = userData as ScriptEngine;
             var cmd = var.GetParameter("cmd").String;
             var cb = var.GetParameter("cb");
-            var (file, shellArgs) = ParseShellCmd(cmd);
-
-            var psi = new ProcessStartInfo(file, shellArgs)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8,
-            };
+            var psi = MakeShellPsi(cmd);
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            psi.StandardErrorEncoding = Encoding.UTF8;
 
             string stdout, stderr;
             int exitCode;
