@@ -1,310 +1,218 @@
-# DScript.Extras — API Expansion Tasks (Phase 2)
+# DScript — ES2020+ Conformance Tasks
 
-Phase 1 (Math, String, console, Object, Number, Array, Date, Map, Set, Error types, performance, structuredClone/queueMicrotask, process) is complete.
-
-Tasks are ordered by effort-to-impact ratio. Each phase is independent and can be committed separately. See `plan.md` for full design notes.
+Tasks are ordered by effort-to-impact ratio. Each phase is independently shippable and must be committed separately. See `plan.md` for full design notes.
 
 Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ---
 
-## Phase 1 — Trivial fills (< 2 hours total)
+## Phase 1 — Promise combinators + `finally` (ES2018/2021)
 
-### 1a — Core globals
-- [ ] `encodeURIComponent(str)` → `Uri.EscapeDataString()` (root global)
-- [ ] `decodeURIComponent(str)` → `Uri.UnescapeDataString()` (root global)
-- [ ] `encodeURI(str)` — escape all except `: / ? # [ ] @ ! $ & ' ( ) * + , ; = ~` (root global)
-- [ ] `decodeURI(str)` — inverse of `encodeURI` (root global)
-- [ ] `btoa(str)` → `Convert.ToBase64String()` (root global)
-- [ ] `atob(str)` → `Convert.FromBase64String()` (root global)
-
-### 1b — path module
-- [ ] `path.join(...parts)` → `Path.Combine()` + normalise separators
-- [ ] `path.resolve(...parts)` → `Path.GetFullPath(Path.Combine(...))`
-- [ ] `path.dirname(p)` → `Path.GetDirectoryName()`
-- [ ] `path.basename(p, ext?)` → `Path.GetFileName()` / `Path.GetFileNameWithoutExtension()`
-- [ ] `path.extname(p)` → `Path.GetExtension()`
-- [ ] `path.isAbsolute(p)` → `Path.IsPathRooted()`
-- [ ] `path.normalize(p)` → `Path.GetFullPath()`
-- [ ] `path.sep` property → `Path.DirectorySeparatorChar.ToString()`
-
-### 1c — os module
-- [ ] `os.hostname()` → `Dns.GetHostName()`
-- [ ] `os.platform()` — same mapping as `process.platform`
-- [ ] `os.arch()` → `RuntimeInformation.ProcessArchitecture.ToString().ToLower()`
-- [ ] `os.homedir()` → `Environment.GetFolderPath(SpecialFolder.UserProfile)`
-- [ ] `os.tmpdir()` → `Path.GetTempPath()`
-- [ ] `os.totalmem()` → `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`
-- [ ] `os.freemem()` — platform-specific
-- [ ] `os.cpus()` → `Environment.ProcessorCount` (int)
-- [ ] `os.EOL` property → `Environment.NewLine`
-
-### 1d — console.timeLog
-- [ ] `console.timeLog(label?)` — print elapsed ms without stopping the timer
-
-### 1e — console output routing
-- [ ] `ConsoleFunctionProvider.SetOutput(Action<string> stdout, Action<string> stderr)` — static delegates the host can set; defaults to `Console.WriteLine` / `Console.Error.WriteLine`
-
-### 1f — Language completeness (trivial)
-- [ ] `Array.prototype.reduceRight(fn, init?)` — same as `reduce` but right-to-left
-- [ ] `Array.prototype.toSorted(fn?)` — non-mutating `sort`; returns a copy
-- [ ] `Array.prototype.toReversed()` — non-mutating `reverse`; returns a copy
-- [ ] `Array.prototype.toSpliced(start, del, ...items)` — non-mutating `splice`; returns a copy
-- [ ] `Array.prototype.with(index, val)` — returns copy with one element replaced
-- [ ] `Object.hasOwn(obj, key)` — ES2022; cleaner than `hasOwnProperty`
-- [ ] `Object.is(a, b)` — strict equality handling `NaN` and `-0`
-- [ ] `Object.seal(obj)` / `Object.isSealed(obj)` — complement to existing `freeze`/`isFrozen`
-- [ ] `Object.groupBy(arr, fn)` — ES2024; groups into `{ key: [items] }`
-- [ ] `Map.groupBy(arr, fn)` — ES2024; groups into a Map
-- [ ] `AggregateError(errors, msg?)` — wraps multiple errors; needed by `Promise.any`
-- [ ] `Error` `.cause` property — `new Error('msg', { cause: err })` (ES2022)
-- [ ] `Number.prototype.toPrecision(digits?)` — significant-figure string
-- [ ] `String.prototype.normalize(form?)` → `str.Normalize(NormalizationForm.*)`
-- [ ] `String.prototype.codePointAt(pos)` — full Unicode code point
-- [ ] `String.fromCodePoint(...codes)` → `char.ConvertFromUtf32()`
-
----
-
-## Phase 2 — crypto module (half a day)
-
-Create `CryptoFunctionProvider` with `[ScriptClass("crypto")]`.
-
-- [ ] `crypto.randomUUID()` → `Guid.NewGuid().ToString()`
-- [ ] `crypto.randomBytes(n)` → `RandomNumberGenerator.GetBytes(n)` returned as array of ints
-- [ ] `crypto.getRandomValues(arr)` — fills a script array with cryptographically random ints
-- [ ] `crypto.createHash(algo)` — returns hash object; `.update(data)`, `.digest(enc?)`
-- [ ] `crypto.createHmac(algo, key)` — returns hmac object; `.update(data)`, `.digest(enc?)`
-- [ ] Supported algorithms: `'sha256'`, `'sha512'`, `'sha1'`, `'md5'`
-
----
-
-## Phase 3 — process lifecycle hooks (half a day)
-
-Extend existing `ProcessFunctionProvider`.
-
-- [ ] `process.on('exit', fn)` — register handler called just before exit
-- [ ] `process.on('uncaughtException', fn)` — register handler for top-level exceptions
-- [ ] `process.on('unhandledRejection', fn)` — register handler for unhandled Promise rejections
-- [ ] Dispatch hooks from the VM's top-level exception handler and `process.exit`
-
----
-
-## Phase 4 — assert module (half a day)
-
-Create `AssertFunctionProvider` registered under `assert.*`.
-
-- [ ] `assert(val, msg?)` / `assert.ok(val, msg?)` — throw if falsy
-- [ ] `assert.equal(a, b, msg?)` — `==` comparison
-- [ ] `assert.strictEqual(a, b, msg?)` — `===` comparison
-- [ ] `assert.notEqual(a, b, msg?)` / `assert.notStrictEqual(a, b, msg?)`
-- [ ] `assert.deepEqual(a, b, msg?)` — recursive value equality
-- [ ] `assert.throws(fn, err?, msg?)` — assert fn throws
-- [ ] `assert.doesNotThrow(fn, msg?)` — assert fn does not throw
-- [ ] `assert.fail(msg?)` — unconditional failure
-
----
-
-## Phase 5 — util module (half a day)
-
-Create `UtilFunctionProvider` registered under `util.*`.
-
-- [ ] `util.format(fmt, ...args)` — printf-style: `%s`, `%d`, `%i`, `%f`, `%o`, `%j`
-- [ ] `util.inspect(val, opts?)` — pretty-print any value; handles cycles and functions
-- [ ] `util.promisify(fn)` — wraps a `(err, result)` callback-style function as Promise-returning
-- [ ] `util.deprecate(fn, msg)` — wraps a function; prints deprecation warning on first call
-
----
-
-## Phase 6 — fs module (half a day)
-
-Create `FsFunctionProvider` registered under `fs.*`. Synchronous-only to start.
-
-- [ ] `fs.readFileSync(path, enc?)` → `File.ReadAllText()` / `File.ReadAllBytes()`
-- [ ] `fs.writeFileSync(path, data, enc?)` → `File.WriteAllText()` / `File.WriteAllBytes()`
-- [ ] `fs.appendFileSync(path, data, enc?)` → `File.AppendAllText()`
-- [ ] `fs.existsSync(path)` → `File.Exists() || Directory.Exists()`
-- [ ] `fs.mkdirSync(path, opts?)` → `Directory.CreateDirectory()`
-- [ ] `fs.rmdirSync(path)` → `Directory.Delete()`
-- [ ] `fs.unlinkSync(path)` → `File.Delete()`
-- [ ] `fs.readdirSync(path)` → `Directory.GetFileSystemEntries()` → array of names
-- [ ] `fs.renameSync(old, new)` → `File.Move()`
-- [ ] `fs.statSync(path)` → object `{ size, isFile(), isDirectory(), mtime }`
-- [ ] `fs.copyFileSync(src, dest)` → `File.Copy()`
-
----
-
-## Phase 7 — RegExp constructor (half a day)
-
-- [ ] Create `RegExpObject` wrapper backed by `System.Text.RegularExpressions.Regex`
-- [ ] Register `new RegExp(pattern, flags?)` constructor (follows Date/Map/Set pattern)
-- [ ] `.test(str)` → bool
-- [ ] `.exec(str)` → match array or null
-- [ ] `.source`, `.flags`, `.global`, `.ignoreCase`, `.multiline` properties
-
----
-
-## Phase 8 — Buffer (1 day)
-
-Create `BufferObject` backed by `byte[]`. Constructor registration follows Date/Map/Set pattern.
-
-- [ ] `Buffer.from(str, enc?)` — encode string to bytes
-- [ ] `Buffer.from(array)` — from array of byte ints
-- [ ] `Buffer.alloc(size, fill?)` — zeroed (or filled) byte array
-- [ ] `Buffer.allocUnsafe(size)` — uninitialized byte array
-- [ ] `Buffer.isBuffer(val)` → bool
-- [ ] `Buffer.concat(list)` — concatenate multiple Buffers
-- [ ] `.toString(enc?)` — decode to string; default UTF-8
-- [ ] `.length` property
-- [ ] `.slice(start, end?)` → new Buffer (shared view)
-- [ ] `.copy(target, targetStart?)` — copy bytes into another Buffer
-- [ ] `.equals(other)` → bool
-- [ ] `.readUInt8(offset)` / `.writeUInt8(val, offset)` and common numeric variants
-
----
-
-## Phase 9 — EventEmitter (1 day)
-
-Create `EventEmitterFunctionProvider`. Instances are script-side objects; no native object backing needed.
-
-- [ ] Register `new EventEmitter()` constructor
-- [ ] `.on(event, fn)` / `.once(event, fn)` — register listener
-- [ ] `.off(event, fn)` / `.removeAllListeners(event?)` — unregister
-- [ ] `.emit(event, ...args)` → bool (true if any listeners called)
-- [ ] `.listeners(event)` → array of listener functions
-- [ ] `.listenerCount(event)` → int
-- [ ] `EventEmitter.defaultMaxListeners` property (default 10; warn if exceeded)
-
----
-
-## Phase 10 — Timer functions (1–2 days)
-
-Requires new engine infrastructure: a scheduled-callback queue alongside `MicroTaskQueue`.
-
-- [ ] Add `TimerQueue` to VM — stores `(id, dueTime, interval, fn)` entries; driven by `engine.DrainTimers()`
-- [ ] `setTimeout(fn, delay?)` → int handle id
-- [ ] `clearTimeout(id)` — cancel pending callback
-- [ ] `setInterval(fn, interval?)` → int handle id
-- [ ] `clearInterval(id)` — cancel repeating callback
-- [ ] `engine.DrainTimers()` public API — host calls this on each tick to fire due callbacks
-
----
-
-## Phase 11 — Promise combinators + static constructors (1 day)
-
-Extend the existing Promise implementation.
+Find the existing Promise registration and extend it.
 
 - [ ] `Promise.resolve(val)` — return an already-resolved Promise
 - [ ] `Promise.reject(reason)` — return an already-rejected Promise
 - [ ] `Promise.all(arr)` — resolve when all resolve; reject on first rejection
 - [ ] `Promise.allSettled(arr)` — always resolve with `[{status, value/reason}]`
-- [ ] `Promise.race(arr)` — settle with the first to settle
+- [ ] `Promise.race(arr)` — settle with the first input to settle
 - [ ] `Promise.any(arr)` — resolve with first fulfillment; reject with `AggregateError` if all reject
+- [ ] `Promise.prototype.finally(fn)` — run `fn` on both paths; propagate original value/reason
+- [ ] Tests: happy path for each method, rejection propagation, `AggregateError` from `Promise.any`
+- [ ] Update `wiki/Standard-Library.md` and `README.md`
 
 ---
 
-## Phase 12 — fetch (1 day)
+## Phase 2 — Logical assignment operators (ES2021)
 
-Create `FetchFunctionProvider`. `HttpClient` should be a singleton.
+Changes to `ScriptLex.cs` and `ScriptCompile.cs` only.
 
-- [ ] `fetch(url, opts?)` — synchronous blocking implementation first; returns result object
-- [ ] `opts`: `{ method, headers, body }`
-- [ ] Response object: `.ok`, `.status`, `.statusText`, `.headers`
-- [ ] `.text()` → string
-- [ ] `.json()` → parsed object
-- [ ] `.arrayBuffer()` → Buffer (requires Phase 8)
-- [ ] Upgrade to async/Promise-returning once timer queue (Phase 10) exists
-
----
-
-## Phase 13 — Sandboxing / permission model (1 day)
-
-- [ ] Define `EnginePermissions` flags enum: `FileSystem`, `Network`, `ProcessSpawn`, `ProcessExit`, `EnvironmentVariables`
-- [ ] Update `EngineFunctionLoader.RegisterFunctions(engine, permissions)` to accept permissions
-- [ ] `fs` provider checks `FileSystem` permission before each operation
-- [ ] `fetch` provider checks `Network` permission
-- [ ] `child_process` provider checks `ProcessSpawn` permission
-- [ ] `process.exit` checks `ProcessExit` permission
-- [ ] `process.getenv` / `process.env` checks `EnvironmentVariables` permission
-- [ ] All violations throw a `PermissionError` catchable by the script
+- [ ] Add `LexTypes.LogicalAndAssign` — lex `&&=`
+- [ ] Add `LexTypes.LogicalOrAssign` — lex `||=`
+- [ ] Add `LexTypes.NullCoalesceAssign` — lex `??=`
+- [ ] Compile `a &&= b` → assign only if `a` is truthy (short-circuit; no re-evaluate of `a`)
+- [ ] Compile `a ||= b` → assign only if `a` is falsy
+- [ ] Compile `a ??= b` → assign only if `a` is `null`/`undefined`
+- [ ] Tests: truthy/falsy guard, nullish guard, side-effect count (RHS only evaluated when needed)
+- [ ] Update `wiki/Language.md` operators table
 
 ---
 
-## Phase 14 — Script timeout / resource limits (1 day)
+## Phase 3 — `globalThis` (ES2020)
 
-- [ ] `engine.SetTimeout(TimeSpan)` — cancels execution after wall-clock time elapses
-- [ ] `engine.SetInstructionLimit(long)` — cancels after N VM instructions
-- [ ] Add instruction counter to VM dispatch loop; check against limit each instruction
-- [ ] Both cancellation paths throw `ScriptTimeoutException` (catchable by host, not script)
+One-liner native registration.
 
----
-
-## Phase 15 — child_process module (1 day)
-
-Create `ChildProcessFunctionProvider` registered under `child_process.*`.
-
-- [ ] `child_process.execSync(cmd, opts?)` → stdout string; throws on non-zero exit
-- [ ] `child_process.spawnSync(cmd, args?, opts?)` → `{ stdout, stderr, status, signal }`
-- [ ] `child_process.exec(cmd, cb)` — async; `cb(err, stdout, stderr)` (requires timer queue)
-- [ ] `child_process.spawn(cmd, args?, opts?)` — async; returns process object with `.on('exit', fn)`
+- [ ] Register `globalThis` at root level pointing to the engine root `ScriptVar`
+- [ ] `globalThis === globalThis` evaluates to `true`
+- [ ] Test: access a variable via `globalThis.x` after setting `var x = 1`
+- [ ] Update `wiki/Language.md`
 
 ---
 
-## Phase 16 — readline module (half a day)
+## Phase 4 — Numeric separators (ES2021)
 
-Create `ReadlineFunctionProvider` registered under `readline.*`.
+Lexer-only change in `ScriptLex.cs`.
 
-- [ ] `readline.createInterface({ input, output })` → rl object
-- [ ] `rl.question(prompt, cb)` — print prompt, read one line, call `cb(answer)`
-- [ ] `rl.close()`
-- [ ] `rl.on('line', fn)` / `rl.on('close', fn)`
-
----
-
-## Phase 17 — Module system (2–3 days)
-
-Core engine change. Requires VM support for loading and caching compiled chunks from disk.
-
-- [ ] Add chunk cache to engine keyed by resolved absolute path
-- [ ] `require(path)` global — resolve path relative to `__dirname`, load if not cached, return `module.exports`
-- [ ] `module` object per script — `module.exports`, `module.filename`, `module.loaded`
-- [ ] `exports` alias → `module.exports`
-- [ ] `__filename` global — absolute path of the current script
-- [ ] `__dirname` global — directory of the current script
-- [ ] Circular dependency handling — return partial exports if re-entered
-- [ ] Support `require('./relative')`, `require('/absolute')`, `require('name')` (search path configurable)
+- [ ] Skip `_` between digits in integer and float literals (`1_000`, `1_000.5`, `1_000e2`)
+- [ ] Skip `_` in hex (`0xFF_FF`), binary (`0b1010_0001`), octal (`0o7_7`) literals
+- [ ] Reject `_` at start, end, adjacent to `.`, `e`/`E`, or `x`/`b`/`o` prefix — throw `SyntaxError`
+- [ ] Tests: valid separators in all literal forms, invalid positions throw
+- [ ] Update `wiki/Language.md`
 
 ---
 
-## Phase 18 — Host object injection (2+ days)
+## Phase 5 — `Symbol` (ES2015, required for iterable protocol)
 
-Clean API for hosts to expose C# objects to scripts without hand-writing a provider.
+Core VM change. Requires touching `ScriptVar`, the lexer, and property-key lookup.
 
-- [ ] `engine.SetGlobal(name, obj)` — exposes a C# object; public members become script-accessible
-- [ ] `[ScriptVisible]` attribute — opt-in for specific properties and methods
-- [ ] `[ScriptWritable]` attribute — allow script-side assignment (read-only by default)
-- [ ] Reflection-based dispatch or source-generated wrappers for method calls
-- [ ] Support primitive return types, string, and `ScriptVar` directly
-
----
-
-## Phase 19 — http server (2+ days)
-
-Requires async I/O integration. Defer until timer queue (Phase 10) and Buffer (Phase 8) exist.
-
-- [ ] `http.createServer(fn)` → server object; `fn(req, res)` called per request
-- [ ] `server.listen(port, host?, cb?)`
-- [ ] `server.close()`
-- [ ] Request: `.method`, `.url`, `.headers`, `.on('data', fn)`, `.on('end', fn)`
-- [ ] Response: `.writeHead(status, headers?)`, `.write(data)`, `.end(data?)`
+- [ ] Add `SymbolType` value kind to `ScriptVar` (opaque unique identity; backed by a `ulong` counter or `Guid`)
+- [ ] `Symbol(description?)` factory — calling `new Symbol()` throws `TypeError`
+- [ ] `Symbol.for(key)` / `Symbol.keyFor(sym)` — global symbol registry
+- [ ] `typeof sym` returns `"symbol"`
+- [ ] Symbols usable as property keys: `obj[Symbol.iterator] = fn`
+- [ ] Child lookup in `ScriptVar` must support symbol-keyed children (separate map from string-keyed)
+- [ ] Well-known symbol `Symbol.iterator` — expose as static property; wire into `for...of` / spread iterable path
+- [ ] Well-known symbol `Symbol.hasInstance` — wire into `instanceof` operator
+- [ ] Well-known symbol `Symbol.toPrimitive` — wire into type coercion path
+- [ ] Well-known symbol `Symbol.toStringTag` — wire into `Object.prototype.toString`
+- [ ] Tests: uniqueness, registry, typeof, property key, Symbol.iterator on custom object
+- [ ] Update `wiki/Language.md` and `wiki/Standard-Library.md`
 
 ---
 
-## Phase 20 — stream, net, zlib, URL, TextEncoder (deferred / niche)
+## Phase 6 — `WeakMap`, `WeakSet`, `WeakRef` (ES2015/2021)
 
-Defer until the foundational pieces (Buffer, EventEmitter, async I/O) are in place.
+Pure provider work; no VM changes.
 
-- [ ] `stream` — simplified Readable/Writable/Transform
-- [ ] `net` — TCP client/server (`net.createServer`, `net.createConnection`)
-- [ ] `zlib` — `gzipSync`, `gunzipSync`, `deflateSync`, `inflateSync` (needs Buffer)
-- [ ] `URL` / `URLSearchParams` — constructor + property accessors backed by `System.Uri`
-- [ ] `TextEncoder` / `TextDecoder` — UTF-8 encode/decode to/from Buffer
+- [ ] `WeakMap` — `new WeakMap()`, `.get(k)`, `.set(k,v)`, `.has(k)`, `.delete(k)`
+- [ ] `WeakSet` — `new WeakSet()`, `.add(o)`, `.has(o)`, `.delete(o)`
+- [ ] `WeakRef` — `new WeakRef(target)`, `.deref()` (always returns live object — GC-less engine)
+- [ ] Tests: basic CRUD for each; `WeakRef.deref()` returns the object
+- [ ] Update `wiki/Standard-Library.md`
+
+---
+
+## Phase 7 — Static class initialisation blocks (ES2022)
+
+Compiler-only change; no new opcodes needed.
+
+- [ ] In class-body compiler, recognise `static {` (not followed by an identifier or `(`)
+- [ ] Compile the block body and emit it after the class object is constructed
+- [ ] Tests: static block runs once; can reference static fields; runs before first instance creation
+- [ ] Update `wiki/Language.md`
+
+---
+
+## Phase 8 — Private class fields and methods (ES2022)
+
+Lexer + compiler + runtime change.
+
+- [ ] Add `LexTypes.PrivateName` — lex `#identifier` as a single token
+- [ ] In class-body compiler, treat `#name` declarations as private slots stored separately from public properties
+- [ ] Private instance fields: initialised per-instance in the constructor
+- [ ] Private instance methods: stored on the class, accessible via `this.#method()`
+- [ ] Private static fields and methods: `static #x`
+- [ ] `#name in obj` existence check (ES2022) — new `in` branch in the compiler
+- [ ] Accessing `obj.#field` outside the class body throws `SyntaxError` at compile time
+- [ ] Tests: read/write private field, private method call, static private, out-of-class access throws, `#name in obj`
+- [ ] Update `wiki/Language.md`
+
+---
+
+## Phase 9 — `import.meta` (ES2020)
+
+Small compiler + VM change.
+
+- [ ] Add `LexTypes.ImportMeta` or handle `import.meta` as a special case in the expression compiler
+- [ ] Emit a `PushImportMeta` opcode (or reuse existing machinery)
+- [ ] VM resolves `import.meta` to an object with `url`, `filename`, `dirname` populated from the current module context
+- [ ] Tests: `import.meta.url` contains the module path; works inside a `require`d module
+- [ ] Update `wiki/Modules.md`
+
+---
+
+## Phase 10 — Dynamic `import()` (ES2020)
+
+New opcode + Promise integration.
+
+- [ ] Parser: when `import` appears in expression position followed by `(`, parse as a call expression (not a declaration)
+- [ ] Compiler: emit `DynamicImport` opcode with the specifier expression
+- [ ] VM: handle `DynamicImport` — resolve via `ModuleLoader`, compile and cache, return `Promise<exports>`
+- [ ] Tests: `await import("./mod")` resolves with the module exports; missing module rejects the Promise
+- [ ] Update `wiki/Modules.md`
+
+---
+
+## Phase 11 — Top-level `await` (ES2022)
+
+Compiler change; the VM's async machinery already exists.
+
+- [ ] Detect `await` at module scope (outside any function body) in the compiler
+- [ ] When detected, wrap the entire module body in an implicit async wrapper before compilation
+- [ ] Propagate the returned Promise so the host can await module completion
+- [ ] Tests: top-level `await` resolves a `Promise`; value is accessible after module load
+- [ ] Update `wiki/Language.md` and `wiki/Modules.md`
+
+---
+
+## Phase 12 — BigInt (ES2020)
+
+Significant VM change. Do after Phase 5 (Symbol) since typeof handling follows the same pattern.
+
+- [ ] Add `LexTypes.BigInt` — lex trailing `n` on integer literals (`123n`, `0xFFn`, `0b101n`, `0o77n`)
+- [ ] Numeric separators also apply inside BigInt literals (`1_000n`)
+- [ ] Add `BigInteger` slot to `ScriptVar` (via `System.Numerics.BigInteger`)
+- [ ] `typeof 1n` returns `"bigint"`
+- [ ] `BigInt(val)` factory — `new BigInt()` throws `TypeError`
+- [ ] Arithmetic opcodes: `+`, `-`, `*`, `/`, `%`, `**` — add BigInt branch; cross-type with Number throws `TypeError`
+- [ ] Unary `-`, bitwise `&`, `|`, `^`, `~`, `<<`, `>>`
+- [ ] Comparison: `==`, `===`, `<`, `>`, `<=`, `>=`; cross-type `==` coerces; cross-type `===` is always `false`
+- [ ] `BigInt.prototype.toString(radix?)`, `.valueOf()`, `.toLocaleString()`
+- [ ] `Number(bigint)` explicit conversion
+- [ ] Tests: literals, arithmetic, comparisons, typeof, cross-type TypeError, toString radix
+- [ ] Update `wiki/Language.md` and `wiki/Standard-Library.md`
+
+---
+
+## Phase 13 — `Proxy` and `Reflect` (ES2015)
+
+Deep VM change. Implement after all other phases are stable.
+
+### Reflect (standalone, no VM changes needed)
+- [ ] `Reflect.apply(fn, thisArg, args)`
+- [ ] `Reflect.construct(target, args, newTarget?)`
+- [ ] `Reflect.get(target, key, receiver?)`
+- [ ] `Reflect.set(target, key, val, receiver?)`
+- [ ] `Reflect.has(target, key)` — `key in target`
+- [ ] `Reflect.deleteProperty(target, key)`
+- [ ] `Reflect.ownKeys(target)`
+- [ ] `Reflect.defineProperty(target, key, desc)`
+- [ ] `Reflect.getOwnPropertyDescriptor(target, key)`
+- [ ] `Reflect.getPrototypeOf(target)` / `Reflect.setPrototypeOf(target, proto)`
+- [ ] `Reflect.isExtensible(target)` / `Reflect.preventExtensions(target)`
+
+### Proxy (VM-pervasive change)
+- [ ] `new Proxy(target, handler)` — constructor
+- [ ] Every property-get path in the VM checks for Proxy and calls `handler.get` trap if present
+- [ ] Every property-set path checks for Proxy and calls `handler.set` trap
+- [ ] `in` operator checks for `handler.has` trap
+- [ ] `delete` operator checks for `handler.deleteProperty` trap
+- [ ] Function calls check for `handler.apply` trap
+- [ ] `new` expression checks for `handler.construct` trap
+- [ ] `Object.keys()` / `for...in` checks for `handler.ownKeys` trap
+- [ ] Tests: get/set/has/delete traps; revocable proxy (`Proxy.revocable`); transparent forwarding via Reflect
+- [ ] Update `wiki/Standard-Library.md` and `wiki/Language.md`
+
+---
+
+## Phase 14 — `Intl` (ES2020+)
+
+Backed entirely by .NET globalization APIs.
+
+- [ ] `Intl.getCanonicalLocales(locales)` — normalise locale tags
+- [ ] `new Intl.Collator(locale?, opts?)` — `.compare(a, b)`, `.resolvedOptions()`
+- [ ] `new Intl.NumberFormat(locale?, opts?)` — `.format(n)`, `.formatToParts(n)`, `.resolvedOptions()`
+- [ ] `new Intl.DateTimeFormat(locale?, opts?)` — `.format(date)`, `.formatToParts(date)`, `.resolvedOptions()`
+- [ ] `new Intl.DisplayNames(locale, {type})` — `.of(code)` for language/region/script/currency display names
+- [ ] `new Intl.PluralRules(locale?, opts?)` — `.select(n)` → `"one"|"few"|"many"|"other"` etc.
+- [ ] Tests: formatting numbers with locale, sorting with collator, date formatting
+- [ ] Update `wiki/Standard-Library.md`

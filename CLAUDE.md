@@ -50,8 +50,51 @@ If new code is inherently difficult to cover (e.g. platform-specific branches, i
 
 ## Documentation
 
-- Keep `README.md` up to date whenever public APIs, language features, or behaviour visible to users change
-- Keep the language server (`DScript.LanguageServer`) up to date whenever the lexer, parser, or public API surface changes — hover, completion, go-to-definition, and signature help should reflect the current language
+Update **both** `README.md` and the wiki submodule (`wiki/`) whenever public APIs, language features, or user-visible behaviour change. Neither should lag behind the code.
+
+### README.md
+
+`README.md` must stay **minimal**. It contains: a one-paragraph description, a quick example, installation instructions, a short "getting started" C# snippet, and links to the wiki for everything else. It must **not** enumerate every API, method, or language feature — those live in the wiki.
+
+When a change adds or removes a user-visible feature, update `README.md` only if the change affects the getting-started flow. Otherwise update the wiki only.
+
+Wiki base URL: `https://github.com/bizzehdee/DScript/wiki`  
+Example page: `https://github.com/bizzehdee/DScript/wiki/Engine`
+
+### Wiki submodule (`wiki/`)
+
+The wiki lives at `C:\code\DScript\wiki\` (git submodule pointing at the GitHub wiki repo).
+
+Update the relevant wiki page(s) alongside any code change:
+
+| Change type | Pages to update |
+|---|---|
+| New/changed language syntax | `Language.md` |
+| New/changed `DScript.Extras` module or method | `Standard-Library.md` |
+| New/changed `ScriptEngine` public API | `Engine.md` |
+| New/changed module system behaviour | `Modules.md` |
+| New/changed resource limits or permissions | `Resource-Limits.md`, `Permissions.md` |
+| New/changed host-object injection | `Host-Objects.md` |
+| New/changed bytecode / serialisation API | `Bytecode.md` |
+| New/changed debugger interface | `Debugger.md` |
+| REPL changes | `REPL.md` |
+
+After editing wiki pages, commit them inside the submodule and then record the updated submodule pointer in the main repo:
+
+```
+# inside wiki/
+git add <changed pages>
+git commit -m "<description of what changed>"
+git push
+
+# back in the main repo
+git add wiki
+git commit -m "Update wiki — <description>"
+```
+
+### Language server
+
+Keep `DScript.LanguageServer` up to date whenever the lexer, parser, or public API surface changes — hover, completion, go-to-definition, and signature help should reflect the current language.
 
 ## Benchmarking
 
@@ -74,6 +117,12 @@ Record the `best ms` column for each workload. Variance between runs is normal; 
 - Name commits after the thing being changed, not the action (`String gaps` not `Add string methods`)
 - One logical change per commit
 - Do not bundle unrelated fixes
+
+## Opcodes
+
+New opcodes **must be appended to the end** of the opcode enum. Never insert them in the middle.
+
+Inserting an opcode anywhere other than the end changes the integer values of all subsequent opcodes, silently breaking any saved bytecode files and any external tooling that encodes opcodes as integers.
 
 ## Build command
 
