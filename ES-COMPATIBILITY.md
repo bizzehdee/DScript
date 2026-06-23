@@ -139,7 +139,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Object.getOwnPropertyDescriptors` | ❌ | |
 | `String.prototype.padStart` / `padEnd` | ✅ | |
 | Trailing commas in function parameter lists | ✅ | |
-| Shared memory and atomics | ❌ | Out of scope |
+| Shared memory and atomics (`SharedArrayBuffer`, `Atomics`) | ❌ | Out of scope — requires multi-threading and typed arrays; see notes |
 
 ---
 
@@ -205,7 +205,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Promise.any` | ✅ | |
 | `String.prototype.replaceAll` | ✅ | |
 | `WeakRef` | ✅ | `deref()` returns the target object |
-| `FinalizationRegistry` | ❌ | No GC hooks available |
+| `FinalizationRegistry` | ❌ | Will not be implemented — requires a tracing GC; see notes |
 
 ---
 
@@ -223,7 +223,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Object.hasOwn(obj, key)` | ✅ | |
 | `Error.cause` | ✅ | `new Error('msg', { cause: err })` — `cause` stored on the error object |
 | `RegExp` `d` (indices) flag | ❌ | |
-| `#x in obj` (ergonomic brand checks) | ❌ | Private field existence check via `in` not implemented |
+| `#x in obj` (ergonomic brand checks) | ❌ | Will not be implemented for now — requires the parser to distinguish `#ident in expr` from string-keyed `in`, the compiler to resolve the private-field mangled name from the enclosing class scope, and a new `in` opcode variant; complexity outweighs current value |
 
 ---
 
@@ -231,12 +231,11 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 
 | Feature | Status | Notes |
 |---|---|---|
-| `Array.prototype.findLast` / `findLastIndex` | ❌ | |
-| `Array.prototype.toReversed` / `toSorted` / `toSpliced` / `with` | ❌ | |
+| `Array.prototype.findLast` / `findLastIndex` | ✅ | |
+| `Array.prototype.toReversed` / `toSorted` / `toSpliced` / `with` | ✅ | |
 | `Array.from` with `{ from }` static | ✅ | Basic form only |
-| Hashbang (`#!`) in scripts | ❌ | |
+| Hashbang (`#!`) in scripts | ❌ | Lexer does not skip `#!` prologue |
 | `Symbol.prototype.description` (read-only) | ⚠️ | See ES2019 note |
-| Change array by copy (`toSorted`, `toSpliced`, etc.) | ❌ | |
 
 ---
 
@@ -246,8 +245,8 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 |---|---|---|
 | `Promise.withResolvers` | ❌ | |
 | `Object.groupBy` / `Map.groupBy` | ❌ | |
-| `ArrayBuffer.prototype.resize` | ❌ | Out of scope |
-| `Atomics.waitAsync` | ❌ | Out of scope |
+| `ArrayBuffer.prototype.resize` | ❌ | Out of scope — requires typed array / ArrayBuffer support |
+| `Atomics.waitAsync` | ❌ | Out of scope — requires multi-threading infrastructure; see ES2017 notes |
 | RegExp `v` flag and set notation | ❌ | |
 | `String.prototype.isWellFormed` / `toWellFormed` | ❌ | |
 
@@ -307,8 +306,6 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 
 - **Regular expression advanced features**: Unicode property escapes (`\p{...}`) and the `d`/`v` flags are not supported.
 - **Typed arrays** (`Uint8Array`, `Int32Array`, `Float64Array`, etc.): Not implemented.
-- **ArrayBuffer** / **SharedArrayBuffer**: Not implemented.
-- **Atomics**: Not implemented.
+- **ArrayBuffer** / **SharedArrayBuffer** / **Atomics**: Will not be implemented. `SharedArrayBuffer` requires multiple concurrently-executing VM instances sharing an address space, and `Atomics` only operates through typed array views. DScript is a single-threaded embedded engine with no Worker/thread model, so there is nothing to synchronise across. The prerequisites (typed arrays, thread-safe `ScriptVar` and scope chain, `Atomics.wait` blocking without deadlocking the host) make this impractical without a fundamental redesign of the engine.
 - **Async generators** (`async function*`) and `for await...of`: Not implemented.
-- **`FinalizationRegistry`**: No GC hooks available in the VM.
-- **`Object.getOwnPropertyDescriptors`**: Not implemented.
+- **`FinalizationRegistry`**: Will not be implemented. `FinalizationRegistry` requires the engine to fire a callback at the moment a registered object becomes unreachable. DScript uses explicit reference counting (`ScriptVar` carries `AddRef`/`Release` and suppresses the .NET finalizer via `GC.SuppressFinalize`), so object lifetimes are deterministic and there is no "object was just collected" hook point. Implementing it correctly would require replacing the ref-count model with a tracing (mark-and-sweep or generational) garbage collector over the entire `ScriptVar` graph — a complete redesign of memory management that is out of scope.
