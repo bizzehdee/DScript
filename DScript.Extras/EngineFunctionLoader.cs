@@ -48,6 +48,9 @@ namespace DScript.Extras
             // var would later shadow in the child list.
             MapRegistrar.Register(engine);
             SetRegistrar.Register(engine);
+            WeakMapRegistrar.Register(engine);
+            WeakSetRegistrar.Register(engine);
+            WeakRefRegistrar.Register(engine);
             DateRegistrar.Register(engine);
             RegExpRegistrar.Register(engine);
             BufferRegistrar.Register(engine);
