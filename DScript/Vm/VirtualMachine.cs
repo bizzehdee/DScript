@@ -359,6 +359,9 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var nameIdx = ReadOperand(code, ref ip);
+                        // globalThis is a built-in that always refers to the root scope object
+                        // without creating a circular child reference in that object.
+                        if (chunk.Names[nameIdx] == "globalThis") { Push(env.Global().Vars); break; }
                         var link = ResolveCached(cache, chunk, site, env, nameIdx);
                         Push(link != null ? link.Var : new ScriptVar(ScriptVar.Flags.Undefined));
                         break;
