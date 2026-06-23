@@ -227,6 +227,37 @@ namespace DScript.Compiler
                 return;
             }
 
+            // a &&= b / a ||= b / a ??= b
+            if (canAssign && lexer.TokenType is ScriptLex.LexTypes.AndAndEqual
+                                              or ScriptLex.LexTypes.OrOrEqual
+                                              or ScriptLex.LexTypes.NullCoalesceEqual)
+            {
+                var logOp = lexer.TokenType;
+                lexer.Match(logOp);
+                chunk.Emit(OpCode.GetVar, chunk.AddName(name));
+                if (logOp == ScriptLex.LexTypes.NullCoalesceEqual)
+                {
+                    var isNull = chunk.EmitJump(OpCode.JumpIfNullOrUndefined); // null/undef → jump
+                    var skipAssign = chunk.EmitJump(OpCode.Jump);              // not null/undef → skip
+                    chunk.PatchJump(isNull);
+                    chunk.Emit(OpCode.Pop);
+                    CompileBase();
+                    chunk.Emit(OpCode.SetVar, chunk.AddName(name));
+                    chunk.PatchJump(skipAssign);
+                }
+                else
+                {
+                    var jumpOp = logOp == ScriptLex.LexTypes.AndAndEqual
+                        ? OpCode.JumpIfFalseOrPop
+                        : OpCode.JumpIfTrueOrPop;
+                    var skip = chunk.EmitJump(jumpOp);
+                    CompileBase();
+                    chunk.Emit(OpCode.SetVar, chunk.AddName(name));
+                    chunk.PatchJump(skip);
+                }
+                return;
+            }
+
             // a++ / a-- (postfix): result is the old value
             if (lexer.TokenType is ScriptLex.LexTypes.PlusPlus or ScriptLex.LexTypes.MinusMinus)
             {
@@ -353,6 +384,47 @@ namespace DScript.Compiler
                         return;
                     }
 
+                    // obj.prop &&= b / obj.prop ||= b / obj.prop ??= b
+                    if (canAssign && lexer.TokenType is ScriptLex.LexTypes.AndAndEqual
+                                                      or ScriptLex.LexTypes.OrOrEqual
+                                                      or ScriptLex.LexTypes.NullCoalesceEqual)
+                    {
+                        var logOp = lexer.TokenType;
+                        lexer.Match(logOp);
+                        if (logOp == ScriptLex.LexTypes.NullCoalesceEqual)
+                        {
+                            chunk.Emit(OpCode.Dup);
+                            chunk.Emit(OpCode.GetProp, nameIndex);         // [obj, old]
+                            var isNull = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
+                            // Not null/undef: [obj, old] — pop old, re-fetch via GetProp
+                            chunk.Emit(OpCode.Pop);
+                            chunk.Emit(OpCode.GetProp, nameIndex);         // [old]
+                            var skipAssign = chunk.EmitJump(OpCode.Jump);
+                            // Null/undef: [obj, undef] — pop undef, compile b, set
+                            chunk.PatchJump(isNull);
+                            chunk.Emit(OpCode.Pop);
+                            CompileBase();
+                            chunk.Emit(OpCode.SetProp, nameIndex);
+                            chunk.PatchJump(skipAssign);
+                        }
+                        else
+                        {
+                            var jumpOp = logOp == ScriptLex.LexTypes.AndAndEqual
+                                ? OpCode.JumpIfFalse
+                                : OpCode.JumpIfTrue;
+                            chunk.Emit(OpCode.Dup);
+                            chunk.Emit(OpCode.GetProp, nameIndex);         // [obj, old]
+                            var skip = chunk.EmitJump(jumpOp);             // pop old; check → [obj] or skip
+                            CompileBase();                                  // [obj, b]
+                            chunk.Emit(OpCode.SetProp, nameIndex);         // [b]
+                            var end = chunk.EmitJump(OpCode.Jump);
+                            chunk.PatchJump(skip);
+                            chunk.Emit(OpCode.GetProp, nameIndex);         // [old] (consumes obj)
+                            chunk.PatchJump(end);
+                        }
+                        return;
+                    }
+
                     chunk.Emit(OpCode.GetProp, nameIndex);
                 }
                 else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
@@ -378,6 +450,47 @@ namespace DScript.Compiler
                         CompileBase();
                         EmitBinaryOrShift(baseOp, isShift, operandStart5);
                         chunk.Emit(OpCode.SetIndex);
+                        return;
+                    }
+
+                    // obj[key] &&= b / obj[key] ||= b / obj[key] ??= b
+                    if (canAssign && lexer.TokenType is ScriptLex.LexTypes.AndAndEqual
+                                                      or ScriptLex.LexTypes.OrOrEqual
+                                                      or ScriptLex.LexTypes.NullCoalesceEqual)
+                    {
+                        var logOp = lexer.TokenType;
+                        lexer.Match(logOp);
+                        if (logOp == ScriptLex.LexTypes.NullCoalesceEqual)
+                        {
+                            chunk.Emit(OpCode.Dup2);
+                            chunk.Emit(OpCode.GetIndex);               // [obj, key, old]
+                            var isNull = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
+                            // Not null/undef: [obj, key, old] — pop old, re-fetch
+                            chunk.Emit(OpCode.Pop);
+                            chunk.Emit(OpCode.GetIndex);               // [old] (consumes obj,key)
+                            var skipAssign = chunk.EmitJump(OpCode.Jump);
+                            // Null/undef: [obj, key, undef] — pop undef, compile b, set
+                            chunk.PatchJump(isNull);
+                            chunk.Emit(OpCode.Pop);
+                            CompileBase();
+                            chunk.Emit(OpCode.SetIndex);               // [b]
+                            chunk.PatchJump(skipAssign);
+                        }
+                        else
+                        {
+                            var jumpOp = logOp == ScriptLex.LexTypes.AndAndEqual
+                                ? OpCode.JumpIfFalse
+                                : OpCode.JumpIfTrue;
+                            chunk.Emit(OpCode.Dup2);
+                            chunk.Emit(OpCode.GetIndex);               // [obj, key, old]
+                            var skip = chunk.EmitJump(jumpOp);         // pop old; check → [obj, key] or skip
+                            CompileBase();                             // [obj, key, b]
+                            chunk.Emit(OpCode.SetIndex);               // [b]
+                            var end = chunk.EmitJump(OpCode.Jump);
+                            chunk.PatchJump(skip);
+                            chunk.Emit(OpCode.GetIndex);               // [old] (consumes obj,key)
+                            chunk.PatchJump(end);
+                        }
                         return;
                     }
 

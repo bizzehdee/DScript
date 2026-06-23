@@ -157,6 +157,9 @@ namespace DScript
             RExport,        // export keyword
             RImport,        // import keyword
             RFrom,          // from contextual keyword
+            AndAndEqual,    // &&=
+            OrOrEqual,      // ||=
+            NullCoalesceEqual, // ??=
         }
 
         public ScriptLex(string input)
@@ -592,30 +595,33 @@ namespace DScript
                     TokenType = LexTypes.AndEqual;
                     GetNextChar();
                 }
-                else if (TokenType == (LexTypes)'&' && CurrentChar == '&') // &&
+                else if (TokenType == (LexTypes)'&' && CurrentChar == '&') // && or &&=
                 {
                     TokenType = LexTypes.AndAnd;
                     GetNextChar();
+                    if (CurrentChar == '=') { TokenType = LexTypes.AndAndEqual; GetNextChar(); }
                 }
                 else if (TokenType == (LexTypes)'|' && CurrentChar == '=') // |=
                 {
                     TokenType = LexTypes.OrEqual;
                     GetNextChar();
                 }
-                else if (TokenType == (LexTypes)'|' && CurrentChar == '|') // ||
+                else if (TokenType == (LexTypes)'|' && CurrentChar == '|') // || or ||=
                 {
                     TokenType = LexTypes.OrOr;
                     GetNextChar();
+                    if (CurrentChar == '=') { TokenType = LexTypes.OrOrEqual; GetNextChar(); }
                 }
                 else if (TokenType == (LexTypes)'^' && CurrentChar == '=') // ^=
                 {
                     TokenType = LexTypes.XorEqual;
                     GetNextChar();
                 }
-                else if (TokenType == (LexTypes)'?' && CurrentChar == '?') // ??
+                else if (TokenType == (LexTypes)'?' && CurrentChar == '?') // ?? or ??=
                 {
                     TokenType = LexTypes.NullCoalesce;
                     GetNextChar();
+                    if (CurrentChar == '=') { TokenType = LexTypes.NullCoalesceEqual; GetNextChar(); }
                 }
                 else if (TokenType == (LexTypes)'?' && CurrentChar == '.') // ?.
                 {
