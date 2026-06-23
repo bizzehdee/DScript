@@ -339,5 +339,55 @@ namespace DScript.Test
             var chunk = ScriptEngine.Compile("var re = new RegExp('x'); 'axb'.matchAll(re);");
             Assert.Throws<ScriptException>(() => engine.Run(chunk));
         }
+
+        // --- d (indices) flag ---
+
+        [Test]
+        public void DFlag_ExecPopulatesIndices()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('ab(c)', 'd'); var m = re.exec('xabcy'); var result = m.indices[0][0];");
+            Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void DFlag_ExecIndicesEndIsExclusive()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('ab(c)', 'd'); var m = re.exec('xabcy'); var result = m.indices[0][1];");
+            Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(4)); // "abc" from index 1, length 3 → end 4
+        }
+
+        [Test]
+        public void DFlag_ExecIndicesGroupCapture()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('ab(c)', 'd'); var m = re.exec('xabcy'); var result = m.indices[1][0];");
+            Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(3)); // "c" at index 3
+        }
+
+        [Test]
+        public void DFlag_ExecHasGroupsObject()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('(?<word>\\\\w+)', 'd'); var m = re.exec('hello world'); var result = m.indices.groups.word[0];");
+            Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void DFlag_WithoutDFlagNoIndicesProperty()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('abc'); var m = re.exec('xabcy'); var result = (m.indices === undefined) ? 1 : 0;");
+            Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void DFlag_StringMatchPopulatesIndices()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('ab(c)', 'd'); var m = 'xabcy'.match(re); var result = m.indices[0][0];");
+            Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(1));
+        }
     }
 }

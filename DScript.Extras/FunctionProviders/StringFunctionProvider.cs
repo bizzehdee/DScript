@@ -150,6 +150,8 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar.AddChild("index", new ScriptVar(match.Index));
             var.ReturnVar.AddChild("input", new ScriptVar(str));
             var.ReturnVar.AddChild("groups", RegExpFunctionProvider.BuildNamedGroups(regex, match));
+            if (regexVar.RegexHasIndices)
+                var.ReturnVar.AddChild("indices", RegExpFunctionProvider.BuildIndices(regex, match));
         }
 
         [ScriptMethod("trim")]

@@ -764,7 +764,9 @@ namespace DScript
                             {
                                 tokenBuilder.Append(CurrentChar);
                                 GetNextChar();
-                            } while (CurrentChar == 'g' || CurrentChar == 'i' || CurrentChar == 'm' || CurrentChar == 'y');
+                            } while (CurrentChar == 'd' || CurrentChar == 'g' || CurrentChar == 'i' ||
+                                     CurrentChar == 'm' || CurrentChar == 's' || CurrentChar == 'u' ||
+                                     CurrentChar == 'v' || CurrentChar == 'y');
                             
                             TokenString = tokenBuilder.ToString();
                         }

@@ -40,6 +40,7 @@ namespace DScript.Extras
                 var opts = RegexOptions.None;
                 var global = false;
                 var hasS = false;
+                var hasIndices = false;
                 foreach (var c in flags)
                 {
                     switch (c)
@@ -48,7 +49,8 @@ namespace DScript.Extras
                         case 'm': opts |= RegexOptions.Multiline; break;
                         case 's': opts |= RegexOptions.Singleline; hasS = true; break;
                         case 'g': global = true; break;
-                        // 'u' and 'd' are accepted and stored but map to no extra .NET option
+                        case 'd': hasIndices = true; break;
+                        // 'u' and 'v' are accepted and stored but map to no extra .NET option
                     }
                 }
 
@@ -67,6 +69,7 @@ namespace DScript.Extras
                     thisVar.AddChild("ignoreCase", new ScriptVar((opts & RegexOptions.IgnoreCase) != 0));
                     thisVar.AddChild("multiline", new ScriptVar((opts & RegexOptions.Multiline) != 0));
                     thisVar.AddChild("dotAll", new ScriptVar(hasS));
+                    thisVar.AddChild("hasIndices", new ScriptVar(hasIndices));
                 }
             }, null);
 

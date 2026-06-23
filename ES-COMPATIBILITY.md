@@ -222,7 +222,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `String.prototype.at` | ✅ | |
 | `Object.hasOwn(obj, key)` | ✅ | |
 | `Error.cause` | ✅ | `new Error('msg', { cause: err })` — `cause` stored on the error object |
-| `RegExp` `d` (indices) flag | ❌ | |
+| `RegExp` `d` (indices) flag | ✅ | `exec()` and `match()` populate `.indices[i]=[start,end]` and `.indices.groups` when `d` flag is set |
 | `#x in obj` (ergonomic brand checks) | ❌ | Will not be implemented for now — requires the parser to distinguish `#ident in expr` from string-keyed `in`, the compiler to resolve the private-field mangled name from the enclosing class scope, and a new `in` opcode variant; complexity outweighs current value |
 
 ---

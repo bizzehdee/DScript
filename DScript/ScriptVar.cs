@@ -271,6 +271,7 @@ namespace DScript
 
                 var regexOpts = RegexOptions.ECMAScript | CompiledIfSupported;
 
+                var hasIndices = false;
                 foreach (var c in opts)
                 {
                     switch (c)
@@ -281,8 +282,12 @@ namespace DScript
                         case 'm':
                             regexOpts |= RegexOptions.Multiline;
                             break;
+                        case 'd':
+                            hasIndices = true;
+                            break;
                     }
                 }
+                if (hasIndices) intData |= 1;
 
                 // Use cache key combining pattern and options
                 var cacheKey = $"{regexStr}|{regexOpts}";
@@ -299,6 +304,10 @@ namespace DScript
         public bool IsDouble => (flags & Flags.Double) != 0;
 
         public bool IsString => (flags & Flags.String) != 0;
+
+        public bool RegexHasIndices =>
+            (IsRegexp && (intData & 1) != 0) ||
+            (FindChild("hasIndices")?.Var.Bool == true);
 
         public bool IsNumeric => (flags & Flags.NumericMask) != 0;
 

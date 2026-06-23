@@ -46,7 +46,8 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("exec", "str")]
         public static void RegExpExecImpl(ScriptVar var, object userData)
         {
-            var regex = GetRegex(var.GetParameter("this"));
+            var thisVar = var.GetParameter("this");
+            var regex = GetRegex(thisVar);
             var str = var.GetParameter("str").String;
             var match = regex.Match(str);
             if (!match.Success)
@@ -66,6 +67,8 @@ namespace DScript.Extras.FunctionProviders
             // Build .groups for named captures
             var groups = BuildNamedGroups(regex, match);
             arr.AddChild("groups", groups);
+            if (thisVar.RegexHasIndices)
+                arr.AddChild("indices", BuildIndices(regex, match));
             var.ReturnVar = arr;
         }
 
@@ -87,6 +90,59 @@ namespace DScript.Extras.FunctionProviders
                 groups.AddChildNoDup(gn, g.Success ? new ScriptVar(g.Value) : new ScriptVar(ScriptVar.Flags.Undefined));
             }
             return groups;
+        }
+
+        /// <summary>Builds the .indices array for the d flag: each element is [start, end] or undefined.</summary>
+        internal static ScriptVar BuildIndices(Regex regex, Match match)
+        {
+            var indices = new ScriptVar();
+            indices.SetArray();
+            for (var i = 0; i < match.Groups.Count; i++)
+            {
+                var g = match.Groups[i];
+                if (g.Success)
+                {
+                    var pair = new ScriptVar(); pair.SetArray();
+                    pair.SetArrayIndex(0, new ScriptVar(g.Index));
+                    pair.SetArrayIndex(1, new ScriptVar(g.Index + g.Length));
+                    indices.SetArrayIndex(i, pair);
+                }
+                else
+                {
+                    indices.SetArrayIndex(i, new ScriptVar(ScriptVar.Flags.Undefined));
+                }
+            }
+            // Named-group indices
+            var groupNames = regex.GetGroupNames();
+            var hasNamed = false;
+            foreach (var gn in groupNames)
+                if (!int.TryParse(gn, out _)) { hasNamed = true; break; }
+            if (hasNamed)
+            {
+                var namedIndices = new ScriptVar(ScriptVar.Flags.Object);
+                foreach (var gn in groupNames)
+                {
+                    if (int.TryParse(gn, out _)) continue;
+                    var g = match.Groups[gn];
+                    if (g.Success)
+                    {
+                        var pair = new ScriptVar(); pair.SetArray();
+                        pair.SetArrayIndex(0, new ScriptVar(g.Index));
+                        pair.SetArrayIndex(1, new ScriptVar(g.Index + g.Length));
+                        namedIndices.AddChildNoDup(gn, pair);
+                    }
+                    else
+                    {
+                        namedIndices.AddChildNoDup(gn, new ScriptVar(ScriptVar.Flags.Undefined));
+                    }
+                }
+                indices.AddChild("groups", namedIndices);
+            }
+            else
+            {
+                indices.AddChild("groups", new ScriptVar(ScriptVar.Flags.Undefined));
+            }
+            return indices;
         }
     }
 }
