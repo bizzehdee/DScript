@@ -34,6 +34,8 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("fetch", "url", "opts", AppearAtRoot = true)]
         public static void FetchImpl(ScriptVar var, object userData)
         {
+            if (userData is ScriptEngine eng)
+                EnginePermissionStore.Require(eng, EnginePermissions.Network);
             var url = var.GetParameter("url").String;
             var opts = var.GetParameter("opts");
 

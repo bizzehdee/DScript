@@ -34,8 +34,13 @@ namespace DScript.Extras
         /// the compile-time <see cref="GeneratedFunctionRegistrar"/>. This path is
         /// reflection-free and therefore trim- and Native-AOT-safe.
         /// </summary>
-        public void RegisterFunctions(ScriptEngine engine)
+        /// <param name="permissions">
+        /// Optional permission set. Defaults to <see cref="EnginePermissions.All"/> for
+        /// backwards compatibility. Pass a restricted set to sandbox the script.
+        /// </param>
+        public void RegisterFunctions(ScriptEngine engine, EnginePermissions permissions = EnginePermissions.All)
         {
+            EnginePermissionStore.Set(engine, permissions);
             // Map and Set constructors must be registered before the generated
             // method registrar so that AddNative("function Map.get(...)", ...)
             // attaches methods directly onto the constructor var rather than

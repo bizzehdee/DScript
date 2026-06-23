@@ -49,9 +49,10 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("exit", "code")]
         public static void ProcessExitImpl(ScriptVar var, object userData)
         {
+            var engine = (ScriptEngine)userData;
+            EnginePermissionStore.Require(engine, EnginePermissions.ProcessExit);
             var codeVar = var.GetParameter("code");
             var code = codeVar.IsUndefined ? 0 : codeVar.Int;
-            var engine = (ScriptEngine)userData;
             DispatchEvent(engine, "exit", new ScriptVar(code));
             Environment.Exit(code);
         }
@@ -95,6 +96,8 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("getenv", "name")]
         public static void ProcessGetenvImpl(ScriptVar var, object userData)
         {
+            if (userData is ScriptEngine engine2)
+                EnginePermissionStore.Require(engine2, EnginePermissions.EnvironmentVariables);
             var name = var.GetParameter("name").String;
             var value = Environment.GetEnvironmentVariable(name);
             if (value == null)

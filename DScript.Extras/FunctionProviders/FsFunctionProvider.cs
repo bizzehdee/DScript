@@ -29,9 +29,16 @@ namespace DScript.Extras.FunctionProviders
     [ScriptClass("fs")]
     public static class FsFunctionProvider
     {
+        private static void RequireFs(object userData)
+        {
+            if (userData is ScriptEngine engine)
+                EnginePermissionStore.Require(engine, EnginePermissions.FileSystem);
+        }
+
         [ScriptMethod("readFileSync", "path", "enc")]
         public static void FsReadFileSyncImpl(ScriptVar var, object userData)
         {
+            RequireFs(userData);
             var path = var.GetParameter("path").String;
             var encVar = var.GetParameter("enc");
             if (!encVar.IsUndefined && encVar.String == "buffer")
@@ -53,6 +60,7 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("writeFileSync", "path", "data", "enc")]
         public static void FsWriteFileSyncImpl(ScriptVar var, object userData)
         {
+            RequireFs(userData);
             var path = var.GetParameter("path").String;
             var dataVar = var.GetParameter("data");
             var encVar = var.GetParameter("enc");
@@ -74,6 +82,7 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("appendFileSync", "path", "data", "enc")]
         public static void FsAppendFileSyncImpl(ScriptVar var, object userData)
         {
+            RequireFs(userData);
             var path = var.GetParameter("path").String;
             var dataVar = var.GetParameter("data");
             var encVar = var.GetParameter("enc");
@@ -84,6 +93,7 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("existsSync", "path")]
         public static void FsExistsSyncImpl(ScriptVar var, object userData)
         {
+            RequireFs(userData);
             var path = var.GetParameter("path").String;
             var.ReturnVar.Bool = File.Exists(path) || Directory.Exists(path);
         }
