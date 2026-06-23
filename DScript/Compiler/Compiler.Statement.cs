@@ -810,11 +810,17 @@ namespace DScript.Compiler
             {
                 chunk.PatchJumpTo(catchPCSlot, chunk.Count); // EnterTry.catchPC
                 lexer.Match(ScriptLex.LexTypes.RCatch);
-                lexer.Match((ScriptLex.LexTypes)'(');
-                var catchVarIdx = chunk.AddName(lexer.TokenString);
-                chunk.PatchJumpTo(catchVarSlot, catchVarIdx); // EnterTry.catchVarIdx
-                lexer.Match(ScriptLex.LexTypes.Id);
-                lexer.Match((ScriptLex.LexTypes)')');
+                if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                {
+                    lexer.Match((ScriptLex.LexTypes)'(');
+                    if (lexer.TokenType == ScriptLex.LexTypes.Id)
+                    {
+                        var catchVarIdx = chunk.AddName(lexer.TokenString);
+                        chunk.PatchJumpTo(catchVarSlot, catchVarIdx); // EnterTry.catchVarIdx
+                        lexer.Match(ScriptLex.LexTypes.Id);
+                    }
+                    lexer.Match((ScriptLex.LexTypes)')');
+                }
 
                 CompileBlock();
 

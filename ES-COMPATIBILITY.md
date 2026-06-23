@@ -166,7 +166,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Array.prototype.flatMap` | ✅ | |
 | `Object.fromEntries` | ✅ | |
 | `String.prototype.trimStart` / `trimEnd` | ✅ | |
-| Optional `catch` binding (`catch { }`) | ⚠️ | `catch` without a binding variable compiles but the error value is inaccessible |
+| Optional `catch` binding (`catch { }`) | ✅ | |
 | `Symbol.prototype.description` | ⚠️ | `Symbol('desc').description` returns the description string when accessed via `.String`; no dedicated `.description` property exposed |
 | `Array.prototype.sort` stability | ✅ | Backed by .NET's stable sort |
 | `Function.prototype.toString` | ⚠️ | Returns the source string of compiled functions; native functions return an empty string |

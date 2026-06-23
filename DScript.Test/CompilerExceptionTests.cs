@@ -127,5 +127,28 @@ namespace DScript.Test
             Assert.That(text, Does.Contain("at f"));
             Assert.That(text, Does.Contain("at <main>"));
         }
+
+        // ── optional catch binding ────────────────────────────────────────────
+
+        [Test]
+        public void OptionalCatchBinding_CatchWithoutBinding_DoesNotThrow()
+        {
+            var src = "var r = 0; try { throw 1; } catch { r = 99; }";
+            Assert.That(Run(src).GetParameter("r").Int, Is.EqualTo(99));
+        }
+
+        [Test]
+        public void OptionalCatchBinding_EmptyParens_DoesNotThrow()
+        {
+            var src = "var r = 0; try { throw 1; } catch () { r = 42; }";
+            Assert.That(Run(src).GetParameter("r").Int, Is.EqualTo(42));
+        }
+
+        [Test]
+        public void OptionalCatchBinding_FinallyStillRuns()
+        {
+            var src = "var r = 0; try { throw 1; } catch { r = 1; } finally { r = r + 10; }";
+            Assert.That(Run(src).GetParameter("r").Int, Is.EqualTo(11));
+        }
     }
 }
