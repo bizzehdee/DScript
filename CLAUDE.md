@@ -43,7 +43,7 @@ dotnet test DScript.Test --configuration Release \
   /p:Threshold=90 \
   /p:ThresholdType=line \
   /p:ThresholdStat=Total \
-  /p:Exclude="[DScript.Benchmark]*,[DScript.Demo]*,[DScript.Repl]*,[DScript.LanguageServer]*"
+  /p:Exclude="[DScript.Benchmark]*,[DScript.Demo]*,[DScript.Cli]*,[DScript.LanguageServer]*"
 ```
 
 If new code is inherently difficult to cover (e.g. platform-specific branches, internal infrastructure), add `[ExcludeFromCodeCoverage]` with a comment explaining why rather than lowering the global threshold.
