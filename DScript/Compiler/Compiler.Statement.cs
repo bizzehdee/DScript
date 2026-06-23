@@ -533,6 +533,16 @@ namespace DScript.Compiler
         private void CompileFor()
         {
             lexer.Match(ScriptLex.LexTypes.RFor);
+
+            var isForAwait = lexer.TokenType == ScriptLex.LexTypes.RAwait;
+            if (isForAwait)
+            {
+                lexer.Match(ScriptLex.LexTypes.RAwait);
+                lexer.Match((ScriptLex.LexTypes)'(');
+                CompileForAwaitOf();
+                return;
+            }
+
             lexer.Match((ScriptLex.LexTypes)'(');
 
             if (IsForIn())
@@ -898,11 +908,13 @@ namespace DScript.Compiler
         {
             lexer.Match(ScriptLex.LexTypes.RAsync);
             lexer.Match(ScriptLex.LexTypes.RFunction);
+            var isGenerator = lexer.TokenType == (ScriptLex.LexTypes)'*';
+            if (isGenerator) lexer.Match((ScriptLex.LexTypes)'*');
             var name = lexer.TokenString;
             lexer.Match(ScriptLex.LexTypes.Id);
             var nameIndex = chunk.AddName(name);
 
-            var idx = CompileFunctionRest(name, isGenerator: false, isAsync: true);
+            var idx = CompileFunctionRest(name, isGenerator: isGenerator, isAsync: true);
 
             chunk.Emit(OpCode.DeclareVar, nameIndex);
             chunk.Emit(OpCode.MakeClosure, idx);
@@ -967,6 +979,47 @@ namespace DScript.Compiler
 
             loops.Push(new LoopContext());
             CompileStatement(); // body
+
+            var incrStart = chunk.Count;
+            chunk.Emit(OpCode.Jump, loopTop);
+            chunk.PatchJump(exitJump);
+
+            var ctx = loops.Pop();
+            PatchJumps(ctx.BreakJumps, chunk.Count);
+            PatchJumps(ctx.ContinueJumps, incrStart);
+        }
+
+        private void CompileForAwaitOf()
+        {
+            if (lexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst or ScriptLex.LexTypes.RLet)
+                lexer.Match(lexer.TokenType);
+
+            var loopVar = chunk.AddName(lexer.TokenString);
+            lexer.Match(ScriptLex.LexTypes.Id);
+            lexer.Match(ScriptLex.LexTypes.ROf);
+
+            CompileBase();                             // push the iterable
+            chunk.Emit(OpCode.GetAsyncIterator);       // normalise to an async iterator
+            lexer.Match((ScriptLex.LexTypes)')');
+
+            var iterVar = chunk.AddName($"$forawait_iter_{forInCounter}");
+            forInCounter++;
+
+            chunk.Emit(OpCode.DeclareVar, loopVar);
+            chunk.Emit(OpCode.DeclareVar, iterVar);
+            chunk.Emit(OpCode.SetVar, iterVar);
+            chunk.Emit(OpCode.Pop);
+
+            var loopTop = chunk.Count;
+
+            chunk.Emit(OpCode.GetVar, iterVar);
+            var exitJump = chunk.EmitJump(OpCode.ForAwaitOfStep);
+
+            chunk.Emit(OpCode.SetVar, loopVar);
+            chunk.Emit(OpCode.Pop);
+
+            loops.Push(new LoopContext());
+            CompileStatement();
 
             var incrStart = chunk.Count;
             chunk.Emit(OpCode.Jump, loopTop);

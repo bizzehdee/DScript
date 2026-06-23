@@ -148,8 +148,8 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Feature | Status | Notes |
 |---|---|---|
 | `Promise.prototype.finally` | ✅ | |
-| Async generators (`async function*`) | ❌ | Async and generators work independently; combined is not implemented |
-| `for await...of` | ❌ | |
+| Async generators (`async function*`) | ✅ | `.next()` returns a Promise resolving to `{value, done}`; `[Symbol.asyncIterator]` returns `this` |
+| `for await...of` | ✅ | Requires async context; falls back to `Symbol.iterator` / array iteration for sync iterables |
 | Rest/spread in object literals | ✅ | |
 | Named capture groups in RegExp | ✅ | `(?<name>...)` syntax; `.groups` on exec/match result |
 | `s` (dotAll) RegExp flag | ✅ | `dotAll` property exposed on RegExp instances |
@@ -307,5 +307,5 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 - **Regular expression `v` flag sticky semantics**: The `v` flag is accepted and triggers Unicode property escape translation but does not implement the full set-notation difference from `u` (e.g. `[A--Z]` syntax is not supported).
 - **Typed arrays** (`Uint8Array`, `Int32Array`, `Float64Array`, etc.): Not implemented.
 - **ArrayBuffer** / **SharedArrayBuffer** / **Atomics**: Will not be implemented. `SharedArrayBuffer` requires multiple concurrently-executing VM instances sharing an address space, and `Atomics` only operates through typed array views. DScript is a single-threaded embedded engine with no Worker/thread model, so there is nothing to synchronise across. The prerequisites (typed arrays, thread-safe `ScriptVar` and scope chain, `Atomics.wait` blocking without deadlocking the host) make this impractical without a fundamental redesign of the engine.
-- **Async generators** (`async function*`) and `for await...of`: Not implemented.
+- **Async generators — `await` inside body**: `await` inside an `async function*` body is compiled as `yield` and driven as a plain yield, not as a true awaited Promise. Code that `yield`s values works correctly; code that `await`s Promises inside the body may not produce the expected interleaving.
 - **`FinalizationRegistry`**: Will not be implemented. `FinalizationRegistry` requires the engine to fire a callback at the moment a registered object becomes unreachable. DScript uses explicit reference counting (`ScriptVar` carries `AddRef`/`Release` and suppresses the .NET finalizer via `GC.SuppressFinalize`), so object lifetimes are deterministic and there is no "object was just collected" hook point. Implementing it correctly would require replacing the ref-count model with a tracing (mark-and-sweep or generational) garbage collector over the entire `ScriptVar` graph — a complete redesign of memory management that is out of scope.

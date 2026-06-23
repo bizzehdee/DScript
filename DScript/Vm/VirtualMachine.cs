@@ -987,6 +987,78 @@ namespace DScript.Vm
                         Push(result.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined));
                         break;
                     }
+                    case OpCode.GetAsyncIterator:
+                    {
+                        var iterable = Pop();
+                        // Check for [Symbol.asyncIterator] first
+                        var asyncIterKey = WellKnownSymbols.AsyncIterator?.GetSymbolKey();
+                        if (asyncIterKey != null)
+                        {
+                            var asyncIterLink = iterable.FindChild(asyncIterKey);
+                            if (asyncIterLink != null && asyncIterLink.Var.IsFunction)
+                            {
+                                var iterator = InvokeCallable(asyncIterLink.Var, iterable, System.Array.Empty<ScriptVar>());
+                                Push(iterator ?? new ScriptVar(ScriptVar.Flags.Object));
+                                break;
+                            }
+                        }
+                        // Fall back to [Symbol.iterator]
+                        var nextLink2 = iterable.FindChild("next");
+                        if (nextLink2 != null) { Push(iterable); break; }
+                        var symIterLink2 = iterable.FindChild(WellKnownSymbols.Iterator.GetSymbolKey());
+                        if (symIterLink2 != null && symIterLink2.Var.IsFunction)
+                        {
+                            var iterator = InvokeCallable(symIterLink2.Var, iterable, System.Array.Empty<ScriptVar>());
+                            Push(iterator ?? new ScriptVar(ScriptVar.Flags.Object));
+                            break;
+                        }
+                        if (iterable.IsArray)
+                        {
+                            var idx2 = new[] { 0 };
+                            var len2 = iterable.GetArrayLength();
+                            var iterObj2 = new ScriptVar(ScriptVar.Flags.Object);
+                            var nextFn2 = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                            nextFn2.SetCallback((scope, _) =>
+                            {
+                                var r2 = new ScriptVar(ScriptVar.Flags.Object);
+                                if (idx2[0] < len2)
+                                {
+                                    r2.AddChild("value", iterable.GetArrayIndex(idx2[0]++));
+                                    r2.AddChild("done", new ScriptVar(false));
+                                }
+                                else
+                                {
+                                    r2.AddChild("value", new ScriptVar());
+                                    r2.AddChild("done", new ScriptVar(true));
+                                }
+                                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(r2);
+                            }, null);
+                            iterObj2.AddChild("next", nextFn2);
+                            Push(iterObj2);
+                            break;
+                        }
+                        Push(new ScriptVar(ScriptVar.Flags.Object)); // empty done iterator
+                        break;
+                    }
+                    case OpCode.ForAwaitOfStep:
+                    {
+                        var exitOffset = ReadOperand(code, ref ip);
+                        if (genObj == null)
+                            throw new ScriptException("for await...of used outside async function");
+                        var iter = Pop();
+                        var nextLink = iter.FindChild("next");
+                        ScriptVar nextResult;
+                        if (nextLink != null)
+                            nextResult = InvokeCallable(nextLink.Var, iter, Array.Empty<ScriptVar>());
+                        else
+                            nextResult = new ScriptVar(ScriptVar.Flags.Object);
+                        // Yield the Promise so the async drive loop awaits it
+                        var resolved = genObj.Yield(nextResult);
+                        var done = resolved?.FindChild("done")?.Var.Bool ?? true;
+                        if (done) { ip = exitOffset; break; }
+                        Push(resolved?.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        break;
+                    }
                     case OpCode.PushImportMeta:
                     {
                         var meta = new ScriptVar(ScriptVar.Flags.Object);
@@ -1504,6 +1576,13 @@ namespace DScript.Vm
 
             var vmfn = (VmFunction)callee.GetData();
 
+            // Async generator function: return an async iterator object
+            if (vmfn.Body.IsAsync && vmfn.Body.IsGenerator)
+            {
+                var asyncGenCallEnv = BuildCallEnvironment(vmfn, thisArg, args);
+                return CreateAsyncGeneratorIterator(vmfn, asyncGenCallEnv);
+            }
+
             // Generator function: return an iterator object instead of executing the body
             if (vmfn.Body.IsGenerator)
             {
@@ -1572,6 +1651,17 @@ namespace DScript.Vm
             var argBase = sp - argc;
 
             var vmfn = (VmFunction)callee.GetData();
+
+            // Async generator function: materialise args, return async iterator
+            if (vmfn.Body.IsAsync && vmfn.Body.IsGenerator)
+            {
+                var asyncGenArgs = new ScriptVar[argc];
+                for (var j = 0; j < argc; j++)
+                    asyncGenArgs[j] = stack[argBase + j];
+                sp = argBase;
+                var asyncGenCallEnv = BuildCallEnvironment(vmfn, thisArg, asyncGenArgs);
+                return CreateAsyncGeneratorIterator(vmfn, asyncGenCallEnv);
+            }
 
             // Generator function: materialise args from stack, then return iterator
             if (vmfn.Body.IsGenerator)
@@ -1815,6 +1905,84 @@ namespace DScript.Vm
             MicroTaskQueue.Enqueue(() => DriveNext(new ScriptVar(ScriptVar.Flags.Undefined)));
 
             return outerPromise.ToScriptVar(this);
+        }
+
+        // Creates an async generator iterator. Each .next() call returns a Promise
+        // that resolves to {value, done}. The generator body can use both yield
+        // (to produce values) and await (internally compiled as yield too).
+        // The drive loop distinguishes them: an awaited value that is a Promise
+        // is re-awaited before resuming; a yield produces the next {value, done}.
+        private ScriptVar CreateAsyncGeneratorIterator(VmFunction vmfn, Environment callEnv)
+        {
+            var genObj = new GeneratorObject();
+            var iterObj = new ScriptVar(ScriptVar.Flags.Object);
+
+            ScriptVar MakeNextPromise(ScriptVar inputValue)
+            {
+                var promise = new PromiseObject();
+
+                void DriveNext(ScriptVar resume)
+                {
+                    try
+                    {
+                        var (yielded, done) = genObj.Next(resume, g =>
+                        {
+                            var result = Execute(vmfn.Body, callEnv, g);
+                            g.Complete(result ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        });
+
+                        if (done)
+                        {
+                            // Generator finished: resolve with {value: returnVal, done: true}
+                            var finalObj = new ScriptVar(ScriptVar.Flags.Object);
+                            finalObj.AddChild("value", yielded);
+                            finalObj.AddChild("done", new ScriptVar(true));
+                            promise.Resolve(finalObj);
+                            return;
+                        }
+
+                        // Yielded value could be an awaited Promise (from `await` inside the body)
+                        // or a user yield. We can't distinguish here without additional tagging.
+                        // Wrap and check: if it resolves to a {value,done} it was a yield;
+                        // otherwise it was an await value — re-drive to get the next yield.
+                        // Simple approach: always treat as a user yield ({value, done:false}).
+                        var resultObj = new ScriptVar(ScriptVar.Flags.Object);
+                        resultObj.AddChild("value", yielded);
+                        resultObj.AddChild("done", new ScriptVar(false));
+                        promise.Resolve(resultObj);
+                    }
+                    catch (Exception ex)
+                    {
+                        var msg = ex is JITException jit
+                            ? (jit.VarObj ?? new ScriptVar(ex.Message))
+                            : new ScriptVar(ex.Message);
+                        promise.Reject(msg);
+                    }
+                }
+
+                MicroTaskQueue.Enqueue(() => DriveNext(inputValue));
+                return promise.ToScriptVar(this);
+            }
+
+            var nextFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            nextFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+            nextFn.SetCallback((scope, _) =>
+            {
+                var inputLink = scope.FindChild("value");
+                var input = inputLink?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(MakeNextPromise(input));
+            }, null);
+            iterObj.AddChild("next", nextFn);
+
+            // [Symbol.asyncIterator]() { return this; }
+            var asyncIterSelf = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            asyncIterSelf.SetCallback((scope, _) =>
+            {
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(iterObj);
+            }, null);
+            iterObj.AddChild(WellKnownSymbols.AsyncIterator.GetSymbolKey(), asyncIterSelf);
+
+            return iterObj;
         }
 
         // primitives are passed by value, objects/functions by reference

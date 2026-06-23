@@ -171,15 +171,18 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.RAsync:
                 {
                     // async function expression: async function [name](params) { body }
+                    // async function* expression: async function* [name](params) { body }
                     lexer.Match(ScriptLex.LexTypes.RAsync);
                     lexer.Match(ScriptLex.LexTypes.RFunction);
+                    var isAsyncGen = lexer.TokenType == (ScriptLex.LexTypes)'*';
+                    if (isAsyncGen) lexer.Match((ScriptLex.LexTypes)'*');
                     var fnName = string.Empty;
                     if (lexer.TokenType == ScriptLex.LexTypes.Id)
                     {
                         fnName = lexer.TokenString;
                         lexer.Match(ScriptLex.LexTypes.Id);
                     }
-                    var idx = CompileFunctionRest(fnName, isGenerator: false, isAsync: true);
+                    var idx = CompileFunctionRest(fnName, isGenerator: isAsyncGen, isAsync: true);
                     chunk.Emit(OpCode.MakeClosure, idx);
                     chunk.MakesClosure = true;
                     break;

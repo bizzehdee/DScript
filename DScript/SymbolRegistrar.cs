@@ -70,10 +70,11 @@ namespace DScript
             descLink.Getter = descGetter;
 
             // Well-known symbols exposed as static properties
-            symbolCtor.AddChild("iterator",    WellKnownSymbols.Iterator);
-            symbolCtor.AddChild("hasInstance", WellKnownSymbols.HasInstance);
-            symbolCtor.AddChild("toPrimitive", WellKnownSymbols.ToPrimitive);
-            symbolCtor.AddChild("toStringTag", WellKnownSymbols.ToStringTag);
+            symbolCtor.AddChild("iterator",     WellKnownSymbols.Iterator);
+            symbolCtor.AddChild("hasInstance",  WellKnownSymbols.HasInstance);
+            symbolCtor.AddChild("toPrimitive",  WellKnownSymbols.ToPrimitive);
+            symbolCtor.AddChild("toStringTag",  WellKnownSymbols.ToStringTag);
+            symbolCtor.AddChild("asyncIterator", WellKnownSymbols.AsyncIterator);
 
             // Symbol.for(key) — global symbol registry
             var forFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);

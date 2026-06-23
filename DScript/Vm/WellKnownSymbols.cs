@@ -39,5 +39,8 @@ namespace DScript.Vm
 
         /// <summary>Symbol.toStringTag — default description for Object.prototype.toString.</summary>
         public static readonly ScriptVar ToStringTag = ScriptVar.CreateSymbol("toStringTag");
+
+        /// <summary>Symbol.asyncIterator — method that returns the default async iterator.</summary>
+        public static readonly ScriptVar AsyncIterator = ScriptVar.CreateSymbol("asyncIterator");
     }
 }

@@ -196,5 +196,9 @@ namespace DScript.Vm
         DeclareConstN,  // [b nameIndex]   narrow form of DeclareConst
         DeclareLocalN,  // [b nameIndex]   narrow form of DeclareLocal
         InitPropN,      // [b nameIndex]   narrow form of InitProp
+
+        // --- Async iteration (ES2018) ----------------------------------------
+        GetAsyncIterator, //               iterable → async iterator (checks Symbol.asyncIterator first, then Symbol.iterator)
+        ForAwaitOfStep,   // <exitOffset>  pops iter, calls .next() → Promise; yields Promise; on resume if done→exit else push value
     }
 }
