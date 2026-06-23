@@ -22,6 +22,8 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using DScript.Compiler;
 using DScript.Debugger;
 using DScript.Vm;
@@ -469,6 +471,119 @@ namespace DScript
                     vm.AddBreakpoint(src, line);
             }
             vm.Run(program, globalEnvironment);
+        }
+
+        // --- host object injection ------------------------------------------
+
+        /// <summary>
+        /// Exposes a C# object as a named global. Public instance members decorated
+        /// with <see cref="ScriptVisibleAttribute"/> are accessible from script:
+        /// methods become callable functions; properties become readable (and, if
+        /// also decorated with <see cref="ScriptWritableAttribute"/>, writable).
+        /// Supported C# types: <c>int</c>, <c>double</c>, <c>bool</c>, <c>string</c>,
+        /// <c>void</c>, and <c>ScriptVar</c> (passed through directly).
+        /// </summary>
+        [RequiresUnreferencedCode("Uses reflection to discover ScriptVisible members on the host object.")]
+        public void SetGlobal(string name, object obj)
+        {
+            Root.AddChildNoDup(name, BuildHostObjectWrapper(obj));
+        }
+
+        [RequiresUnreferencedCode("Uses reflection.")]
+        private static ScriptVar BuildHostObjectWrapper(object obj)
+        {
+            var wrapper = new ScriptVar(ScriptVar.Flags.Object);
+            if (obj == null) return wrapper;
+
+            var type = obj.GetType();
+
+            // Methods
+            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!Attribute.IsDefined(method, typeof(ScriptVisibleAttribute))) continue;
+                var captured = method;
+                var capturedObj = obj;
+                var parameters = captured.GetParameters();
+
+                var fnVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                // Register declared parameters so the VM can resolve them by name.
+                foreach (var p in parameters)
+                    fnVar.AddChild(p.Name ?? $"arg{p.Position}", new ScriptVar(ScriptVar.Flags.Undefined));
+
+                fnVar.SetCallback((scope, _) =>
+                {
+                    var args = new object[parameters.Length];
+                    for (var i = 0; i < parameters.Length; i++)
+                    {
+                        var pName = parameters[i].Name ?? $"arg{i}";
+                        var sv = scope.FindChild(pName)?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        args[i] = ConvertFromScriptVar(sv, parameters[i].ParameterType);
+                    }
+                    var result = captured.Invoke(capturedObj, args);
+                    if (captured.ReturnType != typeof(void) && result != null)
+                        scope.ReturnVar = ConvertToScriptVar(result);
+                }, null);
+
+                wrapper.AddChild(captured.Name, fnVar);
+            }
+
+            // Properties
+            foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!Attribute.IsDefined(prop, typeof(ScriptVisibleAttribute))) continue;
+                var captured = prop;
+                var capturedObj = obj;
+                var writable = Attribute.IsDefined(prop, typeof(ScriptWritableAttribute));
+
+                if (prop.CanRead)
+                {
+                    var getFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                    getFn.SetCallback((scope, _) =>
+                    {
+                        var val = captured.GetValue(capturedObj);
+                        scope.ReturnVar = val != null ? ConvertToScriptVar(val) : new ScriptVar(ScriptVar.Flags.Null);
+                    }, null);
+                    wrapper.AddChild("get_" + prop.Name, getFn);
+                }
+
+                if (writable && prop.CanWrite)
+                {
+                    var setFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                    setFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+                    setFn.SetCallback((scope, _) =>
+                    {
+                        var sv = scope.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        captured.SetValue(capturedObj, ConvertFromScriptVar(sv, captured.PropertyType));
+                    }, null);
+                    wrapper.AddChild("set_" + prop.Name, setFn);
+                }
+            }
+
+            return wrapper;
+        }
+
+        private static ScriptVar ConvertToScriptVar(object value) => value switch
+        {
+            ScriptVar sv  => sv,
+            bool b        => new ScriptVar(b ? 1 : 0),
+            int i         => new ScriptVar(i),
+            long l        => new ScriptVar((int)l),
+            double d      => new ScriptVar(d),
+            float f       => new ScriptVar((double)f),
+            string s      => new ScriptVar(s),
+            _             => new ScriptVar(value.ToString()),
+        };
+
+        private static object ConvertFromScriptVar(ScriptVar sv, Type targetType)
+        {
+            if (targetType == typeof(ScriptVar)) return sv;
+            if (targetType == typeof(int))    return sv.Int;
+            if (targetType == typeof(long))   return (long)sv.Int;
+            if (targetType == typeof(double)) return sv.Float;
+            if (targetType == typeof(float))  return (float)sv.Float;
+            if (targetType == typeof(bool))   return sv.Bool;
+            if (targetType == typeof(string)) return sv.String;
+            return sv.String; // fallback
         }
 
         /// <summary>
