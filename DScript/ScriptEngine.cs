@@ -50,6 +50,7 @@ namespace DScript
                 stringClass.UnRef();
                 arrayClass.UnRef();
                 objectClass.UnRef();
+                functionClass.UnRef();
                 Root.UnRef();
             }
 
@@ -60,6 +61,7 @@ namespace DScript
         private readonly ScriptVar stringClass;
         private readonly ScriptVar objectClass;
         private readonly ScriptVar arrayClass;
+        internal readonly ScriptVar functionClass;
 
         // The global (outermost) lexical scope; its bindings live on Root.
         private readonly VmEnvironment globalEnvironment;
@@ -116,10 +118,12 @@ namespace DScript
             objectClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
             stringClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
             arrayClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
+            functionClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
 
             Root.AddChild("Object", objectClass);
             Root.AddChild("String", stringClass);
             Root.AddChild("Array", arrayClass);
+            Root.AddChild("Function", functionClass);
 
             RegisterPromiseBuiltin();
             RegisterRequireBuiltin();
@@ -764,6 +768,15 @@ namespace DScript
             if (obj.IsArray)
             {
                 implementation = arrayClass.FindChild(name);
+                if (implementation != null)
+                {
+                    return implementation;
+                }
+            }
+
+            if (obj.IsFunction)
+            {
+                implementation = functionClass.FindChild(name);
                 if (implementation != null)
                 {
                     return implementation;

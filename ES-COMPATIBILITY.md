@@ -60,7 +60,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Number.EPSILON` / `MAX_SAFE_INTEGER` / `MIN_SAFE_INTEGER` | ✅ | |
 | `Date` object | ❌ | No Date constructor or methods |
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ⚠️ | `Error`, `TypeError`, `RangeError`, `SyntaxError` constructable; `error.message` and `error.name` set; `Error.cause` (ES2022) not implemented; no `stack` trace |
-| `Function.prototype.bind` / `call` / `apply` | ❌ | Use `Reflect.apply` instead |
+| `Function.prototype.bind` / `call` / `apply` | ✅ | |
 | Strict mode (`"use strict"`) | ❌ | Parsed and ignored |
 | Eval | ⚠️ | `eval(str)` executes code; indirect eval semantics not guaranteed |
 
@@ -310,7 +310,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 - **Typed arrays** (`Uint8Array`, `Int32Array`, `Float64Array`, etc.): Not implemented.
 - **ArrayBuffer** / **SharedArrayBuffer**: Not implemented.
 - **Atomics**: Not implemented.
-- **`Function.prototype.bind` / `call` / `apply`**: Not implemented. Use `Reflect.apply` for dynamic dispatch.
+- **`Function.prototype.bind` / `call` / `apply`**: Implemented in Phase 2.
 - **`Object.create`, `Object.defineProperty`, `Object.getOwnPropertyDescriptor`, getter/setter syntax**: Implemented in Phase 1.
 - **`WeakRef` / `FinalizationRegistry`**: Not implemented (no GC hooks in the VM).
 - **Async generators** (`async function*`) and `for await...of`: Not implemented.

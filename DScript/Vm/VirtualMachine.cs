@@ -1715,6 +1715,27 @@ namespace DScript.Vm
 
             if (obj.IsArray && name == "length") return new ScriptVar(obj.GetArrayLength());
             if (obj.IsString && name == "length") return new ScriptVar(obj.String.Length);
+            if (obj.IsFunction)
+            {
+                if (name == "name")
+                {
+                    if (obj.IsNative) return new ScriptVar(obj.FindChild("name")?.Var?.String ?? "");
+                    var vmfn2 = (VmFunction)obj.GetData();
+                    return new ScriptVar(vmfn2?.Body?.Name ?? "");
+                }
+                if (name == "length")
+                {
+                    if (obj.IsNative)
+                    {
+                        var cnt = 0;
+                        var p2 = obj.FirstChild;
+                        while (p2 != null) { cnt++; p2 = p2.Next; }
+                        return new ScriptVar(cnt);
+                    }
+                    var vmfn3 = (VmFunction)obj.GetData();
+                    return new ScriptVar(vmfn3?.Body?.Parameters?.Count ?? 0);
+                }
+            }
 
             // Dynamic size property for native containers (Set, Map, …).
             // INativeContainer is implemented by the native object stored in the
