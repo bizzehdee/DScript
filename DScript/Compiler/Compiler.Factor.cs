@@ -198,6 +198,18 @@ namespace DScript.Compiler
                     return;
                 }
 
+                case ScriptLex.LexTypes.RImport:
+                {
+                    // import.meta — the only valid expression-position use of `import`
+                    lexer.Match(ScriptLex.LexTypes.RImport);
+                    lexer.Match((ScriptLex.LexTypes)'.');
+                    if (lexer.TokenString != "meta")
+                        throw new JITException("Expected 'meta' after 'import.'");
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    chunk.Emit(OpCode.PushImportMeta);
+                    break;
+                }
+
                 default:
                     // unexpected token for the current (phase-limited) grammar
                     lexer.Match(ScriptLex.LexTypes.Eof);
@@ -520,6 +532,16 @@ namespace DScript.Compiler
                         EmitBinary((int)op, operandStart6);
                         chunk.Emit(OpCode.SetIndex);            // leaves new value
                         return;
+                    }
+
+                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                    {
+                        // obj[key](args) — method call via computed key; preserve receiver
+                        chunk.Emit(OpCode.GetIndexMethod);    // [obj, key] → [obj, fn]
+                        var argc = CompileArguments();
+                        if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
+                        else chunk.Emit(OpCode.CallMethod, argc);
+                        continue;
                     }
 
                     chunk.Emit(OpCode.GetIndex);

@@ -487,6 +487,16 @@ namespace DScript.Vm
                         Push(GetMember(obj, KeyName(key)));
                         break;
                     }
+                    case OpCode.GetIndexMethod:
+                    {
+                        // Pops key, peeks obj (keeps it), pushes fn.
+                        // Stack: [obj, key] → [obj, fn]
+                        // Preserves receiver for subsequent CallMethod.
+                        var key = Pop();
+                        var obj = Peek();
+                        Push(GetMember(obj, KeyName(key)));
+                        break;
+                    }
                     case OpCode.SetIndex:
                     {
                         var value = Pop();
@@ -888,6 +898,19 @@ namespace DScript.Vm
                         var done = result?.FindChild("done")?.Var.Bool ?? true;
                         if (done) { ip = exitOffset; break; }
                         Push(result.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        break;
+                    }
+                    case OpCode.PushImportMeta:
+                    {
+                        var meta = new ScriptVar(ScriptVar.Flags.Object);
+                        var modulePath = engine.CurrentModulePath ?? string.Empty;
+                        meta.AddChild("url", new ScriptVar(modulePath));
+                        meta.AddChild("filename", new ScriptVar(modulePath));
+                        var dir = modulePath.Length > 0
+                            ? System.IO.Path.GetDirectoryName(modulePath) ?? string.Empty
+                            : string.Empty;
+                        meta.AddChild("dirname", new ScriptVar(dir));
+                        Push(meta);
                         break;
                     }
                     case OpCode.New:

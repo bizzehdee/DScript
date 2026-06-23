@@ -157,5 +157,13 @@ namespace DScript.Vm
 
         // --- Phase 5 optimisation: fused for..of step -------------------------
         ForOfStep,       // <exitOffset>    pops iter, calls .next() natively; if done jumps to exitOffset, else pushes value
+
+        // --- Phase 9: import.meta -------------------------------------------
+        PushImportMeta,  //                 push the import.meta object for the current module
+
+        // --- Phase 9: computed method call receiver fix ---------------------
+        // Pops key, peeks obj (does not pop it), pushes GetMember(obj, key).
+        // Stack: [obj, key] → [obj, fn].  Preserves receiver for CallMethod.
+        GetIndexMethod,
     }
 }
