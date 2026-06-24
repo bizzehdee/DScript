@@ -41,5 +41,12 @@ namespace DScript.Vm
         /// hot. Compared against <see cref="Chunk.BackEdgeCount"/>.
         /// </summary>
         public const int BackEdgeThreshold = 10000;
+
+        /// <summary>
+        /// Number of deoptimizations after which a chunk's speculative compilation is
+        /// abandoned: it is recompiled with the conservative (never-deopting) tier
+        /// instead. Compared against <see cref="Chunk.DeoptCount"/>.
+        /// </summary>
+        public const int DeoptThreshold = 5;
     }
 }

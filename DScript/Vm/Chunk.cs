@@ -301,6 +301,20 @@ namespace DScript.Vm
         public JitStatus JitState { get; set; } = JitStatus.Cold;
 
         /// <summary>
+        /// Number of times a speculative compilation of this chunk has deoptimized
+        /// (bailed to the interpreter on a type surprise). Drives the recompilation
+        /// policy in <see cref="VirtualMachine.Deoptimize"/>.
+        /// </summary>
+        public int DeoptCount { get; set; }
+
+        /// <summary>
+        /// Set once <see cref="DeoptCount"/> crosses <see cref="JitThresholds.DeoptThreshold"/>:
+        /// repeated deopts prove the speculation was wrong, so the next compilation
+        /// must use the conservative (never-deopting) tier instead.
+        /// </summary>
+        public bool PreferConservativeTier { get; set; }
+
+        /// <summary>
         /// The compiled entry point for this chunk once <see cref="JitState"/> is
         /// <see cref="JitStatus.Compiled"/>, or <c>null</c> while the chunk is still
         /// interpreted. The VM invokes this in preference to the interpreter loop.
