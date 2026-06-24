@@ -938,30 +938,12 @@ namespace DScript.Vm
                             Push(iterator ?? new ScriptVar(ScriptVar.Flags.Object));
                             break;
                         }
-                        // If it's an array, wrap it in an index-based iterator
+                        // If it's an array, use a lightweight native iterator that
+                        // avoids allocating a closure, a next-function, and a
+                        // {done,value} object on every iteration.
                         if (iterable.IsArray)
                         {
-                            var idx = new[] { 0 };
-                            var len = iterable.GetArrayLength();
-                            var iterObj = new ScriptVar(ScriptVar.Flags.Object);
-                            var nextFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-                            nextFn.SetCallback((scope, _) =>
-                            {
-                                var result = new ScriptVar(ScriptVar.Flags.Object);
-                                if (idx[0] < len)
-                                {
-                                    result.AddChild("value", iterable.GetArrayIndex(idx[0]++));
-                                    result.AddChild("done", new ScriptVar(false));
-                                }
-                                else
-                                {
-                                    result.AddChild("value", new ScriptVar());
-                                    result.AddChild("done", new ScriptVar(true));
-                                }
-                                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
-                            }, null);
-                            iterObj.AddChild("next", nextFn);
-                            Push(iterObj);
+                            Push(ScriptVar.CreateNativeArrayIterator(iterable));
                             break;
                         }
                         // Unknown — return an immediately-done iterator
@@ -984,6 +966,24 @@ namespace DScript.Vm
                     {
                         var exitOffset = ReadOperand(code, ref ip);
                         var iter = Pop();
+
+                        // Fast path: native array iterator — no function call, no {done,value} allocation
+                        if (iter.IsNativeArrayIterator)
+                        {
+                            var idx = iter.NativeIterIndex;
+                            if (idx >= iter.NativeIterArray.GetArrayLength())
+                            {
+                                ip = exitOffset;
+                            }
+                            else
+                            {
+                                iter.NativeIterIndex = idx + 1;
+                                Push(iter.NativeIterArray.GetArrayIndex(idx));
+                            }
+                            break;
+                        }
+
+                        // Slow path: general iterator protocol
                         var nextLink = iter.FindChild("next");
                         ScriptVar result;
                         if (nextLink != null)

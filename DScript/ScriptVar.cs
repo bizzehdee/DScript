@@ -178,6 +178,21 @@ namespace DScript
 
         public string GetSymbolDescription() => IsSymbol ? scriptData as string : null;
 
+        // Fast-path array iterator: avoids per-iteration object allocation in for..of
+        // loops over arrays. Uses scriptData (unused for Object-typed vars) to hold the
+        // source array and intData (unused for Object-typed vars) as the current index.
+        internal bool IsNativeArrayIterator => (flags & Flags.NativeArrayIterator) != 0;
+        internal ScriptVar NativeIterArray { get => (ScriptVar)scriptData; set => scriptData = value; }
+        internal int NativeIterIndex { get => intData; set => intData = value; }
+
+        internal static ScriptVar CreateNativeArrayIterator(ScriptVar array)
+        {
+            var iter = new ScriptVar(Flags.Object | Flags.NativeArrayIterator);
+            iter.scriptData = array;
+            iter.intData = 0;
+            return iter;
+        }
+
         // Native callbacks are rare (registered once per built-in function) but the
         // two dedicated fields they needed used to sit on every ScriptVar — including
         // the millions of short-lived primitives the VM allocates. They are folded
@@ -238,6 +253,7 @@ namespace DScript
             NonExtensible = 4096,   // Object.preventExtensions
             Sealed = 8192,          // Object.seal
             Frozen = 16384,         // Object.freeze
+            NativeArrayIterator = 32768, // Fast-path iterator for arrays (no per-iteration allocation)
             NumericMask = Null | Double | Integer,
             VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol | BigInt | Proxy
         }
