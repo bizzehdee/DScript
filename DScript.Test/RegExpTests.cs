@@ -466,5 +466,47 @@ namespace DScript.Test
             engine.Execute("var re = new RegExp('a', 'g'); var result = re.unicodeSets;");
             Assert.That(engine.Root.GetParameter("result").Bool, Is.False);
         }
+
+        // ── RegExp.escape (ES2025) ────────────────────────────────────────────
+
+        [Test]
+        public void Escape_MetacharactersAreEscaped()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var result = RegExp.escape('1+1=2');");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo(@"1\+1=2"));
+        }
+
+        [Test]
+        public void Escape_PlainLetters_Unchanged()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var result = RegExp.escape('hello');");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("hello"));
+        }
+
+        [Test]
+        public void Escape_EmptyString_ReturnsEmpty()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var result = RegExp.escape('');");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo(""));
+        }
+
+        [Test]
+        public void Escape_EscapedStringMatchesLiteralInRegExp()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var escaped = RegExp.escape('a.b'); var re = new RegExp(escaped); var result = re.test('a.b') ? 'yes' : 'no';");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("yes"));
+        }
+
+        [Test]
+        public void Escape_WithoutEscape_DotMatchesAnyChar()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('a.b'); var result = re.test('axb') ? 'yes' : 'no';");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("yes"));
+        }
     }
 }

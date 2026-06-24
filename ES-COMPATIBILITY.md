@@ -258,7 +258,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 |---|---|---|
 | Iterator helpers (`Iterator.prototype.map`, `filter`, `take`, etc.) | ❌ | |
 | `Set` methods (`union`, `intersection`, `difference`, etc.) | ✅ | `union`, `intersection`, `difference`, `isSubsetOf`, `isSupersetOf`, `isDisjointFrom`, `symmetricDifference` all implemented |
-| `RegExp.escape` | ❌ | |
+| `RegExp.escape` | ✅ | Wraps `System.Text.RegularExpressions.Regex.Escape` |
 | `Promise.try` | ❌ | |
 | Import attributes (`import … with { type: 'json' }`) | ❌ | |
 | `Float16Array` | ❌ | Out of scope |

@@ -83,6 +83,17 @@ namespace DScript.Extras
                 }
             }, null);
 
+            // RegExp.escape static method (ES2025)
+            var escapeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            escapeFn.AddChild("input", new ScriptVar(ScriptVar.Flags.Undefined));
+            escapeFn.SetCallback((scope, _) =>
+            {
+                var input = scope.FindChild("input")?.Var?.String ?? "";
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(
+                    new ScriptVar(Regex.Escape(input)));
+            }, null);
+            regExpCtorVar.AddChild("escape", escapeFn);
+
             engine.Root.AddChild("RegExp", regExpCtorVar);
         }
     }
