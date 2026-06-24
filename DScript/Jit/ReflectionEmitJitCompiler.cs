@@ -184,14 +184,11 @@ namespace DScript.Jit
         // Monomorphic sites (T14): bake the single observed callee, guard the runtime
         // callee against it, and dispatch through vm.InvokeCallable. A guard miss
         // falls through to the same general dispatch on the runtime callee.
+        // Bimorphic/megamorphic/unobserved sites (T15): dispatch on the runtime
+        // callee directly, with no baked guard.
         private static void EmitCall(DynamicMethodBuilder b, Chunk chunk, int site, int argc,
                                      LocalBuilder tmp, LocalBuilder calleeSlot, LocalBuilder argArr)
         {
-            var profile = chunk.CallProfiles[site];
-            if (profile.State != Chunk.CallSiteMorphism.Monomorphic || profile.Callee0 == null)
-                // Polymorphic / unobserved sites are handled in T15.
-                throw new NotSupportedException();
-
             var il = b.IL;
 
             // Materialize the argument array from the stack (top-down), then the callee.
@@ -206,6 +203,15 @@ namespace DScript.Jit
                 b.EmitStoreElemRef();
             }
             b.EmitStoreLocal(calleeSlot);              // pop callee
+
+            var profile = chunk.CallProfiles[site];
+            if (profile.State != Chunk.CallSiteMorphism.Monomorphic || profile.Callee0 == null)
+            {
+                // Megamorphic fallback (T15): bimorphic, megamorphic, and unobserved
+                // sites dispatch on the runtime callee with no baked guard.
+                EmitGeneralCall(b, calleeSlot, argArr);
+                return;
+            }
 
             var bakedIndex = b.AddData(profile.Callee0);
             var general = il.DefineLabel();
