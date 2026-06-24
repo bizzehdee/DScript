@@ -42,6 +42,7 @@ namespace DScript.Extras
                 var hasS = false;
                 var hasIndices = false;
                 var hasUnicode = false;
+                var hasUnicodeSets = false;
                 foreach (var c in flags)
                 {
                     switch (c)
@@ -51,7 +52,8 @@ namespace DScript.Extras
                         case 's': opts |= RegexOptions.Singleline; hasS = true; break;
                         case 'g': global = true; break;
                         case 'd': hasIndices = true; break;
-                        case 'u': case 'v': hasUnicode = true; break;
+                        case 'u': hasUnicode = true; break;
+                        case 'v': hasUnicode = true; hasUnicodeSets = true; break;
                     }
                 }
 
@@ -76,6 +78,8 @@ namespace DScript.Extras
                     thisVar.AddChild("multiline", new ScriptVar((opts & RegexOptions.Multiline) != 0));
                     thisVar.AddChild("dotAll", new ScriptVar(hasS));
                     thisVar.AddChild("hasIndices", new ScriptVar(hasIndices));
+                    thisVar.AddChild("unicode", new ScriptVar(hasUnicode && !hasUnicodeSets));
+                    thisVar.AddChild("unicodeSets", new ScriptVar(hasUnicodeSets));
                 }
             }, null);
 

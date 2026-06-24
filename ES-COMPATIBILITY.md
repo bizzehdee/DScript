@@ -247,7 +247,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Object.groupBy` / `Map.groupBy` | ✅ | |
 | `ArrayBuffer.prototype.resize` | ❌ | Out of scope — requires typed array / ArrayBuffer support |
 | `Atomics.waitAsync` | ❌ | Out of scope — requires multi-threading infrastructure; see ES2017 notes |
-| RegExp `v` flag and set notation | ❌ | |
+| RegExp `v` flag and set notation | ⚠️ | `v` flag accepted; `.unicodeSets` property exposed; Unicode property escapes work; set notation (`[A--Z]`, `[A&&Z]`) not supported — .NET `Regex` has no equivalent |
 | `String.prototype.isWellFormed` / `toWellFormed` | ✅ | `isWellFormed()` returns bool; `toWellFormed()` replaces lone surrogates with U+FFFD |
 
 ---

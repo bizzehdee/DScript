@@ -423,5 +423,48 @@ namespace DScript.Test
             engine.Execute("var re = new RegExp('\\\\p{Decimal_Number}+', 'u'); var m = re.exec('abc123def'); var result = m[0];");
             Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("123"));
         }
+
+        // ── v flag / unicodeSets (ES2024) ─────────────────────────────────────
+
+        [Test]
+        public void VFlag_UnicodeSetsProperty_IsTrue()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('\\\\p{L}', 'v'); var result = re.unicodeSets;");
+            Assert.That(engine.Root.GetParameter("result").Bool, Is.True);
+        }
+
+        [Test]
+        public void VFlag_UnicodeProperty_IsFalse()
+        {
+            // v and u are mutually exclusive; v sets unicodeSets, not unicode
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('a', 'v'); var result = re.unicode;");
+            Assert.That(engine.Root.GetParameter("result").Bool, Is.False);
+        }
+
+        [Test]
+        public void UFlag_UnicodeProperty_IsTrue()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('a', 'u'); var result = re.unicode;");
+            Assert.That(engine.Root.GetParameter("result").Bool, Is.True);
+        }
+
+        [Test]
+        public void VFlag_UnicodeSets_MatchesLetterWithPropertyEscape()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('\\\\p{Letter}', 'v'); var result = re.test('a') ? 'yes' : 'no';");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("yes"));
+        }
+
+        [Test]
+        public void NoUVFlag_UnicodeSetsProperty_IsFalse()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var re = new RegExp('a', 'g'); var result = re.unicodeSets;");
+            Assert.That(engine.Root.GetParameter("result").Bool, Is.False);
+        }
     }
 }
