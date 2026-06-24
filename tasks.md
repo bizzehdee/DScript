@@ -204,31 +204,34 @@ non-numeric surprise deopts and returns the correct value.
 
 ---
 
-## Phase 6 — Inline Cache Promotion
+## Phase 6 — Property reads + inline cache (re-planned for DScript's object model)
 
 ### T26 — `ScriptVar.ShapeVersion` counter
-**File:** `DScript/ScriptVar.cs`  
-**Work:** Add `int ShapeVersion { get; private set; }`; increment on structural
-property-map mutation (`AddChild`, `RemoveLink`, …). The shape-guard key.  
-**Depends on:** nothing (parallelisable)
+**Status:** already present in the codebase (`ShapeVersion` getter, `BumpShapeVersion`,
+incremented in `AddChild`/`RemoveLink`); the interpreter's `GetProp` already uses a
+shape-keyed cache. Phase 6 reuses it — no code change.
 
-### T27 — `GetProp` support in the conservative tier
-**File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`  
-**Work:** Support `GetProp`/`GetPropN` via a runtime property-read helper, so
-property-reading functions compile at all (prerequisite for IC promotion).  
+### T27 — `GetProp` codegen (conservative tier)
+**File:** `DScript/Vm/VirtualMachine.cs`, `DScript/Jit/*`  
+**Work:** Add `VirtualMachine.JitGetProp` mirroring the interpreter's GetProp miss
+path (proxy, own child, prototype walk, getter, built-in length/size). Decoder
+normalises `GetProp`/`GetPropN`; both back-ends lower it. Speculative numeric tiers
+reject `GetProp`.  
 **Depends on:** T16
 
-### T28 — IC-promotion path in the JIT compiler
-**File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`  
-**Work:** For warm `GetProp` sites, bake the resolved slot, guard
-`obj.ShapeVersion` against the compile-time version, direct-load on hit, `Deoptimize`
-on miss.  
-**Depends on:** T26, T27, T21
+### T28 — Per-site inline cache
+**File:** `DScript/Vm/PropCacheCell.cs`, `DScript/Vm/VirtualMachine.cs`, `DScript/Jit/*`  
+**Work:** `PropCacheCell` (Object, Version, Link) baked per site; `JitGetPropCached`
+checks identity + `ShapeVersion`, reuses the cached link on a hit, else re-resolves
+and refreshes (a miss re-resolves inline — no deopt). Both back-ends bake one cell
+per `GetProp` site.  
+**Depends on:** T26, T27
 
 ### T29 — Tests: IC promotion correctness
 **File:** `DScript.Test/JitIcPromotionTests.cs`  
-**Work:** Warm IC path returns the correct property value; a shape change deopts
-and still returns the correct value.  
+**Work:** Warm IC returns the correct value; shape change invalidates and re-resolves
+correctly; value change tracked; polymorphic site stays correct; getter invoked
+through the cache. Both back-ends.  
 **Depends on:** T28
 
 ---
@@ -251,6 +254,11 @@ T16 → T27 ──↗
 T21 ───────↗
 ```
 
-Status: T01–T17 complete. Phases 4-6 re-planned for maximum performance
+Status: T01–T29 complete. A second backend (ClosureThreadedJitCompiler, no
+reflection / AOT-safe) shares the JitDecoder front-end; the full correctness
+matrix runs against both. Phases 4-6 were re-planned for maximum performance
 (unbox values, eliminate per-op allocation + MathsOp dispatch; deopt on type
-surprise). OSR/loop compilation deferred.
+surprise; per-site property inline cache). OSR/loop compilation deferred.
+
+Outstanding follow-ups (not yet done): wiki `JIT.md` page; a JIT-enabled
+benchmark workload (the benchmark currently runs interpreter-only).
