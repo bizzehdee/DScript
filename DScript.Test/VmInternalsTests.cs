@@ -103,5 +103,97 @@ namespace DScript.Test
                 "var r = sum(50);";
             Assert.That(RunInt(src), Is.EqualTo(1275));
         }
+
+        // ── superinstruction fusion ───────────────────────────────────────────
+
+        [Test]
+        public void SetVarPop_AssignmentStatementDiscardedCorrectly()
+        {
+            // SetVar + Pop fused → SetVarPop/SetVarPopN.
+            // The assignment result is not left on the stack; subsequent reads are correct.
+            const string src =
+                "var x = 0; x = 42; var r = x;";
+            Assert.That(RunInt(src), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void SetVarPop_MultipleSequentialAssignments()
+        {
+            // Successive fused assignments must each store their own values.
+            const string src =
+                "var a = 1; var b = 2; a = 10; b = 20; var r = a + b;";
+            Assert.That(RunInt(src), Is.EqualTo(30));
+        }
+
+        [Test]
+        public void SetPropPop_PropertySetStatementDiscardedCorrectly()
+        {
+            // SetProp + Pop fused → SetPropPop/SetPropPopN.
+            const string src =
+                "var o = {}; o.x = 99; var r = o.x;";
+            Assert.That(RunInt(src), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void SetPropPop_MultiplePropertiesOnSameObject()
+        {
+            // Multiple property-set fusions on the same object must not clobber each other.
+            const string src =
+                "var o = {}; o.a = 3; o.b = 7; var r = o.a + o.b;";
+            Assert.That(RunInt(src), Is.EqualTo(10));
+        }
+
+        [Test]
+        public void GetVarGetProp_SimplePropertyRead()
+        {
+            // GetVar + GetProp fused → GetVarGetProp/GetVarGetPropN.
+            const string src =
+                "var o = { x: 55 }; var r = o.x;";
+            Assert.That(RunInt(src), Is.EqualTo(55));
+        }
+
+        [Test]
+        public void GetVarGetProp_ReadAfterWrite()
+        {
+            // Property cache must reflect the written value, not a stale fused read.
+            const string src =
+                "var o = { x: 1 }; o.x = 77; var r = o.x;";
+            Assert.That(RunInt(src), Is.EqualTo(77));
+        }
+
+        [Test]
+        public void SuperInstructions_DisassemblyContainsFusedOpcodes()
+        {
+            // Verify that the optimizer actually emits the fused narrow forms by
+            // inspecting the disassembly of a program that contains all three patterns.
+            const string src =
+                "var x = 1; " +        // SetVarPopN (DeclareVar + assign)
+                "var o = {}; " +       // SetVarPopN
+                "o.p = 2; " +          // SetPropPopN
+                "var r = o.p;";        // GetVarGetPropN
+
+            var compiler = new DScriptCompiler { EnableOptimizer = true };
+            var chunk = compiler.CompileProgram(src);
+            var asm = Disassembler.Disassemble(chunk);
+
+            Assert.That(asm, Does.Contain("SetVarPopN"),  "Expected SetVarPopN in disassembly");
+            Assert.That(asm, Does.Contain("SetPropPopN"), "Expected SetPropPopN in disassembly");
+            Assert.That(asm, Does.Contain("GetVarGetPropN"), "Expected GetVarGetPropN in disassembly");
+        }
+
+        [Test]
+        public void SuperInstructions_OptimizerDisabled_StillCorrect()
+        {
+            // With the optimizer off, unfused forms must still produce correct results.
+            const string src =
+                "var x = 5; x = 10; " +
+                "var o = { y: 3 }; o.y = 7; " +
+                "var r = o.y + x;";
+
+            var engine = new ScriptEngine();
+            var chunk = new DScriptCompiler { EnableOptimizer = false }.CompileProgram(src);
+            new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
+            Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(17));
+        }
     }
 }

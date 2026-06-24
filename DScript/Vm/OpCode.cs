@@ -200,5 +200,17 @@ namespace DScript.Vm
         // --- Async iteration (ES2018) ----------------------------------------
         GetAsyncIterator, //               iterable → async iterator (checks Symbol.asyncIterator first, then Symbol.iterator)
         ForAwaitOfStep,   // <exitOffset>  pops iter, calls .next() → Promise; yields Promise; on resume if done→exit else push value
+
+        // --- Superinstructions: fused opcode pairs ----------------------------------
+        // Emitted by FuseSuperInstructions() after all earlier peephole passes.
+        // Wide forms are fused before NarrowEncodePass runs; narrow forms are the
+        // result of NarrowEncodePass processing the wide fused forms.
+        // APPENDED AT THE END per CLAUDE.md rules (preserves existing byte values).
+        SetVarPop,       // [i nameIndex]             fused SetVar + Pop  (assignment statement, result discarded)
+        SetPropPop,      // [i nameIndex]             fused SetProp + Pop (property-set statement, result discarded)
+        GetVarGetProp,   // [i varIndex][i propIndex] fused GetVar + GetProp (one-level property read a.b)
+        SetVarPopN,      // [b nameIndex]             narrow form of SetVarPop      (2 bytes)
+        SetPropPopN,     // [b nameIndex]             narrow form of SetPropPop     (2 bytes)
+        GetVarGetPropN,  // [b varIndex][b propIndex] narrow form of GetVarGetProp  (3 bytes)
     }
 }

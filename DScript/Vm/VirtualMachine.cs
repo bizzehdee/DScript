@@ -1426,6 +1426,179 @@ namespace DScript.Vm
                         break;
                     }
 
+                    // --- Superinstructions ----------------------------------------
+
+                    case OpCode.SetVarPop:
+                    {
+                        var site = ip;
+                        var nameIdx = ReadOperand(code, ref ip);
+                        var value = Pop();
+                        var link = ResolveCached(cache, chunk, site, env, nameIdx);
+                        if (link != null)
+                        {
+                            link.ReplaceWith(value);
+                        }
+                        else
+                        {
+                            if (chunk.IsStrict)
+                                throw new ScriptException($"ReferenceError: '{chunk.Names[nameIdx]}' is not defined");
+                            var global = env.Global();
+                            global.Vars.AddChildNoDup(chunk.Names[nameIdx], value);
+                            global.Version++;
+                        }
+                        break;
+                    }
+                    case OpCode.SetVarPopN:
+                    {
+                        var site = ip;
+                        var nameIdx = code[ip++];
+                        var value = Pop();
+                        var link = ResolveCached(cache, chunk, site, env, nameIdx);
+                        if (link != null)
+                        {
+                            link.ReplaceWith(value);
+                        }
+                        else
+                        {
+                            if (chunk.IsStrict)
+                                throw new ScriptException($"ReferenceError: '{chunk.Names[nameIdx]}' is not defined");
+                            var global = env.Global();
+                            global.Vars.AddChildNoDup(chunk.Names[nameIdx], value);
+                            global.Version++;
+                        }
+                        break;
+                    }
+                    case OpCode.SetPropPop:
+                    {
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
+                        var value = Pop();
+                        var obj = Pop();
+                        SetMember(obj, name, value, chunk.IsStrict);
+                        break;
+                    }
+                    case OpCode.SetPropPopN:
+                    {
+                        var name = chunk.Names[code[ip++]];
+                        var value = Pop();
+                        var obj = Pop();
+                        SetMember(obj, name, value, chunk.IsStrict);
+                        break;
+                    }
+                    case OpCode.GetVarGetProp:
+                    {
+                        var site = ip;
+                        var varIdx  = ReadOperand(code, ref ip);
+                        var propIdx = ReadOperand(code, ref ip);
+
+                        ScriptVar obj;
+                        if (chunk.Names[varIdx] == "globalThis")
+                            obj = env.Global().Vars;
+                        else
+                        {
+                            var varLink = ResolveCached(cache, chunk, site, env, varIdx);
+                            obj = varLink != null ? varLink.Var : SharedUndefined;
+                        }
+
+                        var propName = chunk.Names[propIdx];
+                        if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
+
+                        var cacheSlot = (int)((uint)propIdx * 2654435761u >> 24);
+                        ref var ce = ref _propCache[cacheSlot];
+                        if (ReferenceEquals(ce.Object, obj) &&
+                            ce.ShapeVersion == obj.ShapeVersion &&
+                            ReferenceEquals(ce.Name, propName) &&
+                            ce.Link != null)
+                        {
+                            Push(ce.Link.Getter != null
+                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                : ce.Link.Var);
+                            break;
+                        }
+
+                        var propLink = obj.FindChild(propName);
+                        if (propLink == null && engine != null) propLink = engine.FindInParentClasses(obj, propName);
+
+                        ScriptVar propResult;
+                        if (propLink != null)
+                        {
+                            if (propLink.Getter != null)
+                                propResult = InvokeCallable(propLink.Getter, obj, System.Array.Empty<ScriptVar>());
+                            else
+                                propResult = propLink.Var;
+                            if (obj.IsObject || obj.IsArray)
+                            {
+                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
+                                ce.Name = propName; ce.Link = propLink;
+                            }
+                        }
+                        else
+                        {
+                            if (obj.IsArray && propName == "length")         propResult = new ScriptVar(obj.GetArrayLength());
+                            else if (obj.IsString && propName == "length")   propResult = new ScriptVar(obj.String.Length);
+                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr) propResult = new ScriptVar(ctnr.GetSize());
+                            else propResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        Push(propResult);
+                        break;
+                    }
+                    case OpCode.GetVarGetPropN:
+                    {
+                        var site = ip;
+                        var varIdx  = code[ip++];
+                        var propIdx = code[ip++];
+
+                        ScriptVar obj;
+                        if (chunk.Names[varIdx] == "globalThis")
+                            obj = env.Global().Vars;
+                        else
+                        {
+                            var varLink = ResolveCached(cache, chunk, site, env, varIdx);
+                            obj = varLink != null ? varLink.Var : SharedUndefined;
+                        }
+
+                        var propName = chunk.Names[propIdx];
+                        if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
+
+                        var cacheSlot = (int)((uint)propIdx * 2654435761u >> 24);
+                        ref var ce = ref _propCache[cacheSlot];
+                        if (ReferenceEquals(ce.Object, obj) &&
+                            ce.ShapeVersion == obj.ShapeVersion &&
+                            ReferenceEquals(ce.Name, propName) &&
+                            ce.Link != null)
+                        {
+                            Push(ce.Link.Getter != null
+                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                : ce.Link.Var);
+                            break;
+                        }
+
+                        var propLink = obj.FindChild(propName);
+                        if (propLink == null && engine != null) propLink = engine.FindInParentClasses(obj, propName);
+
+                        ScriptVar propResult;
+                        if (propLink != null)
+                        {
+                            if (propLink.Getter != null)
+                                propResult = InvokeCallable(propLink.Getter, obj, System.Array.Empty<ScriptVar>());
+                            else
+                                propResult = propLink.Var;
+                            if (obj.IsObject || obj.IsArray)
+                            {
+                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
+                                ce.Name = propName; ce.Link = propLink;
+                            }
+                        }
+                        else
+                        {
+                            if (obj.IsArray && propName == "length")         propResult = new ScriptVar(obj.GetArrayLength());
+                            else if (obj.IsString && propName == "length")   propResult = new ScriptVar(obj.String.Length);
+                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr2) propResult = new ScriptVar(ctnr2.GetSize());
+                            else propResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        Push(propResult);
+                        break;
+                    }
+
                     default:
                         throw new ScriptException($"VM opcode not yet implemented: {op}");
                 }

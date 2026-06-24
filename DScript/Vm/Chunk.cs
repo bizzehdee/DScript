@@ -495,6 +495,7 @@ namespace DScript.Vm
             OpCode.BinaryConst     =>  9, // 1 + 4*2
             OpCode.BinaryIntConst  =>  9, // 1 + 4*2
             OpCode.TaggedTemplate  =>  9, // 1 + 4*2
+            OpCode.GetVarGetProp   =>  9, // 1 + 4*2  (superinstruction: varIdx + propIdx)
             OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
             OpCode.DeclareVar   or OpCode.DeclareConst or OpCode.DeclareLocal or
             OpCode.GetProp      or OpCode.SetProp      or OpCode.DeleteProp or
@@ -507,11 +508,14 @@ namespace DScript.Vm
             OpCode.TailCall     or OpCode.TailCallMethod                    or
             OpCode.New          or OpCode.InitProp      or OpCode.InitElem  or
             OpCode.LeaveTry     or OpCode.LeaveCatch                        or
-            OpCode.DefineGetter or OpCode.DefineSetter                      =>  5, // 1 + 4*1
+            OpCode.DefineGetter or OpCode.DefineSetter                      or
+            OpCode.SetVarPop    or OpCode.SetPropPop                        =>  5, // 1 + 4*1
             // Narrow forms: 1 opcode byte + 1 operand byte
             OpCode.GetVarN      or OpCode.SetVarN      or OpCode.ConstantN  or
             OpCode.GetPropN     or OpCode.SetPropN     or OpCode.DeclareVarN or
-            OpCode.DeclareConstN or OpCode.DeclareLocalN or OpCode.InitPropN => 2, // 1 + 1
+            OpCode.DeclareConstN or OpCode.DeclareLocalN or OpCode.InitPropN or
+            OpCode.SetVarPopN   or OpCode.SetPropPopN                       => 2, // 1 + 1
+            OpCode.GetVarGetPropN                                           => 3, // 1 + 1 + 1
             _                   =>  1, // no operands
         };
 
@@ -519,16 +523,19 @@ namespace DScript.Vm
         // Returns op unchanged when no narrow form exists.
         private static OpCode NarrowOf(OpCode op) => op switch
         {
-            OpCode.Constant     => OpCode.ConstantN,
-            OpCode.GetVar       => OpCode.GetVarN,
-            OpCode.SetVar       => OpCode.SetVarN,
-            OpCode.DeclareVar   => OpCode.DeclareVarN,
-            OpCode.DeclareConst => OpCode.DeclareConstN,
-            OpCode.DeclareLocal => OpCode.DeclareLocalN,
-            OpCode.GetProp      => OpCode.GetPropN,
-            OpCode.SetProp      => OpCode.SetPropN,
-            OpCode.InitProp     => OpCode.InitPropN,
-            _                   => op,
+            OpCode.Constant      => OpCode.ConstantN,
+            OpCode.GetVar        => OpCode.GetVarN,
+            OpCode.SetVar        => OpCode.SetVarN,
+            OpCode.DeclareVar    => OpCode.DeclareVarN,
+            OpCode.DeclareConst  => OpCode.DeclareConstN,
+            OpCode.DeclareLocal  => OpCode.DeclareLocalN,
+            OpCode.GetProp       => OpCode.GetPropN,
+            OpCode.SetProp       => OpCode.SetPropN,
+            OpCode.InitProp      => OpCode.InitPropN,
+            OpCode.SetVarPop     => OpCode.SetVarPopN,
+            OpCode.SetPropPop    => OpCode.SetPropPopN,
+            OpCode.GetVarGetProp => OpCode.GetVarGetPropN,
+            _                    => op,
         };
 
         /// <summary>
@@ -1047,9 +1054,218 @@ namespace DScript.Vm
         /// Call after <see cref="EliminateDeadCode"/> so the input stream is
         /// already minimal — smaller input means less remap work.
         /// </summary>
+        /// <summary>
+        /// Fuse pairs of adjacent instructions into superinstructions to reduce
+        /// dispatch overhead:
+        /// <list type="bullet">
+        ///   <item><c>SetVar(n) + Pop</c>   →  <c>SetVarPop(n)</c>  — assignment statement</item>
+        ///   <item><c>SetProp(n) + Pop</c>  →  <c>SetPropPop(n)</c> — property-set statement</item>
+        ///   <item><c>GetVar(a) + GetProp(b)</c> → <c>GetVarGetProp(a,b)</c> — one-level property read</item>
+        /// </list>
+        /// Each fusion removes the second opcode byte, saving one byte and one dispatch.
+        /// A pair is not fused when the second instruction is itself a jump target.
+        /// Call before <see cref="NarrowEncodePass"/> so the fused wide forms can be
+        /// narrowed when their operands are in range.
+        /// </summary>
+        public void FuseSuperInstructions()
+        {
+            // Pass 0: collect jump targets — must not fuse when the second instruction
+            // of a candidate pair is itself a landing point.
+            var jumpTargets = new HashSet<int>();
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op = (OpCode)Code[ip];
+                    if (op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                             or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                             or OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined
+                             or OpCode.ForOfStep or OpCode.ForAwaitOfStep
+                             or OpCode.LeaveTry or OpCode.LeaveCatch)
+                    {
+                        jumpTargets.Add(ReadIntFromCode(ip + 1));
+                    }
+                    else if (op is OpCode.EnterTry)
+                    {
+                        var catchPC   = ReadIntFromCode(ip + 1);
+                        var finallyPC = ReadIntFromCode(ip + 5);
+                        if (catchPC   >= 0) jumpTargets.Add(catchPC);
+                        if (finallyPC >= 0) jumpTargets.Add(finallyPC);
+                    }
+                    ip += InstructionSize(op);
+                }
+            }
+
+            // Pass 1: mark fusable pairs and count total byte savings (1 per fusion).
+            var fusedAt    = new bool[Code.Count];
+            var fusedOpAt  = new OpCode[Code.Count];
+            var totalSavings = 0;
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op1   = (OpCode)Code[ip];
+                    var size1 = InstructionSize(op1);
+                    var next  = ip + size1;
+                    if (next < Code.Count && !jumpTargets.Contains(next))
+                    {
+                        var op2 = (OpCode)Code[next];
+                        if (op1 is OpCode.SetVar && op2 is OpCode.Pop)
+                        {
+                            fusedAt[ip] = true; fusedOpAt[ip] = OpCode.SetVarPop;
+                            totalSavings++; ip += size1 + 1; continue;
+                        }
+                        if (op1 is OpCode.SetProp && op2 is OpCode.Pop)
+                        {
+                            fusedAt[ip] = true; fusedOpAt[ip] = OpCode.SetPropPop;
+                            totalSavings++; ip += size1 + 1; continue;
+                        }
+                        if (op1 is OpCode.GetVar && op2 is OpCode.GetProp)
+                        {
+                            fusedAt[ip] = true; fusedOpAt[ip] = OpCode.GetVarGetProp;
+                            totalSavings++; ip += size1 + 5; continue;
+                        }
+                    }
+                    ip += size1;
+                }
+            }
+
+            if (totalSavings == 0)
+            {
+                foreach (var fn in Functions) fn.FuseSuperInstructions();
+                return;
+            }
+
+            // Pass 2: build cumulative-savings array.
+            //   remap(old_offset) = old_offset - savings[old_offset]
+            var savings = new int[Code.Count + 1];
+            {
+                var cumSavings = 0;
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op   = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+                    for (var k = 0; k < size; k++)
+                        savings[ip + k] = cumSavings;
+                    if (fusedAt[ip])
+                    {
+                        cumSavings++;
+                        ip += size;
+                        var size2 = InstructionSize((OpCode)Code[ip]);
+                        for (var k = 0; k < size2; k++)
+                            savings[ip + k] = cumSavings;
+                        ip += size2;
+                        continue;
+                    }
+                    ip += size;
+                }
+                savings[Code.Count] = cumSavings;
+            }
+
+            // Pass 3: rebuild instruction stream with fused forms and remapped jump targets.
+            var newCode  = new List<byte>(Code.Count - totalSavings);
+            var newLines = new List<int>(Code.Count - totalSavings);
+            var newCols  = new List<int>(Code.Count - totalSavings);
+            {
+                var ip = 0;
+                while (ip < Code.Count)
+                {
+                    var op   = (OpCode)Code[ip];
+                    var size = InstructionSize(op);
+
+                    if (fusedAt[ip])
+                    {
+                        // Emit the fused opcode
+                        newCode.Add((byte)fusedOpAt[ip]);
+                        newLines.Add(Lines[ip]);
+                        newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
+                        // Copy operand bytes from the first instruction
+                        for (var k = 1; k < size; k++)
+                        {
+                            newCode.Add(Code[ip + k]);
+                            newLines.Add(Lines[ip + k]);
+                            newCols.Add((ip + k) < Cols.Count ? Cols[ip + k] : 0);
+                        }
+                        ip += size;
+
+                        var op2   = (OpCode)Code[ip];
+                        var size2 = InstructionSize(op2);
+                        if (op is OpCode.GetVar)
+                        {
+                            // GetVar + GetProp: append GetProp's operand bytes (skip its opcode byte)
+                            for (var k = 1; k < size2; k++)
+                            {
+                                newCode.Add(Code[ip + k]);
+                                newLines.Add(Lines[ip + k]);
+                                newCols.Add((ip + k) < Cols.Count ? Cols[ip + k] : 0);
+                            }
+                        }
+                        // SetVar/SetProp + Pop: Pop is a single opcode byte — discard entirely
+                        ip += size2;
+                        continue;
+                    }
+
+                    var isJump = op is OpCode.Jump or OpCode.JumpIfFalse or OpCode.JumpIfTrue
+                                        or OpCode.JumpIfFalseOrPop or OpCode.JumpIfTrueOrPop
+                                        or OpCode.JumpIfDefined or OpCode.JumpIfNullOrUndefined
+                                        or OpCode.ForOfStep or OpCode.ForAwaitOfStep
+                                        or OpCode.LeaveTry or OpCode.LeaveCatch;
+
+                    newCode.Add(Code[ip]);
+                    newLines.Add(Lines[ip]);
+                    newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
+
+                    var src = ip + 1;
+                    if (op is OpCode.EnterTry)
+                    {
+                        var catchPC = ReadIntFromCode(src);
+                        AppendInt(newCode, catchPC >= 0 ? catchPC - savings[catchPC] : -1);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                        var finallyPC = ReadIntFromCode(src);
+                        AppendInt(newCode, finallyPC >= 0 ? finallyPC - savings[finallyPC] : -1);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                    }
+                    else if (isJump)
+                    {
+                        var target = ReadIntFromCode(src);
+                        AppendInt(newCode, target - savings[target]);
+                        for (var b = 0; b < 4; b++) { newLines.Add(Lines[src + b]); newCols.Add((src + b) < Cols.Count ? Cols[src + b] : 0); }
+                        src += 4;
+                    }
+
+                    while (src < ip + size)
+                    {
+                        newCode.Add(Code[src]);
+                        newLines.Add(Lines[src]);
+                        newCols.Add(src < Cols.Count ? Cols[src] : 0);
+                        src++;
+                    }
+
+                    ip += size;
+                }
+            }
+
+            Code.Clear();
+            Code.AddRange(newCode);
+            Lines.Clear();
+            Lines.AddRange(newLines);
+            Cols.Clear();
+            Cols.AddRange(newCols);
+            codeArray = null;
+            inlineCache = null; // offsets have shifted
+
+            foreach (var fn in Functions) fn.FuseSuperInstructions();
+        }
+
         public void NarrowEncodePass()
         {
             // Pass 1: mark every instruction that can be narrowed.
+            // Supports single-operand forms (size 5 → 2, saves 3) and the two-operand
+            // GetVarGetProp form (size 9 → 3, saves 6).  Any instruction whose narrow
+            // form exists and all 4-byte operands fit in a byte qualifies.
             var narrowable = new bool[Code.Count];
             var totalSavings = 0;
             {
@@ -1058,13 +1274,17 @@ namespace DScript.Vm
                 {
                     var op = (OpCode)Code[ip];
                     var size = InstructionSize(op);
-                    if (size == 5 && NarrowOf(op) != op)
+                    var narrowOp = NarrowOf(op);
+                    if (narrowOp != op)
                     {
-                        var idx = ReadIntFromCode(ip + 1);
-                        if ((uint)idx < 256)
+                        var numOps = (size - 1) / 4;
+                        var allNarrow = true;
+                        for (var k = 0; k < numOps && allNarrow; k++)
+                            if ((uint)ReadIntFromCode(ip + 1 + k * 4) >= 256) allNarrow = false;
+                        if (allNarrow)
                         {
                             narrowable[ip] = true;
-                            totalSavings += 3;
+                            totalSavings += size - InstructionSize(narrowOp);
                         }
                     }
                     ip += size;
@@ -1089,7 +1309,8 @@ namespace DScript.Vm
                     var size = InstructionSize((OpCode)Code[ip]);
                     for (var k = 0; k < size; k++)
                         savings[ip + k] = cumSavings;
-                    if (narrowable[ip]) cumSavings += 3;
+                    if (narrowable[ip])
+                        cumSavings += size - InstructionSize(NarrowOf((OpCode)Code[ip]));
                     ip += size;
                 }
                 savings[Code.Count] = cumSavings;
@@ -1109,14 +1330,20 @@ namespace DScript.Vm
 
                     if (narrowable[ip])
                     {
+                        var narrowOp = NarrowOf(op);
+                        var narrowSize = InstructionSize(narrowOp);
                         // Opcode byte
-                        newCode.Add((byte)NarrowOf(op));
+                        newCode.Add((byte)narrowOp);
                         newLines.Add(Lines[ip]);
                         newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
-                        // Single-byte operand (low byte of the 4-byte LE index; high 3 bytes are 0)
-                        newCode.Add(Code[ip + 1]);
-                        newLines.Add(Lines[ip + 1]);
-                        newCols.Add((ip + 1) < Cols.Count ? Cols[ip + 1] : 0);
+                        // Each narrow operand is the low byte of the corresponding 4-byte LE operand.
+                        for (var k = 0; k < narrowSize - 1; k++)
+                        {
+                            var src2 = ip + 1 + k * 4;
+                            newCode.Add(Code[src2]);
+                            newLines.Add(Lines[src2]);
+                            newCols.Add(src2 < Cols.Count ? Cols[src2] : 0);
+                        }
                         ip += size;
                         continue;
                     }

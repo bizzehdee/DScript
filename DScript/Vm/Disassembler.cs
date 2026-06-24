@@ -44,6 +44,9 @@ namespace DScript.Vm
                 case OpCode.TaggedTemplate:
                     return 2;
 
+                case OpCode.GetVarGetProp:
+                    return 2;
+
                 case OpCode.Constant:
                 case OpCode.GetVar:
                 case OpCode.SetVar:
@@ -70,6 +73,8 @@ namespace DScript.Vm
                 case OpCode.LeaveCatch:
                 case OpCode.DefineGetter:
                 case OpCode.DefineSetter:
+                case OpCode.SetVarPop:
+                case OpCode.SetPropPop:
                     return 1;
 
                 default:
@@ -110,10 +115,12 @@ namespace DScript.Vm
         }
 
         // Returns true for opcodes whose single operand is stored as 1 byte (narrow form).
+        // GetVarGetPropN has two 1-byte operands and is handled separately.
         private static bool IsNarrow(OpCode op) =>
             op is OpCode.GetVarN or OpCode.SetVarN or OpCode.ConstantN or
                   OpCode.GetPropN or OpCode.SetPropN or OpCode.DeclareVarN or
-                  OpCode.DeclareConstN or OpCode.DeclareLocalN or OpCode.InitPropN;
+                  OpCode.DeclareConstN or OpCode.DeclareLocalN or OpCode.InitPropN or
+                  OpCode.SetVarPopN or OpCode.SetPropPopN;
 
         private static int DisassembleInstruction(Chunk chunk, int offset, StringBuilder sb, ref int lastLine)
         {
@@ -133,7 +140,17 @@ namespace DScript.Vm
 
             var next = offset + 1;
 
-            if (IsNarrow(op))
+            if (op == OpCode.GetVarGetPropN)
+            {
+                // Two 1-byte operands: variable index then property index
+                var varIdx  = chunk.Code[next++];
+                var propIdx = chunk.Code[next++];
+                sb.Append(' ').Append(varIdx);
+                if (varIdx  < chunk.Names.Count) sb.Append($" ({chunk.Names[varIdx]})");
+                sb.Append(' ').Append(propIdx);
+                if (propIdx < chunk.Names.Count) sb.Append($".{chunk.Names[propIdx]}");
+            }
+            else if (IsNarrow(op))
             {
                 // Narrow form: single 1-byte operand
                 var value = chunk.Code[next];
@@ -171,6 +188,8 @@ namespace DScript.Vm
                 case OpCode.GetPropN:
                 case OpCode.SetPropN:
                 case OpCode.InitPropN:
+                case OpCode.SetVarPopN:
+                case OpCode.SetPropPopN:
                     if (value >= 0 && value < chunk.Names.Count) return $" ({chunk.Names[value]})";
                     break;
             }
@@ -192,6 +211,12 @@ namespace DScript.Vm
                 case OpCode.SetProp:
                 case OpCode.DeleteProp:
                 case OpCode.InitProp:
+                case OpCode.SetVarPop:
+                case OpCode.SetPropPop:
+                    if (value >= 0 && value < chunk.Names.Count) return $" ({chunk.Names[value]})";
+                    break;
+                case OpCode.GetVarGetProp when operandIndex == 0:
+                case OpCode.GetVarGetProp when operandIndex == 1:
                     if (value >= 0 && value < chunk.Names.Count) return $" ({chunk.Names[value]})";
                     break;
                 case OpCode.Binary:

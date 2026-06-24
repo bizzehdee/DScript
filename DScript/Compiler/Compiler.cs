@@ -117,6 +117,7 @@ namespace DScript.Compiler
                 chunk.CollapseJumpChains();
                 chunk.FoldConstantBranches();
                 chunk.EliminateDeadCode();
+                chunk.FuseSuperInstructions();
                 chunk.NarrowEncodePass();
                 _constScopes = null;
             }
@@ -151,6 +152,7 @@ namespace DScript.Compiler
                 chunk.CollapseJumpChains();
                 chunk.FoldConstantBranches();
                 chunk.EliminateDeadCode();
+                chunk.FuseSuperInstructions();
                 chunk.NarrowEncodePass();
                 _constScopes = null;
             }
