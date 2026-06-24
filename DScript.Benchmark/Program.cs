@@ -39,6 +39,7 @@ using System.Text;
 using DScript;
 using DScript.Compiler;
 using DScript.Extras;
+using DScript.Jit;
 using DScript.Vm;
 
 internal static class Program
@@ -112,6 +113,7 @@ internal static class Program
         CompileOnceDemo();
         OptimizerImpactSection(scale);
         OptimisationCandidatesSection(scale);
+        JitSection(scale);
         BytecodeShowcase();
     }
 
@@ -347,6 +349,90 @@ internal static class Program
         }
 
         Console.WriteLine(new string('-', 82));
+    }
+
+    // -------------------------------------------------------------------------
+    // JIT section — interpreter vs the two JIT back-ends on hot workloads.
+    //
+    // Each workload calls a small pure (or property-reading) function far past the
+    // invocation threshold so the chunk is compiled and most calls run compiled.
+    // We measure best-of-5 total Execute() time under: no JIT (interpreter), the
+    // Reflection.Emit back-end, and the closure-threaded back-end — and report the
+    // speedup of each over the interpreter. Results are compared so a mismatch
+    // (a correctness bug) is flagged inline.
+
+    private static void JitSection(double scale)
+    {
+        var intN  = (int)(2_000_000 * scale);
+        var dblN  = (int)(2_000_000 * scale);
+        var propN = (int)(2_000_000 * scale);
+
+        var workloads = new (string label, string code)[]
+        {
+            // Speculative unboxed-int tier: pure integer arithmetic.
+            ($"int poly (n={intN})",
+                $"function poly(a,b){{return a*a + b*b - a*b;}} var s=0; " +
+                $"for(var i=0;i<{intN};i=i+1){{s=poly(i, i+1);}} result=s;"),
+
+            // Speculative unboxed-double tier: pure floating-point arithmetic.
+            ($"double poly (n={dblN})",
+                $"function poly(a,b){{return a*b + a/b - a;}} var s=0; " +
+                $"for(var i=0;i<{dblN};i=i+1){{s=poly(i+0.5, 2.5);}} result=s;"),
+
+            // Conservative tier + per-site inline cache: repeated property reads.
+            ($"property read (n={propN})",
+                $"function get(o){{return o.x + o.y;}} var o={{x:3,y:4}}; var s=0; " +
+                $"for(var i=0;i<{propN};i=i+1){{s=get(o);}} result=s;"),
+        };
+
+        Console.WriteLine();
+        Console.WriteLine($"JIT back-ends vs interpreter  (best of 5, scale={scale.ToString(CultureInfo.InvariantCulture)})");
+        Console.WriteLine(new string('-', 88));
+        Console.WriteLine($"{"workload",-26}{"interp ms",11}{"ReflEmit ms",13}{"speedup",9}{"Closure ms",12}{"speedup",9}");
+        Console.WriteLine(new string('-', 88));
+
+        foreach (var (label, code) in workloads)
+        {
+            var (interpMs, interpRes) = BestExecute(code, null);
+            var (remitMs,  remitRes)  = BestExecute(code, new ReflectionEmitJitCompiler());
+            var (closeMs,  closeRes)  = BestExecute(code, new ClosureThreadedJitCompiler());
+
+            var remitUp = interpMs / Math.Max(remitMs, 0.001);
+            var closeUp = interpMs / Math.Max(closeMs, 0.001);
+
+            Console.WriteLine($"{label,-26}{interpMs,11:F1}{remitMs,13:F1}{remitUp,8:F2}x{closeMs,12:F1}{closeUp,8:F2}x");
+
+            if (remitRes != interpRes || closeRes != interpRes)
+                Console.WriteLine($"  !! RESULT MISMATCH  interp={interpRes}  reflEmit={remitRes}  closure={closeRes}");
+        }
+
+        Console.WriteLine(new string('-', 88));
+        Console.WriteLine("  (JIT is opt-in via JitRegistry; interpreter-only path is unchanged when no compiler is registered.)");
+    }
+
+    // Best-of-5 total Execute() time for code under the given JIT back-end (null =
+    // interpreter). Includes one warm-up run (which also compiles the hot chunk).
+    private static (double ms, string result) BestExecute(string code, IJitCompiler compiler)
+    {
+        if (compiler != null) JitRegistry.Register(compiler);
+        else JitRegistry.Clear();
+        try
+        {
+            TimeExecute(code, out _, out _); // warm up (also triggers JIT compilation)
+
+            var best = double.MaxValue;
+            string result = null;
+            for (var run = 0; run < 5; run++)
+            {
+                var ms = TimeExecute(code, out result, out _);
+                if (ms < best) best = ms;
+            }
+            return (best, result);
+        }
+        finally
+        {
+            JitRegistry.Clear();
+        }
     }
 
     // -------------------------------------------------------------------------
