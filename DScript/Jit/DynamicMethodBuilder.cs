@@ -356,6 +356,15 @@ namespace DScript.Jit
         /// <summary>Store the value on top of the stack into <c>array[index]</c> (array and value supplied by caller).</summary>
         public void EmitStoreElemRef() => IL.Emit(OpCodes.Stelem_Ref);
 
+        /// <summary>Push <c>argArray[index]</c> (a <see cref="ScriptVar"/>) — used by the
+        /// inliner to read an inlined callee's parameter from the caller's arg array.</summary>
+        public void EmitLoadArgElement(LocalBuilder argArray, int index)
+        {
+            EmitLoadLocal(argArray);
+            EmitLdcI4(index);
+            IL.Emit(OpCodes.Ldelem_Ref);
+        }
+
         /// <summary>
         /// Emit <c>vm.InvokeCallable(callee, thisArg, args)</c>. The vm, callee,
         /// thisArg and args must already be on the stack in that order.
