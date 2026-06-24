@@ -279,6 +279,27 @@ namespace DScript.Vm
         /// </summary>
         public int BackEdgeCount { get; set; }
 
+        // ── JIT tier-up state ─────────────────────────────────────────────────
+        // Tracks where this chunk is in the compile pipeline so the VM never
+        // re-enters compilation for a chunk that is already compiling, compiled,
+        // or has permanently failed to compile.
+
+        /// <summary>Position of a chunk in the JIT compilation pipeline.</summary>
+        public enum JitStatus : byte
+        {
+            /// <summary>Not yet compiled; eligible to become hot.</summary>
+            Cold      = 0,
+            /// <summary>Compilation is in progress (guards against re-entrancy).</summary>
+            Compiling = 1,
+            /// <summary>Successfully compiled; <see cref="CompiledDelegate"/> is set.</summary>
+            Compiled  = 2,
+            /// <summary>Compilation was attempted and failed; do not retry.</summary>
+            Failed    = 3,
+        }
+
+        /// <summary>Current JIT compilation state of this chunk. Starts <see cref="JitStatus.Cold"/>.</summary>
+        public JitStatus JitState { get; set; } = JitStatus.Cold;
+
         /// <summary>Literal value constants referenced by <see cref="OpCode.Constant"/>.</summary>
         public List<ConstantValue> Constants { get; } = [];
 
