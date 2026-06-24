@@ -450,7 +450,7 @@ namespace DScript
                 var vm2 = new VirtualMachine(this);
                 var len = arr.IsArray ? arr.GetArrayLength() : 0;
                 var result = new Vm.PromiseObject();
-                var rejectedCount = new[] { 0 };
+                var rejectedCount = 0;
                 var reasons = new ScriptVar[len];
                 if (len == 0) { result.Reject(MakeAggregateError(reasons, 0)); }
                 for (var i = 0; i < len; i++)
@@ -460,8 +460,8 @@ namespace DScript
                     p.Then(v => result.Resolve(v), r =>
                     {
                         reasons[idx] = r;
-                        rejectedCount[0]++;
-                        if (rejectedCount[0] == len)
+                        rejectedCount++;
+                        if (rejectedCount == len)
                             result.Reject(MakeAggregateError(reasons, len));
                     });
                 }

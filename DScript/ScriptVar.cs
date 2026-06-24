@@ -90,9 +90,9 @@ namespace DScript
                 var name = m.Groups[2].Value;
                 string dotNetName;
                 if (name.StartsWith("Script=", System.StringComparison.OrdinalIgnoreCase))
-                    dotNetName = "Is" + name.Substring(7);
+                    dotNetName = string.Concat("Is", name.AsSpan(7));
                 else if (name.StartsWith("Script_Extensions=", System.StringComparison.OrdinalIgnoreCase))
-                    dotNetName = "Is" + name.Substring(18);
+                    dotNetName = string.Concat("Is", name.AsSpan(18));
                 else if (UnicodePropertyMap.TryGetValue(name, out var mapped))
                     dotNetName = mapped;
                 else
