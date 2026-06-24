@@ -56,6 +56,11 @@ namespace DScript.Jit
 
         private static JitDelegate CompileCore(Chunk chunk)
         {
+            // Generators and async functions have a suspend/resume execution model
+            // the linear compiler does not implement; leave them to the interpreter.
+            if (chunk.IsGenerator || chunk.IsAsync)
+                return null;
+
             var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
 
             // Two scratch slots for binary operands and one for IntBinary's out value.
@@ -106,6 +111,10 @@ namespace DScript.Jit
 
                     case OpCode.Pop:
                         b.IL.Emit(OpCodes.Pop);
+                        break;
+
+                    case OpCode.Not:
+                        b.EmitLogicalNot();
                         break;
 
                     case OpCode.Binary:

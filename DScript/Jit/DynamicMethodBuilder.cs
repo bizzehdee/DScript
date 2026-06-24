@@ -56,6 +56,7 @@ namespace DScript.Jit
         private static readonly MethodInfo IsDoubleGetter   = Prop(typeof(ScriptVar), "IsDouble");
         private static readonly MethodInfo IsStringGetter   = Prop(typeof(ScriptVar), "IsString");
         private static readonly MethodInfo IntGetter        = Prop(typeof(ScriptVar), "Int");
+        private static readonly MethodInfo BoolGetter        = Prop(typeof(ScriptVar), "Bool");
         private static readonly MethodInfo FloatGetter      = Prop(typeof(ScriptVar), "Float");
         private static readonly MethodInfo FromIntMethod    = typeof(ScriptVar).GetMethod("FromInt", new[] { typeof(int) });
         private static readonly MethodInfo FromDoubleMethod = typeof(ScriptVar).GetMethod("FromDouble", new[] { typeof(double) });
@@ -198,6 +199,18 @@ namespace DScript.Jit
 
         /// <summary>Concatenate two CLR strings already on the stack via <c>string.Concat</c>.</summary>
         public void EmitStringConcat() => IL.EmitCall(OpCodes.Call, ConcatMethod, null);
+
+        /// <summary>
+        /// Logical NOT of the <see cref="ScriptVar"/> on top of the stack: replaces it
+        /// with <c>FromInt(a.Bool ? 0 : 1)</c>, matching the interpreter's Not opcode.
+        /// </summary>
+        public void EmitLogicalNot()
+        {
+            IL.EmitCall(OpCodes.Callvirt, BoolGetter, null); // a.Bool -> int 0/1
+            IL.Emit(OpCodes.Ldc_I4_0);
+            IL.Emit(OpCodes.Ceq);                            // 1 when falsy, else 0
+            EmitFromInt();
+        }
 
         /// <summary>Push a fresh undefined <see cref="ScriptVar"/>.</summary>
         public void EmitPushUndefined() => IL.EmitCall(OpCodes.Call, CreateUndefinedMethod, null);
