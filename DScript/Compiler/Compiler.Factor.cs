@@ -30,40 +30,12 @@ namespace DScript.Compiler
     {
         private void CompileFactor(bool canAssign)
         {
-            // yield expression — must be checked before arrow-function and identifier cases
-            if (lexer.TokenType == ScriptLex.LexTypes.RYield)
-            {
-                lexer.Match(ScriptLex.LexTypes.RYield);
-                // yield with a value: yield <expr>; yield with no value: yield;
-                if (lexer.TokenType != (ScriptLex.LexTypes)';' &&
-                    lexer.TokenType != (ScriptLex.LexTypes)'}' &&
-                    lexer.TokenType != ScriptLex.LexTypes.Eof)
-                    CompileBase();
-                else
-                    chunk.Emit(OpCode.PushUndefined);
-                chunk.Emit(OpCode.Yield);
-                return;
-            }
+            // These two must be checked before the arrow-function and identifier cases.
+            if (lexer.TokenType == ScriptLex.LexTypes.RYield) { CompileYieldExpression(); return; }
+            if (lexer.TokenType == ScriptLex.LexTypes.RAwait) { CompileAwaitExpression(); return; }
 
-            // await expression — compiles identically to yield; the async driver
-            // intercepts the yielded Promise and resumes with the resolved value.
-            if (lexer.TokenType == ScriptLex.LexTypes.RAwait)
-            {
-                lexer.Match(ScriptLex.LexTypes.RAwait);
-                // await expr — evaluate the expression (should be a Promise)
-                if (lexer.TokenType != (ScriptLex.LexTypes)';' &&
-                    lexer.TokenType != (ScriptLex.LexTypes)'}' &&
-                    lexer.TokenType != ScriptLex.LexTypes.Eof)
-                    CompileBase();
-                else
-                    chunk.Emit(OpCode.PushUndefined);
-                chunk.Emit(OpCode.Yield); // reuse Yield — the async driver handles resumption
-                return;
-            }
-
-            // Arrow function: `x => body` or `(params) => body` — must be
-            // checked before the '(' and Id cases so the disambiguation runs
-            // before any tokens are consumed.
+            // Arrow function: `x => body` or `(params) => body` — must be checked before
+            // the '(' and Id cases so the disambiguation runs before any tokens are consumed.
             if ((lexer.TokenType == (ScriptLex.LexTypes)'(' ||
                  lexer.TokenType == ScriptLex.LexTypes.Id) && IsArrowFunction())
             {
@@ -78,27 +50,22 @@ namespace DScript.Compiler
                     CompileBase();
                     lexer.Match((ScriptLex.LexTypes)')');
                     break;
-
                 case ScriptLex.LexTypes.RTrue:
                     lexer.Match(ScriptLex.LexTypes.RTrue);
                     chunk.Emit(OpCode.PushTrue);
                     break;
-
                 case ScriptLex.LexTypes.RFalse:
                     lexer.Match(ScriptLex.LexTypes.RFalse);
                     chunk.Emit(OpCode.PushFalse);
                     break;
-
                 case ScriptLex.LexTypes.RNull:
                     lexer.Match(ScriptLex.LexTypes.RNull);
                     chunk.Emit(OpCode.PushNull);
                     break;
-
                 case ScriptLex.LexTypes.RUndefined:
                     lexer.Match(ScriptLex.LexTypes.RUndefined);
                     chunk.Emit(OpCode.PushUndefined);
                     break;
-
                 case ScriptLex.LexTypes.Int:
                 {
                     if (chunk.IsStrict && IsLegacyOctal(lexer.TokenString))
@@ -108,7 +75,6 @@ namespace DScript.Compiler
                     EmitConstantInt(value);
                     break;
                 }
-
                 case ScriptLex.LexTypes.Float:
                 {
                     var value = new ScriptVar(lexer.TokenString, ScriptVar.Flags.Double).Float;
@@ -116,32 +82,9 @@ namespace DScript.Compiler
                     chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Double(value)));
                     break;
                 }
-
                 case ScriptLex.LexTypes.BigIntLiteral:
-                {
-                    var raw = lexer.TokenString;
-                    lexer.Match(ScriptLex.LexTypes.BigIntLiteral);
-                    BigInteger bigVal;
-                    if (raw.StartsWith("0x", System.StringComparison.OrdinalIgnoreCase))
-                        bigVal = BigInteger.Parse("0" + raw[2..], System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
-                    else if (raw.StartsWith("0b", System.StringComparison.OrdinalIgnoreCase))
-                    {
-                        bigVal = BigInteger.Zero;
-                        foreach (var ch in raw[2..])
-                            bigVal = bigVal * 2 + (ch == '1' ? BigInteger.One : BigInteger.Zero);
-                    }
-                    else if (raw.StartsWith("0o", System.StringComparison.OrdinalIgnoreCase))
-                    {
-                        bigVal = BigInteger.Zero;
-                        foreach (var ch in raw[2..])
-                            bigVal = bigVal * 8 + (ch - '0');
-                    }
-                    else
-                        bigVal = BigInteger.Parse(raw, System.Globalization.CultureInfo.InvariantCulture);
-                    chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.BigInt(bigVal)));
+                    CompileBigIntLiteral();
                     break;
-                }
-
                 case ScriptLex.LexTypes.Str:
                 {
                     var value = lexer.TokenString;
@@ -149,7 +92,6 @@ namespace DScript.Compiler
                     chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.String(value)));
                     break;
                 }
-
                 case ScriptLex.LexTypes.RegExp:
                 {
                     var value = lexer.TokenString;
@@ -157,103 +99,37 @@ namespace DScript.Compiler
                     chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Regex(value)));
                     break;
                 }
-
                 case ScriptLex.LexTypes.TemplateLiteral:
                     CompileTemplateLiteral();
                     break;
-
                 case (ScriptLex.LexTypes)'{':
                     CompileObjectLiteral();
                     break;
-
                 case (ScriptLex.LexTypes)'[':
                     CompileArrayLiteral();
                     break;
-
                 case ScriptLex.LexTypes.RAsync:
-                {
-                    // async function expression: async function [name](params) { body }
-                    // async function* expression: async function* [name](params) { body }
-                    lexer.Match(ScriptLex.LexTypes.RAsync);
-                    lexer.Match(ScriptLex.LexTypes.RFunction);
-                    var isAsyncGen = lexer.TokenType == (ScriptLex.LexTypes)'*';
-                    if (isAsyncGen) lexer.Match((ScriptLex.LexTypes)'*');
-                    var fnName = string.Empty;
-                    if (lexer.TokenType == ScriptLex.LexTypes.Id)
-                    {
-                        fnName = lexer.TokenString;
-                        lexer.Match(ScriptLex.LexTypes.Id);
-                    }
-                    var idx = CompileFunctionRest(fnName, isGenerator: isAsyncGen, isAsync: true);
-                    chunk.Emit(OpCode.MakeClosure, idx);
-                    chunk.MakesClosure = true;
+                    CompileAsyncFunctionExpression();
                     break;
-                }
-
                 case ScriptLex.LexTypes.RFunction:
-                {
-                    lexer.Match(ScriptLex.LexTypes.RFunction);
-                    bool isGenerator = lexer.TokenType == (ScriptLex.LexTypes)'*';
-                    if (isGenerator) lexer.Match((ScriptLex.LexTypes)'*');
-                    var fnName = string.Empty;
-                    if (lexer.TokenType == ScriptLex.LexTypes.Id)
-                    {
-                        fnName = lexer.TokenString;
-                        lexer.Match(ScriptLex.LexTypes.Id);
-                    }
-                    var idx = CompileFunctionRest(fnName, isGenerator);
-                    chunk.Emit(OpCode.MakeClosure, idx);
-                    chunk.MakesClosure = true;
+                    CompileFunctionExpression();
                     break;
-                }
-
                 case ScriptLex.LexTypes.RNew:
                     CompileNew();
                     break;
-
                 case ScriptLex.LexTypes.RSuper:
                     CompileSuper();
                     return;
-
                 case ScriptLex.LexTypes.Id:
                     CompileIdentifierChain(canAssign);
                     return;
-
                 case ScriptLex.LexTypes.PrivateName:
-                {
-                    // #name used as an expression is only valid in `#name in obj`
-                    var privateName = lexer.TokenString;
-                    lexer.Match(ScriptLex.LexTypes.PrivateName);
-                    chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.String(privateName)));
-                    CompileMemberChain(false);
+                    CompilePrivateNameExpression();
                     return;
-                }
-
                 case ScriptLex.LexTypes.RImport:
-                {
-                    lexer.Match(ScriptLex.LexTypes.RImport);
-                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
-                    {
-                        // Dynamic import: import(specifier) → Promise<exports>
-                        lexer.Match((ScriptLex.LexTypes)'(');
-                        CompileBase();  // specifier expression
-                        lexer.Match((ScriptLex.LexTypes)')');
-                        chunk.Emit(OpCode.DynamicImport);
-                    }
-                    else
-                    {
-                        // import.meta
-                        lexer.Match((ScriptLex.LexTypes)'.');
-                        if (lexer.TokenString != "meta")
-                            throw new JITException("Expected 'meta' or '(' after 'import'");
-                        lexer.Match(ScriptLex.LexTypes.Id);
-                        chunk.Emit(OpCode.PushImportMeta);
-                    }
+                    CompileImportExpression();
                     break;
-                }
-
                 default:
-                    // unexpected token for the current (phase-limited) grammar
                     lexer.Match(ScriptLex.LexTypes.Eof);
                     return;
             }
@@ -261,6 +137,119 @@ namespace DScript.Compiler
             // Allow member access / calls on any primary expression:
             // 'str'.method(), [1,2].indexOf(x), (expr).prop, new Foo().bar, etc.
             CompileMemberChain(false);
+        }
+
+        private void CompileYieldExpression()
+        {
+            lexer.Match(ScriptLex.LexTypes.RYield);
+            if (lexer.TokenType != (ScriptLex.LexTypes)';' &&
+                lexer.TokenType != (ScriptLex.LexTypes)'}' &&
+                lexer.TokenType != ScriptLex.LexTypes.Eof)
+                CompileBase();
+            else
+                chunk.Emit(OpCode.PushUndefined);
+            chunk.Emit(OpCode.Yield);
+        }
+
+        // Compiles identically to yield; the async driver intercepts the yielded
+        // Promise and resumes with the resolved value.
+        private void CompileAwaitExpression()
+        {
+            lexer.Match(ScriptLex.LexTypes.RAwait);
+            if (lexer.TokenType != (ScriptLex.LexTypes)';' &&
+                lexer.TokenType != (ScriptLex.LexTypes)'}' &&
+                lexer.TokenType != ScriptLex.LexTypes.Eof)
+                CompileBase();
+            else
+                chunk.Emit(OpCode.PushUndefined);
+            chunk.Emit(OpCode.Yield);
+        }
+
+        private void CompileBigIntLiteral()
+        {
+            var raw = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.BigIntLiteral);
+            BigInteger bigVal;
+            if (raw.StartsWith("0x", System.StringComparison.OrdinalIgnoreCase))
+                bigVal = BigInteger.Parse("0" + raw[2..], System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+            else if (raw.StartsWith("0b", System.StringComparison.OrdinalIgnoreCase))
+            {
+                bigVal = BigInteger.Zero;
+                foreach (var ch in raw[2..])
+                    bigVal = bigVal * 2 + (ch == '1' ? BigInteger.One : BigInteger.Zero);
+            }
+            else if (raw.StartsWith("0o", System.StringComparison.OrdinalIgnoreCase))
+            {
+                bigVal = BigInteger.Zero;
+                foreach (var ch in raw[2..])
+                    bigVal = bigVal * 8 + (ch - '0');
+            }
+            else
+                bigVal = BigInteger.Parse(raw, System.Globalization.CultureInfo.InvariantCulture);
+            chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.BigInt(bigVal)));
+        }
+
+        private void CompileAsyncFunctionExpression()
+        {
+            lexer.Match(ScriptLex.LexTypes.RAsync);
+            lexer.Match(ScriptLex.LexTypes.RFunction);
+            var isAsyncGen = lexer.TokenType == (ScriptLex.LexTypes)'*';
+            if (isAsyncGen) lexer.Match((ScriptLex.LexTypes)'*');
+            var fnName = string.Empty;
+            if (lexer.TokenType == ScriptLex.LexTypes.Id)
+            {
+                fnName = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
+            }
+            var idx = CompileFunctionRest(fnName, isGenerator: isAsyncGen, isAsync: true);
+            chunk.Emit(OpCode.MakeClosure, idx);
+            chunk.MakesClosure = true;
+        }
+
+        private void CompileFunctionExpression()
+        {
+            lexer.Match(ScriptLex.LexTypes.RFunction);
+            var isGenerator = lexer.TokenType == (ScriptLex.LexTypes)'*';
+            if (isGenerator) lexer.Match((ScriptLex.LexTypes)'*');
+            var fnName = string.Empty;
+            if (lexer.TokenType == ScriptLex.LexTypes.Id)
+            {
+                fnName = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
+            }
+            var idx = CompileFunctionRest(fnName, isGenerator);
+            chunk.Emit(OpCode.MakeClosure, idx);
+            chunk.MakesClosure = true;
+        }
+
+        // #name used as an expression is only valid in `#name in obj`
+        private void CompilePrivateNameExpression()
+        {
+            var privateName = lexer.TokenString;
+            lexer.Match(ScriptLex.LexTypes.PrivateName);
+            chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.String(privateName)));
+            CompileMemberChain(false);
+        }
+
+        private void CompileImportExpression()
+        {
+            lexer.Match(ScriptLex.LexTypes.RImport);
+            if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+            {
+                lexer.Match((ScriptLex.LexTypes)'(');
+                CompileBase();
+                lexer.Match((ScriptLex.LexTypes)')');
+                chunk.Emit(OpCode.DynamicImport);
+            }
+            else
+            {
+                // import.meta
+                lexer.Match((ScriptLex.LexTypes)'.');
+                if (lexer.TokenString != "meta")
+                    throw new JITException("Expected 'meta' or '(' after 'import'");
+                lexer.Match(ScriptLex.LexTypes.Id);
+                chunk.Emit(OpCode.PushImportMeta);
+            }
         }
 
         // identifier, optionally followed by an assignment, increment, or a
@@ -353,246 +342,19 @@ namespace DScript.Compiler
                                    or ScriptLex.LexTypes.QuestionDot
                                    or ScriptLex.LexTypes.TemplateLiteral)
             {
-                // Optional chaining: `?.` — skip the access if the base is null/undefined.
-                // JumpIfNullOrUndefined: pop; if null/undef push undefined + jump to end; else push back.
-                // We collect all the optional-chain jumps so they share a single end label.
                 if (lexer.TokenType == ScriptLex.LexTypes.QuestionDot)
                 {
-                    lexer.Match(ScriptLex.LexTypes.QuestionDot);
-                    var optEnd = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
-
-                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
-                    {
-                        // a?.() — call only if a is not null/undefined
-                        var argc = CompileArguments();
-                        if (argc < 0) chunk.Emit(OpCode.CallSpread);
-                        else chunk.Emit(OpCode.Call, argc);
-                    }
-                    else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
-                    {
-                        // a?.[expr]
-                        lexer.Match((ScriptLex.LexTypes)'[');
-                        CompileBase();
-                        lexer.Match((ScriptLex.LexTypes)']');
-                        chunk.Emit(OpCode.GetIndex);
-                    }
-                    else
-                    {
-                        // a?.b  or  a?.b(args) — property name may be a keyword (e.g. catch)
-                        var prop = lexer.TokenString;
-                        lexer.MatchPropertyName();
-                        var nameIndex = chunk.AddName(prop);
-
-                        if (lexer.TokenType == (ScriptLex.LexTypes)'(')
-                        {
-                            // a?.b(args) — method call with null-guard on a
-                            chunk.Emit(OpCode.Dup);
-                            chunk.Emit(OpCode.GetProp, nameIndex);
-                            var argc = CompileArguments();
-                            if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
-                            else chunk.Emit(OpCode.CallMethod, argc);
-                        }
-                        else
-                        {
-                            chunk.Emit(OpCode.GetProp, nameIndex);
-                        }
-                    }
-
-                    chunk.PatchJump(optEnd);
+                    CompileOptionalChainSegment();
                     continue;
                 }
 
                 if (lexer.TokenType == (ScriptLex.LexTypes)'.')
                 {
-                    lexer.Match((ScriptLex.LexTypes)'.');
-                    // Property name may be a keyword (e.g. obj.catch, obj.then, obj.delete)
-                    // or a private name (#field, #method).
-                    var prop = lexer.TokenString;
-                    lexer.MatchPropertyName();
-                    // Private name access is only valid inside a class that declares it.
-                    if (prop.Length > 0 && prop[0] == '#' &&
-                        (_currentClassPrivateNames == null || !_currentClassPrivateNames.Contains(prop)))
-                        throw new JITException($"Private field '{prop}' must be declared in an enclosing class");
-                    var nameIndex = chunk.AddName(prop);
-
-                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
-                    {
-                        // method call: receiver becomes `this`
-                        chunk.Emit(OpCode.Dup);
-                        chunk.Emit(OpCode.GetProp, nameIndex);
-                        var argc = CompileArguments();
-                        if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
-                        else chunk.Emit(OpCode.CallMethod, argc);
-                        continue;
-                    }
-
-                    if (lexer.TokenType is ScriptLex.LexTypes.PlusPlus or ScriptLex.LexTypes.MinusMinus)
-                    {
-                        var op = lexer.TokenType == ScriptLex.LexTypes.PlusPlus ? (ScriptLex.LexTypes)'+' : (ScriptLex.LexTypes)'-';
-                        lexer.Match(lexer.TokenType);
-                        chunk.Emit(OpCode.Dup);                 // keep obj
-                        chunk.Emit(OpCode.GetProp, nameIndex);  // current value
-                        var operandStart3 = chunk.Code.Count;
-                        EmitConstantInt(1);
-                        EmitBinary((int)op, operandStart3);
-                        chunk.Emit(OpCode.SetProp, nameIndex);  // leaves new value
-                        return;
-                    }
-
-                    if (canAssign && lexer.TokenType == (ScriptLex.LexTypes)'=')
-                    {
-                        lexer.Match((ScriptLex.LexTypes)'=');
-                        CompileBase();
-                        chunk.Emit(OpCode.SetProp, nameIndex);
-                        return;
-                    }
-
-                    if (canAssign && TryGetCompoundOp(lexer.TokenType, out var baseOp, out var isShift))
-                    {
-                        lexer.Match(lexer.TokenType);
-                        chunk.Emit(OpCode.Dup);                 // keep obj for the set
-                        chunk.Emit(OpCode.GetProp, nameIndex);  // current value
-                        var operandStart4 = chunk.Code.Count;
-                        CompileBase();
-                        EmitBinaryOrShift(baseOp, isShift, operandStart4);
-                        chunk.Emit(OpCode.SetProp, nameIndex);
-                        return;
-                    }
-
-                    // obj.prop &&= b / obj.prop ||= b / obj.prop ??= b
-                    if (canAssign && lexer.TokenType is ScriptLex.LexTypes.AndAndEqual
-                                                      or ScriptLex.LexTypes.OrOrEqual
-                                                      or ScriptLex.LexTypes.NullCoalesceEqual)
-                    {
-                        var logOp = lexer.TokenType;
-                        lexer.Match(logOp);
-                        if (logOp == ScriptLex.LexTypes.NullCoalesceEqual)
-                        {
-                            chunk.Emit(OpCode.Dup);
-                            chunk.Emit(OpCode.GetProp, nameIndex);         // [obj, old]
-                            var isNull = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
-                            // Not null/undef: [obj, old] — pop old, re-fetch via GetProp
-                            chunk.Emit(OpCode.Pop);
-                            chunk.Emit(OpCode.GetProp, nameIndex);         // [old]
-                            var skipAssign = chunk.EmitJump(OpCode.Jump);
-                            // Null/undef: [obj, undef] — pop undef, compile b, set
-                            chunk.PatchJump(isNull);
-                            chunk.Emit(OpCode.Pop);
-                            CompileBase();
-                            chunk.Emit(OpCode.SetProp, nameIndex);
-                            chunk.PatchJump(skipAssign);
-                        }
-                        else
-                        {
-                            var jumpOp = logOp == ScriptLex.LexTypes.AndAndEqual
-                                ? OpCode.JumpIfFalse
-                                : OpCode.JumpIfTrue;
-                            chunk.Emit(OpCode.Dup);
-                            chunk.Emit(OpCode.GetProp, nameIndex);         // [obj, old]
-                            var skip = chunk.EmitJump(jumpOp);             // pop old; check → [obj] or skip
-                            CompileBase();                                  // [obj, b]
-                            chunk.Emit(OpCode.SetProp, nameIndex);         // [b]
-                            var end = chunk.EmitJump(OpCode.Jump);
-                            chunk.PatchJump(skip);
-                            chunk.Emit(OpCode.GetProp, nameIndex);         // [old] (consumes obj)
-                            chunk.PatchJump(end);
-                        }
-                        return;
-                    }
-
-                    chunk.Emit(OpCode.GetProp, nameIndex);
+                    if (CompilePropSegment(canAssign)) return;
                 }
                 else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
                 {
-                    lexer.Match((ScriptLex.LexTypes)'[');
-                    CompileBase();                              // key
-                    lexer.Match((ScriptLex.LexTypes)']');
-
-                    if (canAssign && lexer.TokenType == (ScriptLex.LexTypes)'=')
-                    {
-                        lexer.Match((ScriptLex.LexTypes)'=');
-                        CompileBase();
-                        chunk.Emit(OpCode.SetIndex);
-                        return;
-                    }
-
-                    if (canAssign && TryGetCompoundOp(lexer.TokenType, out var baseOp, out var isShift))
-                    {
-                        lexer.Match(lexer.TokenType);
-                        chunk.Emit(OpCode.Dup2);                // keep obj,key for the set
-                        chunk.Emit(OpCode.GetIndex);            // current value
-                        var operandStart5 = chunk.Code.Count;
-                        CompileBase();
-                        EmitBinaryOrShift(baseOp, isShift, operandStart5);
-                        chunk.Emit(OpCode.SetIndex);
-                        return;
-                    }
-
-                    // obj[key] &&= b / obj[key] ||= b / obj[key] ??= b
-                    if (canAssign && lexer.TokenType is ScriptLex.LexTypes.AndAndEqual
-                                                      or ScriptLex.LexTypes.OrOrEqual
-                                                      or ScriptLex.LexTypes.NullCoalesceEqual)
-                    {
-                        var logOp = lexer.TokenType;
-                        lexer.Match(logOp);
-                        if (logOp == ScriptLex.LexTypes.NullCoalesceEqual)
-                        {
-                            chunk.Emit(OpCode.Dup2);
-                            chunk.Emit(OpCode.GetIndex);               // [obj, key, old]
-                            var isNull = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
-                            // Not null/undef: [obj, key, old] — pop old, re-fetch
-                            chunk.Emit(OpCode.Pop);
-                            chunk.Emit(OpCode.GetIndex);               // [old] (consumes obj,key)
-                            var skipAssign = chunk.EmitJump(OpCode.Jump);
-                            // Null/undef: [obj, key, undef] — pop undef, compile b, set
-                            chunk.PatchJump(isNull);
-                            chunk.Emit(OpCode.Pop);
-                            CompileBase();
-                            chunk.Emit(OpCode.SetIndex);               // [b]
-                            chunk.PatchJump(skipAssign);
-                        }
-                        else
-                        {
-                            var jumpOp = logOp == ScriptLex.LexTypes.AndAndEqual
-                                ? OpCode.JumpIfFalse
-                                : OpCode.JumpIfTrue;
-                            chunk.Emit(OpCode.Dup2);
-                            chunk.Emit(OpCode.GetIndex);               // [obj, key, old]
-                            var skip = chunk.EmitJump(jumpOp);         // pop old; check → [obj, key] or skip
-                            CompileBase();                             // [obj, key, b]
-                            chunk.Emit(OpCode.SetIndex);               // [b]
-                            var end = chunk.EmitJump(OpCode.Jump);
-                            chunk.PatchJump(skip);
-                            chunk.Emit(OpCode.GetIndex);               // [old] (consumes obj,key)
-                            chunk.PatchJump(end);
-                        }
-                        return;
-                    }
-
-                    if (lexer.TokenType is ScriptLex.LexTypes.PlusPlus or ScriptLex.LexTypes.MinusMinus)
-                    {
-                        var op = lexer.TokenType == ScriptLex.LexTypes.PlusPlus ? (ScriptLex.LexTypes)'+' : (ScriptLex.LexTypes)'-';
-                        lexer.Match(lexer.TokenType);
-                        chunk.Emit(OpCode.Dup2);                // keep obj,key
-                        chunk.Emit(OpCode.GetIndex);            // current value
-                        var operandStart6 = chunk.Code.Count;
-                        EmitConstantInt(1);
-                        EmitBinary((int)op, operandStart6);
-                        chunk.Emit(OpCode.SetIndex);            // leaves new value
-                        return;
-                    }
-
-                    if (lexer.TokenType == (ScriptLex.LexTypes)'(')
-                    {
-                        // obj[key](args) — method call via computed key; preserve receiver
-                        chunk.Emit(OpCode.GetIndexMethod);    // [obj, key] → [obj, fn]
-                        var argc = CompileArguments();
-                        if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
-                        else chunk.Emit(OpCode.CallMethod, argc);
-                        continue;
-                    }
-
-                    chunk.Emit(OpCode.GetIndex);
+                    if (CompileIndexSegment(canAssign)) return;
                 }
                 else if (lexer.TokenType == ScriptLex.LexTypes.TemplateLiteral)
                 {
@@ -604,6 +366,244 @@ namespace DScript.Compiler
                     if (argc < 0) chunk.Emit(OpCode.CallSpread);
                     else chunk.Emit(OpCode.Call, argc);
                 }
+            }
+        }
+
+        // Optional chaining `?.` — skip the access if the base is null/undefined.
+        private void CompileOptionalChainSegment()
+        {
+            lexer.Match(ScriptLex.LexTypes.QuestionDot);
+            var optEnd = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
+
+            if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+            {
+                var argc = CompileArguments();
+                if (argc < 0) chunk.Emit(OpCode.CallSpread);
+                else chunk.Emit(OpCode.Call, argc);
+            }
+            else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
+            {
+                lexer.Match((ScriptLex.LexTypes)'[');
+                CompileBase();
+                lexer.Match((ScriptLex.LexTypes)']');
+                chunk.Emit(OpCode.GetIndex);
+            }
+            else
+            {
+                // a?.b  or  a?.b(args)
+                var prop = lexer.TokenString;
+                lexer.MatchPropertyName();
+                var nameIndex = chunk.AddName(prop);
+
+                if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                {
+                    chunk.Emit(OpCode.Dup);
+                    chunk.Emit(OpCode.GetProp, nameIndex);
+                    var argc = CompileArguments();
+                    if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
+                    else chunk.Emit(OpCode.CallMethod, argc);
+                }
+                else
+                {
+                    chunk.Emit(OpCode.GetProp, nameIndex);
+                }
+            }
+
+            chunk.PatchJump(optEnd);
+        }
+
+        // Compiles a `.prop` segment. Returns true when a mutation terminates the chain.
+        private bool CompilePropSegment(bool canAssign)
+        {
+            lexer.Match((ScriptLex.LexTypes)'.');
+            var prop = lexer.TokenString;
+            lexer.MatchPropertyName();
+            if (prop.Length > 0 && prop[0] == '#' &&
+                (_currentClassPrivateNames == null || !_currentClassPrivateNames.Contains(prop)))
+                throw new JITException($"Private field '{prop}' must be declared in an enclosing class");
+            var nameIndex = chunk.AddName(prop);
+
+            if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+            {
+                chunk.Emit(OpCode.Dup);
+                chunk.Emit(OpCode.GetProp, nameIndex);
+                var argc = CompileArguments();
+                if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
+                else chunk.Emit(OpCode.CallMethod, argc);
+                return false;
+            }
+
+            if (lexer.TokenType is ScriptLex.LexTypes.PlusPlus or ScriptLex.LexTypes.MinusMinus)
+            {
+                var op = lexer.TokenType == ScriptLex.LexTypes.PlusPlus ? (ScriptLex.LexTypes)'+' : (ScriptLex.LexTypes)'-';
+                lexer.Match(lexer.TokenType);
+                chunk.Emit(OpCode.Dup);
+                chunk.Emit(OpCode.GetProp, nameIndex);
+                var operandStart = chunk.Code.Count;
+                EmitConstantInt(1);
+                EmitBinary((int)op, operandStart);
+                chunk.Emit(OpCode.SetProp, nameIndex);
+                return true;
+            }
+
+            if (canAssign && lexer.TokenType == (ScriptLex.LexTypes)'=')
+            {
+                lexer.Match((ScriptLex.LexTypes)'=');
+                CompileBase();
+                chunk.Emit(OpCode.SetProp, nameIndex);
+                return true;
+            }
+
+            if (canAssign && TryGetCompoundOp(lexer.TokenType, out var baseOp, out var isShift))
+            {
+                lexer.Match(lexer.TokenType);
+                chunk.Emit(OpCode.Dup);
+                chunk.Emit(OpCode.GetProp, nameIndex);
+                var operandStart = chunk.Code.Count;
+                CompileBase();
+                EmitBinaryOrShift(baseOp, isShift, operandStart);
+                chunk.Emit(OpCode.SetProp, nameIndex);
+                return true;
+            }
+
+            if (canAssign && lexer.TokenType is ScriptLex.LexTypes.AndAndEqual
+                                              or ScriptLex.LexTypes.OrOrEqual
+                                              or ScriptLex.LexTypes.NullCoalesceEqual)
+            {
+                EmitPropLogicalAssign(nameIndex);
+                return true;
+            }
+
+            chunk.Emit(OpCode.GetProp, nameIndex);
+            return false;
+        }
+
+        // Compiles a `[key]` segment. Returns true when a mutation terminates the chain.
+        private bool CompileIndexSegment(bool canAssign)
+        {
+            lexer.Match((ScriptLex.LexTypes)'[');
+            CompileBase();
+            lexer.Match((ScriptLex.LexTypes)']');
+
+            if (canAssign && lexer.TokenType == (ScriptLex.LexTypes)'=')
+            {
+                lexer.Match((ScriptLex.LexTypes)'=');
+                CompileBase();
+                chunk.Emit(OpCode.SetIndex);
+                return true;
+            }
+
+            if (canAssign && TryGetCompoundOp(lexer.TokenType, out var baseOp, out var isShift))
+            {
+                lexer.Match(lexer.TokenType);
+                chunk.Emit(OpCode.Dup2);
+                chunk.Emit(OpCode.GetIndex);
+                var operandStart = chunk.Code.Count;
+                CompileBase();
+                EmitBinaryOrShift(baseOp, isShift, operandStart);
+                chunk.Emit(OpCode.SetIndex);
+                return true;
+            }
+
+            if (canAssign && lexer.TokenType is ScriptLex.LexTypes.AndAndEqual
+                                              or ScriptLex.LexTypes.OrOrEqual
+                                              or ScriptLex.LexTypes.NullCoalesceEqual)
+            {
+                EmitIndexLogicalAssign();
+                return true;
+            }
+
+            if (lexer.TokenType is ScriptLex.LexTypes.PlusPlus or ScriptLex.LexTypes.MinusMinus)
+            {
+                var op = lexer.TokenType == ScriptLex.LexTypes.PlusPlus ? (ScriptLex.LexTypes)'+' : (ScriptLex.LexTypes)'-';
+                lexer.Match(lexer.TokenType);
+                chunk.Emit(OpCode.Dup2);
+                chunk.Emit(OpCode.GetIndex);
+                var operandStart = chunk.Code.Count;
+                EmitConstantInt(1);
+                EmitBinary((int)op, operandStart);
+                chunk.Emit(OpCode.SetIndex);
+                return true;
+            }
+
+            if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+            {
+                chunk.Emit(OpCode.GetIndexMethod);
+                var argc = CompileArguments();
+                if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
+                else chunk.Emit(OpCode.CallMethod, argc);
+                return false;
+            }
+
+            chunk.Emit(OpCode.GetIndex);
+            return false;
+        }
+
+        // obj.prop &&= / ||= / ??= b
+        private void EmitPropLogicalAssign(int nameIndex)
+        {
+            var logOp = lexer.TokenType;
+            lexer.Match(logOp);
+            if (logOp == ScriptLex.LexTypes.NullCoalesceEqual)
+            {
+                chunk.Emit(OpCode.Dup);
+                chunk.Emit(OpCode.GetProp, nameIndex);
+                var isNull = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
+                chunk.Emit(OpCode.Pop);
+                chunk.Emit(OpCode.GetProp, nameIndex);
+                var skipAssign = chunk.EmitJump(OpCode.Jump);
+                chunk.PatchJump(isNull);
+                chunk.Emit(OpCode.Pop);
+                CompileBase();
+                chunk.Emit(OpCode.SetProp, nameIndex);
+                chunk.PatchJump(skipAssign);
+            }
+            else
+            {
+                var jumpOp = logOp == ScriptLex.LexTypes.AndAndEqual ? OpCode.JumpIfFalse : OpCode.JumpIfTrue;
+                chunk.Emit(OpCode.Dup);
+                chunk.Emit(OpCode.GetProp, nameIndex);
+                var skip = chunk.EmitJump(jumpOp);
+                CompileBase();
+                chunk.Emit(OpCode.SetProp, nameIndex);
+                var end = chunk.EmitJump(OpCode.Jump);
+                chunk.PatchJump(skip);
+                chunk.Emit(OpCode.GetProp, nameIndex);
+                chunk.PatchJump(end);
+            }
+        }
+
+        // obj[key] &&= / ||= / ??= b
+        private void EmitIndexLogicalAssign()
+        {
+            var logOp = lexer.TokenType;
+            lexer.Match(logOp);
+            if (logOp == ScriptLex.LexTypes.NullCoalesceEqual)
+            {
+                chunk.Emit(OpCode.Dup2);
+                chunk.Emit(OpCode.GetIndex);
+                var isNull = chunk.EmitJump(OpCode.JumpIfNullOrUndefined);
+                chunk.Emit(OpCode.Pop);
+                chunk.Emit(OpCode.GetIndex);
+                var skipAssign = chunk.EmitJump(OpCode.Jump);
+                chunk.PatchJump(isNull);
+                chunk.Emit(OpCode.Pop);
+                CompileBase();
+                chunk.Emit(OpCode.SetIndex);
+                chunk.PatchJump(skipAssign);
+            }
+            else
+            {
+                var jumpOp = logOp == ScriptLex.LexTypes.AndAndEqual ? OpCode.JumpIfFalse : OpCode.JumpIfTrue;
+                chunk.Emit(OpCode.Dup2);
+                chunk.Emit(OpCode.GetIndex);
+                var skip = chunk.EmitJump(jumpOp);
+                CompileBase();
+                chunk.Emit(OpCode.SetIndex);
+                var end = chunk.EmitJump(OpCode.Jump);
+                chunk.PatchJump(skip);
+                chunk.Emit(OpCode.GetIndex);
+                chunk.PatchJump(end);
             }
         }
 
