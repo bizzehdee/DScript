@@ -63,6 +63,7 @@ namespace DScript.Jit
             var aSlot = b.DeclareLocal(typeof(ScriptVar));
             var bSlot = b.DeclareLocal(typeof(ScriptVar));
             var rSlot = b.DeclareLocal(typeof(ScriptVar));
+            var argArr = b.DeclareLocal(typeof(ScriptVar[]));
 
             var code = chunk.CodeBytes;
             var ip = 0;
@@ -148,6 +149,12 @@ namespace DScript.Jit
                         break;
                     }
 
+                    case OpCode.Call:
+                        EmitCall(b, chunk, ip /* site = operand-start */,
+                                 chunk.ReadInt(ip), aSlot, bSlot, argArr);
+                        ip += 4;
+                        break;
+
                     case OpCode.Return:
                         b.IL.Emit(OpCodes.Ret);  // returns the ScriptVar on top of stack
                         emittedTerminalReturn = true;
@@ -168,6 +175,71 @@ namespace DScript.Jit
                 b.EmitPushUndefined(); // fall-through: function returns undefined
 
             return b.Finish();
+        }
+
+        // Emit a plain (non-tail) call. The callee and its argc arguments are on the
+        // IL stack as [callee, arg0, ..., arg{argc-1}] (top = last arg), matching the
+        // interpreter's Call layout. Tail and method calls are declined elsewhere.
+        //
+        // Monomorphic sites (T14): bake the single observed callee, guard the runtime
+        // callee against it, and dispatch through vm.InvokeCallable. A guard miss
+        // falls through to the same general dispatch on the runtime callee.
+        private static void EmitCall(DynamicMethodBuilder b, Chunk chunk, int site, int argc,
+                                     LocalBuilder tmp, LocalBuilder calleeSlot, LocalBuilder argArr)
+        {
+            var profile = chunk.CallProfiles[site];
+            if (profile.State != Chunk.CallSiteMorphism.Monomorphic || profile.Callee0 == null)
+                // Polymorphic / unobserved sites are handled in T15.
+                throw new NotSupportedException();
+
+            var il = b.IL;
+
+            // Materialize the argument array from the stack (top-down), then the callee.
+            b.EmitNewScriptVarArray(argc);
+            b.EmitStoreLocal(argArr);
+            for (var j = argc - 1; j >= 0; j--)
+            {
+                b.EmitStoreLocal(tmp);                 // pop one argument
+                b.EmitLoadLocal(argArr);
+                b.EmitLdcI4(j);
+                b.EmitLoadLocal(tmp);
+                b.EmitStoreElemRef();
+            }
+            b.EmitStoreLocal(calleeSlot);              // pop callee
+
+            var bakedIndex = b.AddData(profile.Callee0);
+            var general = il.DefineLabel();
+            var done = il.DefineLabel();
+
+            // Guard: runtime callee is the same object the site always saw.
+            b.EmitLoadLocal(calleeSlot);
+            b.EmitLoadData(bakedIndex, typeof(ScriptVar));
+            il.Emit(OpCodes.Ceq);
+            il.Emit(OpCodes.Brfalse, general);
+
+            // Monomorphic fast path: dispatch on the baked callee.
+            b.EmitLoadVm();
+            b.EmitLoadData(bakedIndex, typeof(ScriptVar));
+            il.Emit(OpCodes.Ldnull);                   // thisArg
+            b.EmitLoadLocal(argArr);
+            b.EmitInvokeCallable();
+            il.Emit(OpCodes.Br, done);
+
+            // Guard miss: dispatch on the runtime callee.
+            il.MarkLabel(general);
+            EmitGeneralCall(b, calleeSlot, argArr);
+
+            il.MarkLabel(done);
+        }
+
+        // General dispatch: vm.InvokeCallable(callee, null, args).
+        private static void EmitGeneralCall(DynamicMethodBuilder b, LocalBuilder calleeSlot, LocalBuilder argArr)
+        {
+            b.EmitLoadVm();
+            b.EmitLoadLocal(calleeSlot);
+            b.IL.Emit(OpCodes.Ldnull);                 // thisArg
+            b.EmitLoadLocal(argArr);
+            b.EmitInvokeCallable();
         }
 
         // Emit a binary operator over two operands already on the IL stack

@@ -70,6 +70,8 @@ namespace DScript.Jit
         private static readonly MethodInfo MaterializeMethod = typeof(ConstantValue).GetMethod("Materialize", Type.EmptyTypes);
         private static readonly MethodInfo IntBinaryMethod  = typeof(VirtualMachine).GetMethod(
             "IntBinary", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo InvokeCallableMethod = typeof(VirtualMachine).GetMethod(
+            "InvokeCallable", new[] { typeof(ScriptVar), typeof(ScriptVar), typeof(ScriptVar[]) });
 
         private static MethodInfo Prop(
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type t,
@@ -243,6 +245,24 @@ namespace DScript.Jit
 
         /// <summary>Emit the most compact <c>ldc.i4</c> form for <paramref name="value"/>.</summary>
         public void EmitLdcI4(int value) => IL.Emit(OpCodes.Ldc_I4, value);
+
+        // ── call dispatch ───────────────────────────────────────────────────────
+
+        /// <summary>Allocate a new <c>ScriptVar[</c><paramref name="length"/><c>]</c> on the stack.</summary>
+        public void EmitNewScriptVarArray(int length)
+        {
+            EmitLdcI4(length);
+            IL.Emit(OpCodes.Newarr, typeof(ScriptVar));
+        }
+
+        /// <summary>Store the value on top of the stack into <c>array[index]</c> (array and value supplied by caller).</summary>
+        public void EmitStoreElemRef() => IL.Emit(OpCodes.Stelem_Ref);
+
+        /// <summary>
+        /// Emit <c>vm.InvokeCallable(callee, thisArg, args)</c>. The vm, callee,
+        /// thisArg and args must already be on the stack in that order.
+        /// </summary>
+        public void EmitInvokeCallable() => IL.EmitCall(OpCodes.Callvirt, InvokeCallableMethod, null);
 
         /// <summary>Emit the trailing <c>ret</c> and bake the delegate, binding the data array.</summary>
         public JitDelegate Finish()
