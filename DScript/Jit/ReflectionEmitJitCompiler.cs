@@ -195,11 +195,17 @@ namespace DScript.Jit
             var fallback = il.DefineLabel();
             var done = il.DefineLabel();
 
+            // A double fast path exists only for the numeric arithmetic operators.
+            // When present, a failed int guard tries it before the MathsOp fallback.
+            var dblOp = DoubleArithOp(op);
+            var tryDouble = il.DefineLabel();
+            var intGuardFail = dblOp.HasValue ? tryDouble : fallback;
+
             // Int fast path guard: both operands must be integers.
             b.EmitIsInt(aSlot);
-            il.Emit(OpCodes.Brfalse, fallback);
+            il.Emit(OpCodes.Brfalse, intGuardFail);
             b.EmitIsInt(bSlot);
-            il.Emit(OpCodes.Brfalse, fallback);
+            il.Emit(OpCodes.Brfalse, intGuardFail);
 
             var inlineOp = InlineIntOp(op);
             if (inlineOp.HasValue)
@@ -216,6 +222,21 @@ namespace DScript.Jit
                 b.EmitIntBinaryCall(aSlot, bSlot, op, rSlot, fallback);
             }
             il.Emit(OpCodes.Br, done);
+
+            // Double fast path: at least one operand is a double and the other is
+            // numeric. result = ScriptVar.FromDouble(a.Float <op> b.Float). Mirrors
+            // MathsOp's numeric promotion for +, -, *, /.
+            if (dblOp.HasValue)
+            {
+                il.MarkLabel(tryDouble);
+                EmitNumericGuard(b, aSlot, fallback);
+                EmitNumericGuard(b, bSlot, fallback);
+                b.EmitLoadFloat(aSlot);
+                b.EmitLoadFloat(bSlot);
+                il.Emit(dblOp.Value);
+                b.EmitFromDouble();
+                il.Emit(OpCodes.Br, done);
+            }
 
             il.MarkLabel(fallback);
             b.EmitMathsOpFallback(aSlot, bSlot, op);
@@ -236,5 +257,28 @@ namespace DScript.Jit
             '^' => OpCodes.Xor,
             _   => null,
         };
+
+        // Floating-point IL op for the numeric arithmetic operators, or null for
+        // operators (comparisons, bitwise, modulo) we do not specialize for doubles.
+        private static System.Reflection.Emit.OpCode? DoubleArithOp(ScriptLex.LexTypes op) => (char)op switch
+        {
+            '+' => OpCodes.Add,
+            '-' => OpCodes.Sub,
+            '*' => OpCodes.Mul,
+            '/' => OpCodes.Div,
+            _   => null,
+        };
+
+        // Guard that the operand in <paramref name="slot"/> is numeric (int or
+        // double); branch to <paramref name="onFail"/> otherwise.
+        private static void EmitNumericGuard(DynamicMethodBuilder b, LocalBuilder slot, Label onFail)
+        {
+            var ok = b.IL.DefineLabel();
+            b.EmitIsInt(slot);
+            b.IL.Emit(OpCodes.Brtrue, ok);
+            b.EmitIsDouble(slot);
+            b.IL.Emit(OpCodes.Brfalse, onFail);
+            b.IL.MarkLabel(ok);
+        }
     }
 }
