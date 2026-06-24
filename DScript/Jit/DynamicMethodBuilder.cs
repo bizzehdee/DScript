@@ -58,6 +58,11 @@ namespace DScript.Jit
         private static readonly MethodInfo FloatGetter      = Prop(typeof(ScriptVar), "Float");
         private static readonly MethodInfo FromIntMethod    = typeof(ScriptVar).GetMethod("FromInt", new[] { typeof(int) });
         private static readonly MethodInfo FromDoubleMethod = typeof(ScriptVar).GetMethod("FromDouble", new[] { typeof(double) });
+        private static readonly MethodInfo FromStringMethod = typeof(ScriptVar).GetMethod("FromString", new[] { typeof(string) });
+        private static readonly MethodInfo CreateUndefinedMethod = typeof(ScriptVar).GetMethod("CreateUndefined", Type.EmptyTypes);
+        private static readonly MethodInfo CreateNullMethod = typeof(ScriptVar).GetMethod("CreateNull", Type.EmptyTypes);
+        private static readonly MethodInfo StringGetter     = Prop(typeof(ScriptVar), "String");
+        private static readonly MethodInfo ConcatMethod     = typeof(string).GetMethod("Concat", new[] { typeof(string), typeof(string) });
         private static readonly MethodInfo MathsOpMethod    = typeof(ScriptVar).GetMethod("MathsOp", new[] { typeof(ScriptVar), typeof(ScriptLex.LexTypes) });
         private static readonly MethodInfo FindChildMethod  = typeof(ScriptVar).GetMethod("FindChild", new[] { typeof(string) });
         private static readonly MethodInfo LinkVarGetter    = Prop(typeof(ScriptVarLink), "Var");
@@ -178,6 +183,32 @@ namespace DScript.Jit
 
         /// <summary>Box a double already on the stack into a <see cref="ScriptVar"/> via <c>FromDouble</c>.</summary>
         public void EmitFromDouble() => IL.EmitCall(OpCodes.Call, FromDoubleMethod, null);
+
+        /// <summary>Wrap a string already on the stack into a <see cref="ScriptVar"/> via <c>FromString</c>.</summary>
+        public void EmitFromString() => IL.EmitCall(OpCodes.Call, FromStringMethod, null);
+
+        /// <summary>Push <c>local.String</c> (the underlying CLR string).</summary>
+        public void EmitLoadString(LocalBuilder local)
+        {
+            EmitLoadLocal(local);
+            IL.EmitCall(OpCodes.Callvirt, StringGetter, null);
+        }
+
+        /// <summary>Concatenate two CLR strings already on the stack via <c>string.Concat</c>.</summary>
+        public void EmitStringConcat() => IL.EmitCall(OpCodes.Call, ConcatMethod, null);
+
+        /// <summary>Push a fresh undefined <see cref="ScriptVar"/>.</summary>
+        public void EmitPushUndefined() => IL.EmitCall(OpCodes.Call, CreateUndefinedMethod, null);
+
+        /// <summary>Push a fresh null <see cref="ScriptVar"/>.</summary>
+        public void EmitPushNull() => IL.EmitCall(OpCodes.Call, CreateNullMethod, null);
+
+        /// <summary>Push the integer constant <paramref name="value"/> as a <see cref="ScriptVar"/>.</summary>
+        public void EmitPushIntConst(int value)
+        {
+            EmitLdcI4(value);
+            EmitFromInt();
+        }
 
         /// <summary>
         /// Emit the generic fallback <c>a.MathsOp(b, op)</c> for the two operands held

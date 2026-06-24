@@ -1,0 +1,240 @@
+/*
+Copyright (c) 2014 - 2020 Darren Horrocks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+using System;
+using System.Reflection.Emit;
+using DScript.Vm;
+using OpCode = DScript.Vm.OpCode;
+
+namespace DScript.Jit
+{
+    /// <summary>
+    /// A first-tier JIT back-end built on <see cref="System.Reflection.Emit"/>.
+    ///
+    /// It compiles straight-line, branch-free leaf functions whose bodies are made
+    /// up of constant loads, parameter reads, and arithmetic — exactly the shape the
+    /// binary-op type profiles target. Any chunk containing control flow, calls,
+    /// assignments, or other unsupported opcodes is declined (Compile returns
+    /// <c>null</c>) and the VM keeps interpreting it. Because the compiled code
+    /// mirrors the interpreter's operand semantics (including its int fast path and
+    /// <c>MathsOp</c> fallback) the JIT output is value-identical to interpretation.
+    /// </summary>
+    public sealed class ReflectionEmitJitCompiler : IJitCompiler
+    {
+        public JitDelegate Compile(Chunk chunk)
+        {
+            try
+            {
+                return CompileCore(chunk);
+            }
+            catch (NotSupportedException)
+            {
+                // An unsupported construct was hit mid-walk: decline this chunk.
+                return null;
+            }
+        }
+
+        private static JitDelegate CompileCore(Chunk chunk)
+        {
+            var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
+
+            // Two scratch slots for binary operands and one for IntBinary's out value.
+            // Each binary op fully consumes them before the next, so they are reused.
+            var aSlot = b.DeclareLocal(typeof(ScriptVar));
+            var bSlot = b.DeclareLocal(typeof(ScriptVar));
+            var rSlot = b.DeclareLocal(typeof(ScriptVar));
+
+            var code = chunk.CodeBytes;
+            var ip = 0;
+            var emittedTerminalReturn = false;
+
+            while (ip < code.Length)
+            {
+                if (emittedTerminalReturn)
+                    // Straight-line code should have a single trailing return; anything
+                    // after it implies control flow we do not model.
+                    throw new NotSupportedException();
+
+                var op = (OpCode)code[ip];
+                ip++;
+
+                switch (op)
+                {
+                    case OpCode.Constant:
+                        b.EmitMaterializeConstant(chunk.Constants[chunk.ReadInt(ip)]);
+                        ip += 4;
+                        break;
+                    case OpCode.ConstantN:
+                        b.EmitMaterializeConstant(chunk.Constants[code[ip]]);
+                        ip += 1;
+                        break;
+
+                    case OpCode.GetVar:
+                        b.EmitLoadNamedVar(RequireParam(chunk, chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+                    case OpCode.GetVarN:
+                        b.EmitLoadNamedVar(RequireParam(chunk, code[ip]));
+                        ip += 1;
+                        break;
+
+                    case OpCode.PushUndefined: b.EmitPushUndefined(); break;
+                    case OpCode.PushNull:      b.EmitPushNull(); break;
+                    case OpCode.PushTrue:      b.EmitPushIntConst(1); break;
+                    case OpCode.PushFalse:     b.EmitPushIntConst(0); break;
+
+                    case OpCode.Pop:
+                        b.IL.Emit(OpCodes.Pop);
+                        break;
+
+                    case OpCode.Binary:
+                        EmitBinary(b, (ScriptLex.LexTypes)chunk.ReadInt(ip), aSlot, bSlot, rSlot);
+                        ip += 4;
+                        break;
+                    case OpCode.BinaryConst:
+                    {
+                        var operatorCode = (ScriptLex.LexTypes)chunk.ReadInt(ip);
+                        var constant = chunk.Constants[chunk.ReadInt(ip + 4)];
+                        b.EmitMaterializeConstant(constant);     // push right operand
+                        EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
+                        ip += 8;
+                        break;
+                    }
+                    case OpCode.BinaryIntConst:
+                    {
+                        var operatorCode = (ScriptLex.LexTypes)chunk.ReadInt(ip);
+                        var intValue = chunk.ReadInt(ip + 4);
+                        b.EmitPushIntConst(intValue);            // push right operand
+                        EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
+                        ip += 8;
+                        break;
+                    }
+                    case OpCode.GetVarGetVarBinary:
+                    {
+                        var operatorCode = (ScriptLex.LexTypes)chunk.ReadInt(ip);
+                        b.EmitLoadNamedVar(RequireParam(chunk, chunk.ReadInt(ip + 4)));
+                        b.EmitLoadNamedVar(RequireParam(chunk, chunk.ReadInt(ip + 8)));
+                        EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
+                        ip += 12;
+                        break;
+                    }
+                    case OpCode.GetVarGetVarBinaryN:
+                    {
+                        var operatorCode = (ScriptLex.LexTypes)code[ip];
+                        b.EmitLoadNamedVar(RequireParam(chunk, code[ip + 1]));
+                        b.EmitLoadNamedVar(RequireParam(chunk, code[ip + 2]));
+                        EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
+                        ip += 3;
+                        break;
+                    }
+
+                    case OpCode.Return:
+                        b.IL.Emit(OpCodes.Ret);  // returns the ScriptVar on top of stack
+                        emittedTerminalReturn = true;
+                        break;
+                    case OpCode.Halt:
+                        b.EmitPushUndefined();
+                        b.IL.Emit(OpCodes.Ret);
+                        emittedTerminalReturn = true;
+                        break;
+
+                    default:
+                        // Jumps, calls, assignments, object/array ops, try, etc.
+                        throw new NotSupportedException();
+                }
+            }
+
+            if (!emittedTerminalReturn)
+                b.EmitPushUndefined(); // fall-through: function returns undefined
+
+            return b.Finish();
+        }
+
+        // The JIT only has the function's own scope, not the enclosing environment
+        // chain, so it can resolve a name only when it is a parameter (always bound
+        // as a direct child of scope by the caller). Anything else is declined.
+        private static string RequireParam(Chunk chunk, int nameIdx)
+        {
+            var name = chunk.Names[nameIdx];
+            if (!chunk.Parameters.Contains(name))
+                throw new NotSupportedException();
+            return name;
+        }
+
+        // Emit a binary operator over two operands already on the IL stack
+        // (top = right, below = left). Mirrors the interpreter's Binary handler:
+        // an int fast path (inline arithmetic where the operator is plain-int safe,
+        // otherwise a call to VirtualMachine.IntBinary) with an a.MathsOp(b, op)
+        // fallback whenever the operands are not both integers.
+        private static void EmitBinary(DynamicMethodBuilder b, ScriptLex.LexTypes op,
+                                       LocalBuilder aSlot, LocalBuilder bSlot, LocalBuilder rSlot)
+        {
+            var il = b.IL;
+            b.EmitStoreLocal(bSlot); // right
+            b.EmitStoreLocal(aSlot); // left
+
+            var fallback = il.DefineLabel();
+            var done = il.DefineLabel();
+
+            // Int fast path guard: both operands must be integers.
+            b.EmitIsInt(aSlot);
+            il.Emit(OpCodes.Brfalse, fallback);
+            b.EmitIsInt(bSlot);
+            il.Emit(OpCodes.Brfalse, fallback);
+
+            var inlineOp = InlineIntOp(op);
+            if (inlineOp.HasValue)
+            {
+                // result = ScriptVar.FromInt(a.Int <op> b.Int)
+                b.EmitLoadInt(aSlot);
+                b.EmitLoadInt(bSlot);
+                il.Emit(inlineOp.Value);
+                b.EmitFromInt();
+            }
+            else
+            {
+                // result = IntBinary(a.Int, b.Int, op, out r); falls back if not an int op.
+                b.EmitIntBinaryCall(aSlot, bSlot, op, rSlot, fallback);
+            }
+            il.Emit(OpCodes.Br, done);
+
+            il.MarkLabel(fallback);
+            b.EmitMathsOpFallback(aSlot, bSlot, op);
+
+            il.MarkLabel(done);
+        }
+
+        // Operators whose integer result is plain 32-bit arithmetic (matching
+        // VirtualMachine.IntBinary exactly) and can be emitted inline. Division,
+        // modulo and comparisons have special handling and go through IntBinary.
+        private static System.Reflection.Emit.OpCode? InlineIntOp(ScriptLex.LexTypes op) => (char)op switch
+        {
+            '+' => OpCodes.Add,
+            '-' => OpCodes.Sub,
+            '*' => OpCodes.Mul,
+            '&' => OpCodes.And,
+            '|' => OpCodes.Or,
+            '^' => OpCodes.Xor,
+            _   => null,
+        };
+    }
+}
