@@ -5,20 +5,23 @@ using DScript.Jit;
 namespace DScript.Test
 {
     /// <summary>
-    /// End-to-end correctness for the ReflectionEmitJitCompiler: each script is run
-    /// once purely interpreted and once with the JIT registered; the results must be
+    /// End-to-end correctness shared by every JIT back-end: each script is run once
+    /// purely interpreted and once with the JIT registered; the results must be
     /// identical, and the function under test must reach the expected JIT state.
+    /// Concrete fixtures supply the compiler under test via <see cref="NewCompiler"/>.
     /// NonParallelizable because JitRegistry is process-global.
     /// </summary>
-    [TestFixture]
     [NonParallelizable]
-    public class JitCodeGenTests
+    public abstract class JitCodeGenTestsBase
     {
+        /// <summary>The back-end under test.</summary>
+        protected abstract IJitCompiler NewCompiler();
+
         [TearDown] public void Clear() => JitRegistry.Clear();
 
-        private static (string result, Chunk.JitStatus state) RunOnce(string script, string fn, bool jit)
+        private (string result, Chunk.JitStatus state) RunOnce(string script, string fn, bool jit)
         {
-            if (jit) JitRegistry.Register(new ReflectionEmitJitCompiler());
+            if (jit) JitRegistry.Register(NewCompiler());
             else JitRegistry.Clear();
 
             var chunk = ScriptEngine.Compile(script);
@@ -42,7 +45,7 @@ namespace DScript.Test
 
         // Run interpreted and JIT-compiled; assert identical result and that `fn`
         // reached `expectedState` under the JIT.
-        private static void AssertMatches(string script, string fn, Chunk.JitStatus expectedState)
+        private void AssertMatches(string script, string fn, Chunk.JitStatus expectedState)
         {
             var interp = RunOnce(script, fn, jit: false);
             var jit = RunOnce(script, fn, jit: true);
@@ -205,5 +208,19 @@ namespace DScript.Test
                 "var r=0; var i=0; while(i<1200){ r = f(i); i = i + 1; }\n__result__ = r;",
                 "f", Chunk.JitStatus.Failed);
         }
+    }
+
+    /// <summary>Runs the full matrix against the Reflection.Emit back-end.</summary>
+    [TestFixture]
+    public sealed class ReflectionEmitJitCodeGenTests : JitCodeGenTestsBase
+    {
+        protected override IJitCompiler NewCompiler() => new ReflectionEmitJitCompiler();
+    }
+
+    /// <summary>Runs the full matrix against the closure-threaded (no-reflection) back-end.</summary>
+    [TestFixture]
+    public sealed class ClosureThreadedJitCodeGenTests : JitCodeGenTestsBase
+    {
+        protected override IJitCompiler NewCompiler() => new ClosureThreadedJitCompiler();
     }
 }
