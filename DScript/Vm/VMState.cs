@@ -23,7 +23,7 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 
-namespace DScript
+namespace DScript.Vm
 {
     /// <summary>
     /// Represents the serialized state of the VM.
