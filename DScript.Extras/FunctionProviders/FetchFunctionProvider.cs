@@ -81,10 +81,10 @@ namespace DScript.Extras.FunctionProviders
             var responseBodyBytes = response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
             var responseBodyString = Encoding.UTF8.GetString(responseBodyBytes);
 
-            var resp = new ScriptVar(ScriptVar.Flags.Object);
-            resp.AddChild("ok", new ScriptVar(statusCode >= 200 && statusCode < 300));
-            resp.AddChild("status", new ScriptVar(statusCode));
-            resp.AddChild("statusText", new ScriptVar(statusText));
+            var resp = ScriptVar.CreateObject();
+            resp.AddChild("ok", ScriptVar.FromBool(statusCode >= 200 && statusCode < 300));
+            resp.AddChild("status", ScriptVar.FromInt(statusCode));
+            resp.AddChild("statusText", ScriptVar.FromString(statusText));
 
             // headers object with .get(name) method
             var headers = BuildHeadersObject(response.Headers, response.Content.Headers);
@@ -92,15 +92,15 @@ namespace DScript.Extras.FunctionProviders
 
             // .text() → string
             var textBody = responseBodyString;
-            var textFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var textFn = ScriptVar.CreateNativeFunction();
             textFn.SetCallback((scope, _) =>
             {
-                scope.ReturnVar = new ScriptVar(textBody);
+                scope.ReturnVar = ScriptVar.FromString(textBody);
             }, null);
             resp.AddChild("text", textFn);
 
             // .json() → parsed object (as JSON string first, then parse via engine)
-            var jsonFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var jsonFn = ScriptVar.CreateNativeFunction();
             var engine = userData as ScriptEngine;
             jsonFn.SetCallback((scope, _) =>
             {
@@ -112,19 +112,19 @@ namespace DScript.Extras.FunctionProviders
                     var parseLink = jsonVar?.FindChild("parse");
                     if (parseLink != null && parseLink.Var.IsFunction)
                     {
-                        var argVar = new ScriptVar(textBody);
+                        var argVar = ScriptVar.FromString(textBody);
                         var result = engine.CallFunction(parseLink.Var, null, argVar);
                         if (result != null) scope.ReturnVar = result;
                         return;
                     }
                 }
-                scope.ReturnVar = new ScriptVar(textBody);
+                scope.ReturnVar = ScriptVar.FromString(textBody);
             }, null);
             resp.AddChild("json", jsonFn);
 
             // .arrayBuffer() → Buffer
             var bodyBytes = responseBodyBytes;
-            var bufFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var bufFn = ScriptVar.CreateNativeFunction();
             bufFn.SetCallback((scope, _) =>
             {
                 scope.ReturnVar = BufferRegistrar.MakeBuffer(bodyBytes);
@@ -138,17 +138,17 @@ namespace DScript.Extras.FunctionProviders
             System.Net.Http.Headers.HttpResponseHeaders respHeaders,
             System.Net.Http.Headers.HttpContentHeaders contentHeaders)
         {
-            var headers = new ScriptVar(ScriptVar.Flags.Object);
+            var headers = ScriptVar.CreateObject();
 
             // Store all headers as children
             foreach (var h in respHeaders)
-                headers.AddChild(h.Key.ToLowerInvariant(), new ScriptVar(string.Join(", ", h.Value)));
+                headers.AddChild(h.Key.ToLowerInvariant(), ScriptVar.FromString(string.Join(", ", h.Value)));
             foreach (var h in contentHeaders)
-                headers.AddChild(h.Key.ToLowerInvariant(), new ScriptVar(string.Join(", ", h.Value)));
+                headers.AddChild(h.Key.ToLowerInvariant(), ScriptVar.FromString(string.Join(", ", h.Value)));
 
             // .get(name) method
-            var getFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            getFn.AddChild("name", new ScriptVar(ScriptVar.Flags.Undefined));
+            var getFn = ScriptVar.CreateNativeFunction();
+            getFn.AddChild("name", ScriptVar.CreateUndefined());
             var captured = headers;
             getFn.SetCallback((scope, _) =>
             {
@@ -157,7 +157,7 @@ namespace DScript.Extras.FunctionProviders
                 if (link != null)
                     scope.ReturnVar = link.Var;
                 else
-                    scope.ReturnVar = new ScriptVar(ScriptVar.Flags.Undefined);
+                    scope.ReturnVar = ScriptVar.CreateUndefined();
             }, null);
             headers.AddChild("get", getFn);
 

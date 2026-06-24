@@ -58,7 +58,7 @@ namespace DScript.Extras.FunctionProviders
         public static void DateToJSONImpl(ScriptVar var, object userData)
         {
             var d = GetDateObject(var.GetParameter("this"));
-            if (d.IsInvalid) { var.ReturnVar = new ScriptVar(ScriptVar.Flags.Null); return; }
+            if (d.IsInvalid) { var.ReturnVar = ScriptVar.CreateNull(); return; }
             var utc = d.Value.UtcDateTime;
             var.ReturnVar.String = utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
         }

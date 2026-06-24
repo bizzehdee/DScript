@@ -33,12 +33,12 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("TextEncoder", AppearAtRoot = true)]
         public static void TextEncoderConstructorImpl(ScriptVar var, object userData)
         {
-            var obj = new ScriptVar(ScriptVar.Flags.Object);
-            obj.AddChild("encoding", new ScriptVar("utf-8"));
+            var obj = ScriptVar.CreateObject();
+            obj.AddChild("encoding", ScriptVar.FromString("utf-8"));
 
             // .encode(str) → Buffer
-            var encodeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            encodeFn.AddChild("str", new ScriptVar(ScriptVar.Flags.Undefined));
+            var encodeFn = ScriptVar.CreateNativeFunction();
+            encodeFn.AddChild("str", ScriptVar.CreateUndefined());
             encodeFn.SetCallback((scope, _) =>
             {
                 var s = scope.FindChild("str")?.Var?.String ?? "";
@@ -65,12 +65,12 @@ namespace DScript.Extras.FunctionProviders
                 _ => Encoding.UTF8,
             };
 
-            var obj = new ScriptVar(ScriptVar.Flags.Object);
-            obj.AddChild("encoding", new ScriptVar(encName));
+            var obj = ScriptVar.CreateObject();
+            obj.AddChild("encoding", ScriptVar.FromString(encName));
 
             // .decode(buffer) → string
-            var decodeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            decodeFn.AddChild("buffer", new ScriptVar(ScriptVar.Flags.Undefined));
+            var decodeFn = ScriptVar.CreateNativeFunction();
+            decodeFn.AddChild("buffer", ScriptVar.CreateUndefined());
             var capturedEnc = enc;
             decodeFn.SetCallback((scope, _) =>
             {
@@ -88,7 +88,7 @@ namespace DScript.Extras.FunctionProviders
                 else
                     bytes = System.Array.Empty<byte>();
 
-                scope.ReturnVar = new ScriptVar(capturedEnc.GetString(bytes));
+                scope.ReturnVar = ScriptVar.FromString(capturedEnc.GetString(bytes));
             }, null);
             obj.AddChild("decode", decodeFn);
 

@@ -83,18 +83,18 @@ namespace DScript.Extras.FunctionProviders
 
             // Returns a wrapper that calls fn(arg, callback) and captures the result.
             // The wrapper itself is synchronous (full async Promise support needs the timer queue).
-            var wrapper = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            wrapper.AddChild("arg", new ScriptVar(ScriptVar.Flags.Undefined));
+            var wrapper = ScriptVar.CreateNativeFunction();
+            wrapper.AddChild("arg", ScriptVar.CreateUndefined());
             wrapper.SetCallback((scope, _) =>
             {
-                var arg = scope.FindChild("arg")?.Var ?? new ScriptVar();
+                var arg = scope.FindChild("arg")?.Var ?? ScriptVar.CreateUndefined();
 
-                ScriptVar capturedResult = new ScriptVar();
-                ScriptVar capturedError = new ScriptVar();
+                ScriptVar capturedResult = ScriptVar.CreateUndefined();
+                ScriptVar capturedError = ScriptVar.CreateUndefined();
 
-                var cb = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-                cb.AddChild("err", new ScriptVar(ScriptVar.Flags.Undefined));
-                cb.AddChild("result", new ScriptVar(ScriptVar.Flags.Undefined));
+                var cb = ScriptVar.CreateNativeFunction();
+                cb.AddChild("err", ScriptVar.CreateUndefined());
+                cb.AddChild("result", ScriptVar.CreateUndefined());
                 cb.SetCallback((cbScope, __) =>
                 {
                     var err = cbScope.FindChild("err")?.Var;
@@ -117,10 +117,10 @@ namespace DScript.Extras.FunctionProviders
 
         private static ScriptVar MakePromiseLike(ScriptEngine engine, ScriptVar result, ScriptVar error)
         {
-            var obj = new ScriptVar(ScriptVar.Flags.Object);
+            var obj = ScriptVar.CreateObject();
 
-            var thenFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            thenFn.AddChild("onFulfilled", new ScriptVar(ScriptVar.Flags.Undefined));
+            var thenFn = ScriptVar.CreateNativeFunction();
+            thenFn.AddChild("onFulfilled", ScriptVar.CreateUndefined());
             thenFn.SetCallback((scope, _) =>
             {
                 var onFulfilled = scope.FindChild("onFulfilled")?.Var;
@@ -128,8 +128,8 @@ namespace DScript.Extras.FunctionProviders
                     engine.CallFunction(onFulfilled, null, result);
             }, null);
 
-            var catchFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            catchFn.AddChild("onRejected", new ScriptVar(ScriptVar.Flags.Undefined));
+            var catchFn = ScriptVar.CreateNativeFunction();
+            catchFn.AddChild("onRejected", ScriptVar.CreateUndefined());
             catchFn.SetCallback((scope, _) =>
             {
                 var onRejected = scope.FindChild("onRejected")?.Var;
@@ -150,8 +150,8 @@ namespace DScript.Extras.FunctionProviders
             var msg = var.GetParameter("msg").String;
 
             var warned = false;
-            var wrapper = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            wrapper.AddChild("arg", new ScriptVar(ScriptVar.Flags.Undefined));
+            var wrapper = ScriptVar.CreateNativeFunction();
+            wrapper.AddChild("arg", ScriptVar.CreateUndefined());
             wrapper.SetCallback((scope, _) =>
             {
                 if (!warned)
@@ -159,7 +159,7 @@ namespace DScript.Extras.FunctionProviders
                     System.Console.Error.WriteLine("DeprecationWarning: " + msg);
                     warned = true;
                 }
-                var arg = scope.FindChild("arg")?.Var ?? new ScriptVar();
+                var arg = scope.FindChild("arg")?.Var ?? ScriptVar.CreateUndefined();
                 var result = engine.CallFunction(fn, null, arg);
                 scope.ReturnVar = result;
             }, null);

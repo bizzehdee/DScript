@@ -175,9 +175,9 @@ namespace DScript.Test
         // namedArgs  — (paramName, ScriptVar) pairs for positional parameters
         private static ScriptVar MakeCallFrame(double thisValue, params (string name, ScriptVar value)[] namedArgs)
         {
-            var frame = new ScriptVar(ScriptVar.Flags.Function);
-            frame.AddChildNoDup("this", new ScriptVar(thisValue));
-            frame.AddChildNoDup(ScriptVar.ReturnVarName, new ScriptVar(ScriptVar.Flags.Undefined));
+            var frame = ScriptVar.CreateFunction();
+            frame.AddChildNoDup("this", ScriptVar.FromDouble(thisValue));
+            frame.AddChildNoDup(ScriptVar.ReturnVarName, ScriptVar.CreateUndefined());
             foreach (var (name, value) in namedArgs)
                 frame.AddChildNoDup(name, value);
             return frame;
@@ -188,7 +188,7 @@ namespace DScript.Test
         [Test]
         public void ToFixed_ZeroDigits_ProducesIntegerString()
         {
-            var frame = MakeCallFrame(3.7, ("digits", new ScriptVar(0)));
+            var frame = MakeCallFrame(3.7, ("digits", ScriptVar.FromInt(0)));
             NumberFunctionProvider.NumberToFixedImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("4"));
         }
@@ -196,7 +196,7 @@ namespace DScript.Test
         [Test]
         public void ToFixed_TwoDigits_ProducesTwoDecimalPlaces()
         {
-            var frame = MakeCallFrame(3.14159, ("digits", new ScriptVar(2)));
+            var frame = MakeCallFrame(3.14159, ("digits", ScriptVar.FromInt(2)));
             NumberFunctionProvider.NumberToFixedImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("3.14"));
         }
@@ -204,7 +204,7 @@ namespace DScript.Test
         [Test]
         public void ToFixed_FiveDigits()
         {
-            var frame = MakeCallFrame(1.0, ("digits", new ScriptVar(5)));
+            var frame = MakeCallFrame(1.0, ("digits", ScriptVar.FromInt(5)));
             NumberFunctionProvider.NumberToFixedImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("1.00000"));
         }
@@ -221,7 +221,7 @@ namespace DScript.Test
         [Test]
         public void ToFixed_NegativeNumber()
         {
-            var frame = MakeCallFrame(-1.5, ("digits", new ScriptVar(1)));
+            var frame = MakeCallFrame(-1.5, ("digits", ScriptVar.FromInt(1)));
             NumberFunctionProvider.NumberToFixedImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("-1.5"));
         }
@@ -231,7 +231,7 @@ namespace DScript.Test
         [Test]
         public void ToString_Radix10_ProducesDecimalString()
         {
-            var frame = MakeCallFrame(255.0, ("radix", new ScriptVar(10)));
+            var frame = MakeCallFrame(255.0, ("radix", ScriptVar.FromInt(10)));
             NumberFunctionProvider.NumberToStringImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("255"));
         }
@@ -239,7 +239,7 @@ namespace DScript.Test
         [Test]
         public void ToString_Radix16_ProducesHexString()
         {
-            var frame = MakeCallFrame(255.0, ("radix", new ScriptVar(16)));
+            var frame = MakeCallFrame(255.0, ("radix", ScriptVar.FromInt(16)));
             NumberFunctionProvider.NumberToStringImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("ff"));
         }
@@ -247,7 +247,7 @@ namespace DScript.Test
         [Test]
         public void ToString_Radix2_ProducesBinaryString()
         {
-            var frame = MakeCallFrame(10.0, ("radix", new ScriptVar(2)));
+            var frame = MakeCallFrame(10.0, ("radix", ScriptVar.FromInt(2)));
             NumberFunctionProvider.NumberToStringImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("1010"));
         }
@@ -255,7 +255,7 @@ namespace DScript.Test
         [Test]
         public void ToString_Radix8_ProducesOctalString()
         {
-            var frame = MakeCallFrame(8.0, ("radix", new ScriptVar(8)));
+            var frame = MakeCallFrame(8.0, ("radix", ScriptVar.FromInt(8)));
             NumberFunctionProvider.NumberToStringImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("10"));
         }
@@ -272,7 +272,7 @@ namespace DScript.Test
         [Test]
         public void ToString_InvalidRadix_ReturnsNaN()
         {
-            var frame = MakeCallFrame(10.0, ("radix", new ScriptVar(1)));
+            var frame = MakeCallFrame(10.0, ("radix", ScriptVar.FromInt(1)));
             NumberFunctionProvider.NumberToStringImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("NaN"));
         }
@@ -280,7 +280,7 @@ namespace DScript.Test
         [Test]
         public void ToString_RadixAbove36_ReturnsNaN()
         {
-            var frame = MakeCallFrame(10.0, ("radix", new ScriptVar(37)));
+            var frame = MakeCallFrame(10.0, ("radix", ScriptVar.FromInt(37)));
             NumberFunctionProvider.NumberToStringImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("NaN"));
         }
@@ -298,7 +298,7 @@ namespace DScript.Test
         [Test]
         public void ToExponential_ZeroDigits()
         {
-            var frame = MakeCallFrame(123456.0, ("digits", new ScriptVar(0)));
+            var frame = MakeCallFrame(123456.0, ("digits", ScriptVar.FromInt(0)));
             NumberFunctionProvider.NumberToExponentialImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("1e+005"));
         }
@@ -306,7 +306,7 @@ namespace DScript.Test
         [Test]
         public void ToExponential_TwoDigits()
         {
-            var frame = MakeCallFrame(0.00123, ("digits", new ScriptVar(2)));
+            var frame = MakeCallFrame(0.00123, ("digits", ScriptVar.FromInt(2)));
             NumberFunctionProvider.NumberToExponentialImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("1.23e-003"));
         }
@@ -314,7 +314,7 @@ namespace DScript.Test
         [Test]
         public void ToExponential_NegativeNumber()
         {
-            var frame = MakeCallFrame(-5000.0, ("digits", new ScriptVar(1)));
+            var frame = MakeCallFrame(-5000.0, ("digits", ScriptVar.FromInt(1)));
             NumberFunctionProvider.NumberToExponentialImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("-5.0e+003"));
         }

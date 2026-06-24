@@ -1,4 +1,4 @@
-﻿/*
+/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -140,12 +140,12 @@ namespace DScript
 
         public ScriptEngine()
         {
-            Root = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
+            Root = (ScriptVar.CreateObject()).Ref();
 
-            objectClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
-            stringClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
-            arrayClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
-            functionClass = (new ScriptVar(ScriptVar.Flags.Object)).Ref();
+            objectClass = (ScriptVar.CreateObject()).Ref();
+            stringClass = (ScriptVar.CreateObject()).Ref();
+            arrayClass = (ScriptVar.CreateObject()).Ref();
+            functionClass = (ScriptVar.CreateObject()).Ref();
 
             Root.AddChild("Object", objectClass);
             Root.AddChild("String", stringClass);
@@ -165,9 +165,9 @@ namespace DScript
 
         private void RegisterRequireBuiltin()
         {
-            var requireVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            requireVar.AddChild("path", new ScriptVar(ScriptVar.Flags.Undefined));
-            requireVar.AddChild("attrs", new ScriptVar(ScriptVar.Flags.Undefined));
+            var requireVar = ScriptVar.CreateNativeFunction();
+            requireVar.AddChild("path", ScriptVar.CreateUndefined());
+            requireVar.AddChild("attrs", ScriptVar.CreateUndefined());
             requireVar.SetCallback((scope, _) =>
             {
                 var pathVar = scope.FindChild("path")?.Var;
@@ -205,28 +205,28 @@ namespace DScript
                     throw new ScriptException($"Cannot find module '{path}'");
 
                 // Pre-seed the cache BEFORE running the module to break circular require cycles.
-                var exportsObj = new ScriptVar(ScriptVar.Flags.Object);
+                var exportsObj = ScriptVar.CreateObject();
                 _moduleCache[path] = exportsObj;
 
                 // Build an isolated module environment:
                 //   - a fresh root object containing __exports__ and copies of all globals
-                var moduleRoot = new ScriptVar(ScriptVar.Flags.Object);
+                var moduleRoot = ScriptVar.CreateObject();
                 moduleRoot.AddChild("__exports__", exportsObj);
 
                 // module object: { exports, filename, loaded }
-                var moduleObj = new ScriptVar(ScriptVar.Flags.Object);
+                var moduleObj = ScriptVar.CreateObject();
                 moduleObj.AddChild("exports", exportsObj);
-                moduleObj.AddChild("filename", new ScriptVar(path));
-                moduleObj.AddChild("loaded", new ScriptVar(0));
+                moduleObj.AddChild("filename", ScriptVar.FromString(path));
+                moduleObj.AddChild("loaded", ScriptVar.FromInt(0));
                 moduleRoot.AddChild("module", moduleObj);
 
                 // exports shorthand (alias for __exports__ / module.exports)
                 moduleRoot.AddChild("exports", exportsObj);
 
                 // __filename and __dirname
-                moduleRoot.AddChild("__filename", new ScriptVar(path));
+                moduleRoot.AddChild("__filename", ScriptVar.FromString(path));
                 var dirName = GetDirName(path);
-                moduleRoot.AddChild("__dirname", new ScriptVar(dirName));
+                moduleRoot.AddChild("__dirname", ScriptVar.FromString(dirName));
 
                 // Copy globals (require, Promise, String, …) into the module root.
                 var link = Root.FirstChild;
@@ -279,12 +279,12 @@ namespace DScript
 
         private static ScriptVar MakeAggregateError(ScriptVar[] reasons, int len)
         {
-            var errorsArr = new ScriptVar(); errorsArr.SetArray();
+            var errorsArr = ScriptVar.CreateUndefined(); errorsArr.SetArray();
             for (var j = 0; j < len; j++)
-                errorsArr.SetArrayIndex(j, reasons[j] ?? new ScriptVar(ScriptVar.Flags.Undefined));
-            var err = new ScriptVar(ScriptVar.Flags.Object);
-            err.AddChild("name", new ScriptVar("AggregateError"));
-            err.AddChild("message", new ScriptVar("All promises were rejected"));
+                errorsArr.SetArrayIndex(j, reasons[j] ?? ScriptVar.CreateUndefined());
+            var err = ScriptVar.CreateObject();
+            err.AddChild("name", ScriptVar.FromString("AggregateError"));
+            err.AddChild("message", ScriptVar.FromString("All promises were rejected"));
             err.AddChild("errors", errorsArr);
             return err;
         }
@@ -292,8 +292,8 @@ namespace DScript
         private void RegisterPromiseBuiltin()
         {
             // Promise constructor: new Promise(function(resolve, reject) { ... })
-            var promiseCtorVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            promiseCtorVar.AddChild("executor", new ScriptVar(ScriptVar.Flags.Undefined));
+            var promiseCtorVar = ScriptVar.CreateNativeFunction();
+            promiseCtorVar.AddChild("executor", ScriptVar.CreateUndefined());
             promiseCtorVar.SetCallback((scope, _) =>
             {
                 var executor = scope.FindChild("executor")?.Var;
@@ -301,48 +301,48 @@ namespace DScript
                 var vm = new VirtualMachine(this);
 
                 // resolve callback
-                var resolveFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-                resolveFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+                var resolveFn = ScriptVar.CreateNativeFunction();
+                resolveFn.AddChild("value", ScriptVar.CreateUndefined());
                 resolveFn.SetCallback((s, __) =>
                 {
-                    var v = s.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                    var v = s.FindChild("value")?.Var ?? ScriptVar.CreateUndefined();
                     promiseObj.Resolve(v);
                 }, null);
 
                 // reject callback
-                var rejectFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-                rejectFn.AddChild("reason", new ScriptVar(ScriptVar.Flags.Undefined));
+                var rejectFn = ScriptVar.CreateNativeFunction();
+                rejectFn.AddChild("reason", ScriptVar.CreateUndefined());
                 rejectFn.SetCallback((s, __) =>
                 {
-                    var r = s.FindChild("reason")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                    var r = s.FindChild("reason")?.Var ?? ScriptVar.CreateUndefined();
                     promiseObj.Reject(r);
                 }, null);
 
                 if (executor != null && executor.IsFunction)
                 {
                     try { vm.InvokeCallable(executor, null, [resolveFn, rejectFn]); }
-                    catch (Exception ex) { promiseObj.Reject(new ScriptVar(ex.Message)); }
+                    catch (Exception ex) { promiseObj.Reject(ScriptVar.FromString(ex.Message)); }
                 }
 
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(promiseObj.ToScriptVar(vm));
             }, null);
 
             // Promise.resolve(value) static method
-            var promiseClass = new ScriptVar(ScriptVar.Flags.Object);
+            var promiseClass = ScriptVar.CreateObject();
             promiseClass.SetData(promiseCtorVar); // store ctor reference
 
             // Copy the constructor callback to the class var so `new Promise(fn)` works
             // We make promiseClass a function so the VM's `new` opcode can call it
-            var promiseVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            promiseVar.AddChild("executor", new ScriptVar(ScriptVar.Flags.Undefined));
+            var promiseVar = ScriptVar.CreateNativeFunction();
+            promiseVar.AddChild("executor", ScriptVar.CreateUndefined());
             promiseVar.SetCallback(promiseCtorVar.GetCallback(), null);
 
             // Promise.resolve
-            var resolveFnStatic = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            resolveFnStatic.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+            var resolveFnStatic = ScriptVar.CreateNativeFunction();
+            resolveFnStatic.AddChild("value", ScriptVar.CreateUndefined());
             resolveFnStatic.SetCallback((scope, _) =>
             {
-                var v = scope.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var v = scope.FindChild("value")?.Var ?? ScriptVar.CreateUndefined();
                 var vm = new VirtualMachine(this);
                 var p = Vm.PromiseObject.Resolved(v);
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(p.ToScriptVar(vm));
@@ -350,11 +350,11 @@ namespace DScript
             promiseVar.AddChild("resolve", resolveFnStatic);
 
             // Promise.reject
-            var rejectFnStatic = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            rejectFnStatic.AddChild("reason", new ScriptVar(ScriptVar.Flags.Undefined));
+            var rejectFnStatic = ScriptVar.CreateNativeFunction();
+            rejectFnStatic.AddChild("reason", ScriptVar.CreateUndefined());
             rejectFnStatic.SetCallback((scope, _) =>
             {
-                var r = scope.FindChild("reason")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var r = scope.FindChild("reason")?.Var ?? ScriptVar.CreateUndefined();
                 var vm = new VirtualMachine(this);
                 var p = Vm.PromiseObject.Rejected(r);
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(p.ToScriptVar(vm));
@@ -362,16 +362,16 @@ namespace DScript
             promiseVar.AddChild("reject", rejectFnStatic);
 
             // Promise.all(arr)
-            var allFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            allFn.AddChild("arr", new ScriptVar(ScriptVar.Flags.Undefined));
+            var allFn = ScriptVar.CreateNativeFunction();
+            allFn.AddChild("arr", ScriptVar.CreateUndefined());
             allFn.SetCallback((scope, _) =>
             {
-                var arr = scope.FindChild("arr")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var arr = scope.FindChild("arr")?.Var ?? ScriptVar.CreateUndefined();
                 var vm2 = new VirtualMachine(this);
                 var len = arr.IsArray ? arr.GetArrayLength() : 0;
                 if (len == 0)
                 {
-                    var emptyArr = new ScriptVar(); emptyArr.SetArray();
+                    var emptyArr = ScriptVar.CreateUndefined(); emptyArr.SetArray();
                     scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(
                         Vm.PromiseObject.Resolved(emptyArr).ToScriptVar(vm2));
                     return;
@@ -385,7 +385,7 @@ namespace DScript
                     var p = Vm.PromiseObject.Wrap(arr.GetArrayIndex(i));
                     if (p.Status == Vm.PromiseObject.PromiseState.Rejected)
                     { result.Reject(p.Reason); break; }
-                    p.Then(v => { values[idx] = v; remaining[0]--; if (remaining[0] == 0) { var r = new ScriptVar(); r.SetArray(); for (var j = 0; j < len; j++) r.SetArrayIndex(j, values[j] ?? new ScriptVar(ScriptVar.Flags.Undefined)); result.Resolve(r); } },
+                    p.Then(v => { values[idx] = v; remaining[0]--; if (remaining[0] == 0) { var r = ScriptVar.CreateUndefined(); r.SetArray(); for (var j = 0; j < len; j++) r.SetArrayIndex(j, values[j] ?? ScriptVar.CreateUndefined()); result.Resolve(r); } },
                            reason => result.Reject(reason));
                 }
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result.ToScriptVar(vm2));
@@ -393,29 +393,29 @@ namespace DScript
             promiseVar.AddChild("all", allFn);
 
             // Promise.allSettled(arr)
-            var allSettledFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            allSettledFn.AddChild("arr", new ScriptVar(ScriptVar.Flags.Undefined));
+            var allSettledFn = ScriptVar.CreateNativeFunction();
+            allSettledFn.AddChild("arr", ScriptVar.CreateUndefined());
             allSettledFn.SetCallback((scope, _) =>
             {
-                var arr = scope.FindChild("arr")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var arr = scope.FindChild("arr")?.Var ?? ScriptVar.CreateUndefined();
                 var vm2 = new VirtualMachine(this);
                 var len = arr.IsArray ? arr.GetArrayLength() : 0;
                 var result = new Vm.PromiseObject();
                 var results = new ScriptVar[len];
                 var remaining = new[] { len == 0 ? -1 : len };
-                if (len == 0) { var emptyArr = new ScriptVar(); emptyArr.SetArray(); result.Resolve(emptyArr); }
+                if (len == 0) { var emptyArr = ScriptVar.CreateUndefined(); emptyArr.SetArray(); result.Resolve(emptyArr); }
                 for (var i = 0; i < len; i++)
                 {
                     var idx = i;
                     var p = Vm.PromiseObject.Wrap(arr.GetArrayIndex(i));
                     Action<ScriptVar, bool> settle = (v, fulfilled) =>
                     {
-                        var entry = new ScriptVar(ScriptVar.Flags.Object);
-                        entry.AddChild("status", new ScriptVar(fulfilled ? "fulfilled" : "rejected"));
+                        var entry = ScriptVar.CreateObject();
+                        entry.AddChild("status", ScriptVar.FromString(fulfilled ? "fulfilled" : "rejected"));
                         if (fulfilled) entry.AddChild("value", v); else entry.AddChild("reason", v);
                         results[idx] = entry;
                         remaining[0]--;
-                        if (remaining[0] == 0) { var r = new ScriptVar(); r.SetArray(); for (var j = 0; j < len; j++) r.SetArrayIndex(j, results[j]); result.Resolve(r); }
+                        if (remaining[0] == 0) { var r = ScriptVar.CreateUndefined(); r.SetArray(); for (var j = 0; j < len; j++) r.SetArrayIndex(j, results[j]); result.Resolve(r); }
                     };
                     p.Then(v => settle(v, true), r => settle(r, false));
                 }
@@ -424,11 +424,11 @@ namespace DScript
             promiseVar.AddChild("allSettled", allSettledFn);
 
             // Promise.race(arr)
-            var raceFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            raceFn.AddChild("arr", new ScriptVar(ScriptVar.Flags.Undefined));
+            var raceFn = ScriptVar.CreateNativeFunction();
+            raceFn.AddChild("arr", ScriptVar.CreateUndefined());
             raceFn.SetCallback((scope, _) =>
             {
-                var arr = scope.FindChild("arr")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var arr = scope.FindChild("arr")?.Var ?? ScriptVar.CreateUndefined();
                 var vm2 = new VirtualMachine(this);
                 var len = arr.IsArray ? arr.GetArrayLength() : 0;
                 var result = new Vm.PromiseObject();
@@ -442,11 +442,11 @@ namespace DScript
             promiseVar.AddChild("race", raceFn);
 
             // Promise.any(arr)
-            var anyFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            anyFn.AddChild("arr", new ScriptVar(ScriptVar.Flags.Undefined));
+            var anyFn = ScriptVar.CreateNativeFunction();
+            anyFn.AddChild("arr", ScriptVar.CreateUndefined());
             anyFn.SetCallback((scope, _) =>
             {
-                var arr = scope.FindChild("arr")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var arr = scope.FindChild("arr")?.Var ?? ScriptVar.CreateUndefined();
                 var vm2 = new VirtualMachine(this);
                 var len = arr.IsArray ? arr.GetArrayLength() : 0;
                 var result = new Vm.PromiseObject();
@@ -470,52 +470,52 @@ namespace DScript
             promiseVar.AddChild("any", anyFn);
 
             // Promise.try(fn, ...args) — ES2025
-            var tryFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            tryFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            var tryFn = ScriptVar.CreateNativeFunction();
+            tryFn.AddChild("fn", ScriptVar.CreateUndefined());
             tryFn.SetCallback((scope, _) =>
             {
-                var fn = scope.FindChild("fn")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var fn = scope.FindChild("fn")?.Var ?? ScriptVar.CreateUndefined();
                 var vm2 = new VirtualMachine(this);
                 Vm.PromiseObject result;
                 try
                 {
                     var retVal = fn.IsFunction
                         ? CallFunction(fn, null)
-                        : new ScriptVar(ScriptVar.Flags.Undefined);
+                        : ScriptVar.CreateUndefined();
                     result = Vm.PromiseObject.Wrap(retVal);
                 }
                 catch (Exception ex)
                 {
-                    result = Vm.PromiseObject.Rejected(new ScriptVar(ex.Message));
+                    result = Vm.PromiseObject.Rejected(ScriptVar.FromString(ex.Message));
                 }
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result.ToScriptVar(vm2));
             }, null);
             promiseVar.AddChild("try", tryFn);
 
             // Promise.withResolvers()
-            var withResolversFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var withResolversFn = ScriptVar.CreateNativeFunction();
             withResolversFn.SetCallback((scope, _) =>
             {
                 var vm2 = new VirtualMachine(this);
                 var promiseObj = new Vm.PromiseObject();
 
-                var resolveFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-                resolveFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+                var resolveFn = ScriptVar.CreateNativeFunction();
+                resolveFn.AddChild("value", ScriptVar.CreateUndefined());
                 resolveFn.SetCallback((s, __) =>
                 {
-                    var v = s.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                    var v = s.FindChild("value")?.Var ?? ScriptVar.CreateUndefined();
                     promiseObj.Resolve(v);
                 }, null);
 
-                var rejectFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-                rejectFn.AddChild("reason", new ScriptVar(ScriptVar.Flags.Undefined));
+                var rejectFn = ScriptVar.CreateNativeFunction();
+                rejectFn.AddChild("reason", ScriptVar.CreateUndefined());
                 rejectFn.SetCallback((s, __) =>
                 {
-                    var r = s.FindChild("reason")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                    var r = s.FindChild("reason")?.Var ?? ScriptVar.CreateUndefined();
                     promiseObj.Reject(r);
                 }, null);
 
-                var result = new ScriptVar(ScriptVar.Flags.Object);
+                var result = ScriptVar.CreateObject();
                 result.AddChild("promise", promiseObj.ToScriptVar(vm2));
                 result.AddChild("resolve", resolveFn);
                 result.AddChild("reject", rejectFn);
@@ -568,7 +568,7 @@ namespace DScript
             catch (Exception ex) when (ex is ScriptException || ex is JITException)
             {
                 Console.Error.WriteLine($"ERROR [{ex.Message}]");
-                return new ScriptVarLink(new ScriptVar(null), null);
+                return new ScriptVarLink(ScriptVar.FromString(null), null);
             }
         }
 
@@ -621,7 +621,7 @@ namespace DScript
         [RequiresUnreferencedCode("Uses reflection.")]
         private static ScriptVar BuildHostObjectWrapper(object obj)
         {
-            var wrapper = new ScriptVar(ScriptVar.Flags.Object);
+            var wrapper = ScriptVar.CreateObject();
             if (obj == null) return wrapper;
 
             var type = obj.GetType();
@@ -634,10 +634,10 @@ namespace DScript
                 var capturedObj = obj;
                 var parameters = captured.GetParameters();
 
-                var fnVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                var fnVar = ScriptVar.CreateNativeFunction();
                 // Register declared parameters so the VM can resolve them by name.
                 foreach (var p in parameters)
-                    fnVar.AddChild(p.Name ?? $"arg{p.Position}", new ScriptVar(ScriptVar.Flags.Undefined));
+                    fnVar.AddChild(p.Name ?? $"arg{p.Position}", ScriptVar.CreateUndefined());
 
                 fnVar.SetCallback((scope, _) =>
                 {
@@ -645,7 +645,7 @@ namespace DScript
                     for (var i = 0; i < parameters.Length; i++)
                     {
                         var pName = parameters[i].Name ?? $"arg{i}";
-                        var sv = scope.FindChild(pName)?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        var sv = scope.FindChild(pName)?.Var ?? ScriptVar.CreateUndefined();
                         args[i] = ConvertFromScriptVar(sv, parameters[i].ParameterType);
                     }
                     var result = captured.Invoke(capturedObj, args);
@@ -666,22 +666,22 @@ namespace DScript
 
                 if (prop.CanRead)
                 {
-                    var getFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                    var getFn = ScriptVar.CreateNativeFunction();
                     getFn.SetCallback((scope, _) =>
                     {
                         var val = captured.GetValue(capturedObj);
-                        scope.ReturnVar = val != null ? ConvertToScriptVar(val) : new ScriptVar(ScriptVar.Flags.Null);
+                        scope.ReturnVar = val != null ? ConvertToScriptVar(val) : ScriptVar.CreateNull();
                     }, null);
                     wrapper.AddChild("get_" + prop.Name, getFn);
                 }
 
                 if (writable && prop.CanWrite)
                 {
-                    var setFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-                    setFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+                    var setFn = ScriptVar.CreateNativeFunction();
+                    setFn.AddChild("value", ScriptVar.CreateUndefined());
                     setFn.SetCallback((scope, _) =>
                     {
-                        var sv = scope.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                        var sv = scope.FindChild("value")?.Var ?? ScriptVar.CreateUndefined();
                         captured.SetValue(capturedObj, ConvertFromScriptVar(sv, captured.PropertyType));
                     }, null);
                     wrapper.AddChild("set_" + prop.Name, setFn);
@@ -694,13 +694,13 @@ namespace DScript
         private static ScriptVar ConvertToScriptVar(object value) => value switch
         {
             ScriptVar sv  => sv,
-            bool b        => new ScriptVar(b ? 1 : 0),
-            int i         => new ScriptVar(i),
-            long l        => new ScriptVar((int)l),
-            double d      => new ScriptVar(d),
-            float f       => new ScriptVar((double)f),
-            string s      => new ScriptVar(s),
-            _             => new ScriptVar(value.ToString()),
+            bool b        => ScriptVar.FromInt(b ? 1 : 0),
+            int i         => ScriptVar.FromInt(i),
+            long l        => ScriptVar.FromInt((int)l),
+            double d      => ScriptVar.FromDouble(d),
+            float f       => ScriptVar.FromDouble((double)f),
+            string s      => ScriptVar.FromString(s),
+            _             => ScriptVar.FromString(value.ToString()),
         };
 
         private static object ConvertFromScriptVar(ScriptVar sv, Type targetType)
@@ -788,14 +788,14 @@ namespace DScript
                 var link = baseVar.FindChild(funcName);
                 if (link == null)
                 {
-                    link = baseVar.AddChild(funcName, new ScriptVar(ScriptVar.Flags.Object));
+                    link = baseVar.AddChild(funcName, ScriptVar.CreateObject());
                 }
                 baseVar = link.Var;
                 funcName = lexer.TokenString;
                 lexer.MatchPropertyName();
             }
 
-            var funcVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var funcVar = ScriptVar.CreateNativeFunction();
             funcVar.SetCallback(callbackCB, userData);
             ParseFunctionArguments(funcVar, lexer);
 
@@ -818,14 +818,14 @@ namespace DScript
                 var link = baseVar.FindChild(propName);
                 if (link == null)
                 {
-                    link = baseVar.AddChild(propName, new ScriptVar(ScriptVar.Flags.Object));
+                    link = baseVar.AddChild(propName, ScriptVar.CreateObject());
                 }
                 baseVar = link.Var;
                 propName = lexer.TokenString;
                 lexer.MatchPropertyName();
             }
 
-            var propVar = new ScriptVar();
+            var propVar = ScriptVar.CreateUndefined();
             callbackCB.Invoke(propVar, null);
 
             baseVar.AddChild(propName, propVar);

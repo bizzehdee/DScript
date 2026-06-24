@@ -49,7 +49,7 @@ namespace DScript.Vm
         {
             if (Status != PromiseState.Pending) return;
             Status = PromiseState.Fulfilled;
-            Value = value ?? new ScriptVar(ScriptVar.Flags.Undefined);
+            Value = value ?? ScriptVar.CreateUndefined();
             if (_thenCallbacks != null)
             {
                 var val = Value;
@@ -66,7 +66,7 @@ namespace DScript.Vm
         {
             if (Status != PromiseState.Pending) return;
             Status = PromiseState.Rejected;
-            Reason = reason ?? new ScriptVar(ScriptVar.Flags.Undefined);
+            Reason = reason ?? ScriptVar.CreateUndefined();
             if (_catchCallbacks != null)
             {
                 var rsn = Reason;
@@ -97,7 +97,7 @@ namespace DScript.Vm
                 }
                 catch (Exception ex)
                 {
-                    next.Reject(new ScriptVar(ex.Message));
+                    next.Reject(ScriptVar.FromString(ex.Message));
                 }
             };
 
@@ -112,7 +112,7 @@ namespace DScript.Vm
                     }
                     catch (Exception ex)
                     {
-                        next.Reject(new ScriptVar(ex.Message));
+                        next.Reject(ScriptVar.FromString(ex.Message));
                     }
                 }
                 else
@@ -152,13 +152,13 @@ namespace DScript.Vm
             Action<ScriptVar> fulfilled = v =>
             {
                 try { onFinally?.Invoke(); next.Resolve(v); }
-                catch (Exception ex) { next.Reject(new ScriptVar(ex.Message)); }
+                catch (Exception ex) { next.Reject(ScriptVar.FromString(ex.Message)); }
             };
 
             Action<ScriptVar> rejected = r =>
             {
                 try { onFinally?.Invoke(); next.Reject(r); }
-                catch (Exception ex) { next.Reject(new ScriptVar(ex.Message)); }
+                catch (Exception ex) { next.Reject(ScriptVar.FromString(ex.Message)); }
             };
 
             switch (Status)
@@ -213,7 +213,7 @@ namespace DScript.Vm
                 if (data is PromiseObject existing)
                     return existing;
             }
-            return Resolved(value ?? new ScriptVar(ScriptVar.Flags.Undefined));
+            return Resolved(value ?? ScriptVar.CreateUndefined());
         }
 
         /// <summary>
@@ -223,12 +223,12 @@ namespace DScript.Vm
         /// </summary>
         public ScriptVar ToScriptVar(VirtualMachine vm)
         {
-            var obj = new ScriptVar(ScriptVar.Flags.Object);
+            var obj = ScriptVar.CreateObject();
             obj.SetData(this);
 
             // .then(onFulfilled)
-            var thenFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            thenFn.AddChild("onFulfilled", new ScriptVar(ScriptVar.Flags.Undefined));
+            var thenFn = ScriptVar.CreateNativeFunction();
+            thenFn.AddChild("onFulfilled", ScriptVar.CreateUndefined());
             var self = this;
             thenFn.SetCallback((scope, _) =>
             {
@@ -244,8 +244,8 @@ namespace DScript.Vm
             obj.AddChild("then", thenFn);
 
             // .catch(onRejected)
-            var catchFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            catchFn.AddChild("onRejected", new ScriptVar(ScriptVar.Flags.Undefined));
+            var catchFn = ScriptVar.CreateNativeFunction();
+            catchFn.AddChild("onRejected", ScriptVar.CreateUndefined());
             catchFn.SetCallback((scope, _) =>
             {
                 var cb = scope.FindChild("onRejected")?.Var;
@@ -260,8 +260,8 @@ namespace DScript.Vm
             obj.AddChild("catch", catchFn);
 
             // .finally(onFinally)
-            var finallyFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            finallyFn.AddChild("onFinally", new ScriptVar(ScriptVar.Flags.Undefined));
+            var finallyFn = ScriptVar.CreateNativeFunction();
+            finallyFn.AddChild("onFinally", ScriptVar.CreateUndefined());
             finallyFn.SetCallback((scope, _) =>
             {
                 var cb = scope.FindChild("onFinally")?.Var;

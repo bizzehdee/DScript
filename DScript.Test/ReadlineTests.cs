@@ -40,12 +40,12 @@ namespace DScript.Test
             new EngineFunctionLoader().RegisterFunctions(engine);
 
             // Inject a ScriptVar carrying the StringReader as native data.
-            var readerVar = new ScriptVar(ScriptVar.Flags.Object);
+            var readerVar = ScriptVar.CreateObject();
             readerVar.SetData(new StringReader(inputLines));
             engine.Root.AddChild("__testReader__", readerVar);
 
             // Inject a ScriptVar carrying a StringWriter for capturing output.
-            var writerVar = new ScriptVar(ScriptVar.Flags.Object);
+            var writerVar = ScriptVar.CreateObject();
             var sw = new StringWriter();
             writerVar.SetData(sw);
             engine.Root.AddChild("__testWriter__", writerVar);

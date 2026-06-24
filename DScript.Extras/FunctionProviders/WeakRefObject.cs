@@ -36,7 +36,7 @@ namespace DScript.Extras.FunctionProviders
 
         public ScriptVar ToScriptVar()
         {
-            var sv = new ScriptVar(ScriptVar.Flags.Object);
+            var sv = ScriptVar.CreateObject();
             sv.SetData(this);
             return sv;
         }

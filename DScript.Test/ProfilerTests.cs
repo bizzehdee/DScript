@@ -229,10 +229,10 @@ namespace DScript.Test
             var engine = new ScriptEngine();
             engine.AttachProfiler(profiler);
 
-            var nativeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var nativeFn = ScriptVar.CreateNativeFunction();
             nativeFn.SetCallback((scope, _) => { }, null);
             // Give it a 'name' child so the profiler can read it
-            nativeFn.AddChild("name", new ScriptVar("myNative"));
+            nativeFn.AddChild("name", ScriptVar.FromString("myNative"));
             engine.Root.AddChild("myNative", nativeFn);
 
             engine.Run(ScriptEngine.Compile("myNative();"));

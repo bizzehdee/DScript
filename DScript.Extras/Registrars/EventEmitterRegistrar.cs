@@ -30,7 +30,7 @@ namespace DScript.Extras.Registrars
 
         internal static void Register(ScriptEngine engine)
         {
-            var emitterCtorVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var emitterCtorVar = ScriptVar.CreateNativeFunction();
             emitterCtorVar.SetCallback((scope, _) =>
             {
                 // Constructor body is empty — methods come from __proto__ chain.
@@ -111,10 +111,10 @@ namespace DScript.Extras.Registrars
             AddMethod(emitterCtorVar, engine, "emit", new[] { "event", "arg0", "arg1" }, (scope, eng) =>
             {
                 var thisVar = scope.FindChild("this")?.Var;
-                if (thisVar == null) { scope.ReturnVar = new ScriptVar(false); return; }
+                if (thisVar == null) { scope.ReturnVar = ScriptVar.FromBool(false); return; }
                 var eventName = scope.FindChild("event")?.Var?.String ?? "";
-                var a0 = scope.FindChild("arg0")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
-                var a1 = scope.FindChild("arg1")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var a0 = scope.FindChild("arg0")?.Var ?? ScriptVar.CreateUndefined();
+                var a1 = scope.FindChild("arg1")?.Var ?? ScriptVar.CreateUndefined();
                 var called = false;
                 var arrLink = thisVar.FindChild(ListenerPrefix + eventName);
                 if (arrLink != null)
@@ -152,7 +152,7 @@ namespace DScript.Extras.Registrars
                     }
                     onceLink.Var.RemoveAllChildren();
                 }
-                scope.ReturnVar = new ScriptVar(called);
+                scope.ReturnVar = ScriptVar.FromBool(called);
             });
 
             // .listeners(event)
@@ -169,13 +169,13 @@ namespace DScript.Extras.Registrars
             AddMethod(emitterCtorVar, engine, "listenerCount", new[] { "event" }, (scope, eng) =>
             {
                 var thisVar = scope.FindChild("this")?.Var;
-                if (thisVar == null) { scope.ReturnVar = new ScriptVar(0); return; }
+                if (thisVar == null) { scope.ReturnVar = ScriptVar.FromInt(0); return; }
                 var eventName = scope.FindChild("event")?.Var?.String ?? "";
                 var arrLink = thisVar.FindChild(ListenerPrefix + eventName);
-                scope.ReturnVar = new ScriptVar(arrLink?.Var.GetArrayLength() ?? 0);
+                scope.ReturnVar = ScriptVar.FromInt(arrLink?.Var.GetArrayLength() ?? 0);
             });
 
-            emitterCtorVar.AddChild("defaultMaxListeners", new ScriptVar(DefaultMaxListeners));
+            emitterCtorVar.AddChild("defaultMaxListeners", ScriptVar.FromInt(DefaultMaxListeners));
 
             engine.Root.AddChild("EventEmitter", emitterCtorVar);
         }
@@ -195,7 +195,7 @@ namespace DScript.Extras.Registrars
             if (emitterCtor == null) return;
 
             // Create the shared host-emitter instance (inherits EventEmitter methods).
-            var hostEmitter = new ScriptVar(ScriptVar.Flags.Object);
+            var hostEmitter = ScriptVar.CreateObject();
             hostEmitter.AddChild(ScriptVar.PrototypeClassName, emitterCtor);
             engine.Root.AddChild("__hostEmitter__", hostEmitter);
 
@@ -291,9 +291,9 @@ namespace DScript.Extras.Registrars
         private static void RegisterGlobal(ScriptEngine engine, string name, string[] paramNames,
             System.Action<ScriptVar, ScriptEngine> body)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var fn = ScriptVar.CreateNativeFunction();
             foreach (var p in paramNames)
-                fn.AddChild(p, new ScriptVar(ScriptVar.Flags.Undefined));
+                fn.AddChild(p, ScriptVar.CreateUndefined());
             fn.SetCallback((scope, _) => body(scope, engine), null);
             engine.Root.AddChild(name, fn);
         }
@@ -301,9 +301,9 @@ namespace DScript.Extras.Registrars
         private static void AddMethod(ScriptVar ctorVar, ScriptEngine engine, string name, string[] paramNames,
             System.Action<ScriptVar, ScriptEngine> body)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var fn = ScriptVar.CreateNativeFunction();
             foreach (var p in paramNames)
-                fn.AddChild(p, new ScriptVar(ScriptVar.Flags.Undefined));
+                fn.AddChild(p, ScriptVar.CreateUndefined());
             var eng = engine;
             fn.SetCallback((scope, _) => body(scope, eng), null);
             ctorVar.AddChild(name, fn);
@@ -313,7 +313,7 @@ namespace DScript.Extras.Registrars
         {
             var link = thisVar.FindChild(key);
             if (link != null) return link.Var;
-            var arr = new ScriptVar();
+            var arr = ScriptVar.CreateUndefined();
             arr.SetArray();
             thisVar.AddChild(key, arr);
             return thisVar.FindChild(key)!.Var;
@@ -330,7 +330,7 @@ namespace DScript.Extras.Registrars
                     // Shift remaining elements down
                     for (var j = i; j < len - 1; j++)
                         arr.SetArrayIndex(j, arr.GetArrayIndex(j + 1));
-                    arr.SetArrayIndex(len - 1, new ScriptVar(ScriptVar.Flags.Undefined));
+                    arr.SetArrayIndex(len - 1, ScriptVar.CreateUndefined());
                     // Update length
                     var lenLink = arr.FindChild("length");
                     if (lenLink != null) lenLink.Var.Int = len - 1;
@@ -351,7 +351,7 @@ namespace DScript.Extras.Registrars
 
         private static ScriptVar EmptyArray()
         {
-            var arr = new ScriptVar();
+            var arr = ScriptVar.CreateUndefined();
             arr.SetArray();
             return arr;
         }

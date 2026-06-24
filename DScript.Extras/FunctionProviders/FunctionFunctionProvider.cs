@@ -79,7 +79,7 @@ namespace DScript.Extras.FunctionProviders
                 var vmfn = fn.GetData() as Vm.VmFunction;
                 result = vmfn?.Source ?? "function() {}";
             }
-            scope.ReturnVar = new ScriptVar(result);
+            scope.ReturnVar = ScriptVar.FromString(result);
         }
 
         [ScriptMethod("call", "thisArg", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9")]
@@ -122,9 +122,9 @@ namespace DScript.Extras.FunctionProviders
             var capturedPartials = (ScriptVar[])partials.Clone();
 
             // Bound function accepts up to 10 additional call-site args (b0..b9)
-            var boundFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var boundFn = ScriptVar.CreateNativeFunction();
             for (var i = 0; i < 10; i++)
-                boundFn.AddChild($"b{i}", new ScriptVar(ScriptVar.Flags.Undefined));
+                boundFn.AddChild($"b{i}", ScriptVar.CreateUndefined());
 
             boundFn.SetCallback((scope, _) =>
             {
@@ -136,8 +136,8 @@ namespace DScript.Extras.FunctionProviders
                 scope.ReturnVar = engine.CallFunction(capturedFn, capturedThis, callArgs.ToArray());
             }, null);
 
-            boundFn.AddChild("name", new ScriptVar(boundName));
-            boundFn.AddChild("length", new ScriptVar(boundLength));
+            boundFn.AddChild("name", ScriptVar.FromString(boundName));
+            boundFn.AddChild("length", ScriptVar.FromInt(boundLength));
 
             var.ReturnVar = boundFn;
         }

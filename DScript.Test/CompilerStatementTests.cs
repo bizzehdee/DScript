@@ -13,7 +13,7 @@ namespace DScript.Test
         private static ScriptVar RunProgram(string source)
         {
             var chunk = new DScriptCompiler().CompileProgram(source);
-            var globals = new ScriptVar(null, ScriptVar.Flags.Object);
+            var globals = ScriptVar.CreateObject();
             new VirtualMachine().Run(chunk, new Environment(globals, null));
             return globals;
         }

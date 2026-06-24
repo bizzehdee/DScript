@@ -42,22 +42,22 @@ namespace DScript.Extras.FunctionProviders
 
         internal static ScriptVar MakeReadable(ScriptEngine engine)
         {
-            var r = new ScriptVar(ScriptVar.Flags.Object);
+            var r = ScriptVar.CreateObject();
             var chunks = new List<string>();
             var capturedEngine = engine;
 
-            var dataHandlers = new ScriptVar(); dataHandlers.SetArray();
-            var endHandlers  = new ScriptVar(); endHandlers.SetArray();
+            var dataHandlers = ScriptVar.CreateUndefined(); dataHandlers.SetArray();
+            var endHandlers  = ScriptVar.CreateUndefined(); endHandlers.SetArray();
             r.AddChild(DataKey, dataHandlers);
             r.AddChild(EndKey, endHandlers);
-            r.AddChild(ClosedKey, new ScriptVar(0));
+            r.AddChild(ClosedKey, ScriptVar.FromInt(0));
 
             var capturedR = r;
 
             // .on(event, fn) — 'data' or 'end'
-            var onFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            onFn.AddChild("event", new ScriptVar(ScriptVar.Flags.Undefined));
-            onFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            var onFn = ScriptVar.CreateNativeFunction();
+            onFn.AddChild("event", ScriptVar.CreateUndefined());
+            onFn.AddChild("fn", ScriptVar.CreateUndefined());
             onFn.SetCallback((scope, _) =>
             {
                 var evName = scope.FindChild("event")?.Var?.String ?? "";
@@ -73,8 +73,8 @@ namespace DScript.Extras.FunctionProviders
 
             // .push(chunk) — called by producer code to feed data
             var capturedChunks = chunks;
-            var pushFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            pushFn.AddChild("chunk", new ScriptVar(ScriptVar.Flags.Undefined));
+            var pushFn = ScriptVar.CreateNativeFunction();
+            pushFn.AddChild("chunk", ScriptVar.CreateUndefined());
             pushFn.SetCallback((scope, _) =>
             {
                 var chunkVar = scope.FindChild("chunk")?.Var;
@@ -108,7 +108,7 @@ namespace DScript.Extras.FunctionProviders
                         for (var i = 0; i < len; i++)
                         {
                             var fn = arr.GetArrayIndex(i);
-                            if (fn.IsFunction) capturedEngine.CallFunction(fn, null, new ScriptVar(text));
+                            if (fn.IsFunction) capturedEngine.CallFunction(fn, null, ScriptVar.FromString(text));
                         }
                     }
                 }
@@ -116,19 +116,19 @@ namespace DScript.Extras.FunctionProviders
             r.AddChild("push", pushFn);
 
             // .read() — returns buffered chunks as a single string
-            var readFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var readFn = ScriptVar.CreateNativeFunction();
             readFn.SetCallback((scope, _) =>
             {
                 var sb = new StringBuilder();
                 foreach (var c in capturedChunks) sb.Append(c);
                 capturedChunks.Clear();
-                scope.ReturnVar = new ScriptVar(sb.ToString());
+                scope.ReturnVar = ScriptVar.FromString(sb.ToString());
             }, null);
             r.AddChild("read", readFn);
 
             // .pipe(writable) — pushes all buffered data into writable
-            var pipeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            pipeFn.AddChild("dest", new ScriptVar(ScriptVar.Flags.Undefined));
+            var pipeFn = ScriptVar.CreateNativeFunction();
+            pipeFn.AddChild("dest", ScriptVar.CreateUndefined());
             pipeFn.SetCallback((scope, _) =>
             {
                 var dest = scope.FindChild("dest")?.Var;
@@ -137,7 +137,7 @@ namespace DScript.Extras.FunctionProviders
                 {
                     var writeFn = dest.FindChild("write")?.Var;
                     if (writeFn != null && writeFn.IsFunction)
-                        capturedEngine.CallFunction(writeFn, null, new ScriptVar(c));
+                        capturedEngine.CallFunction(writeFn, null, ScriptVar.FromString(c));
                 }
                 capturedChunks.Clear();
                 // Signal end
@@ -161,19 +161,19 @@ namespace DScript.Extras.FunctionProviders
 
         internal static ScriptVar MakeWritable(ScriptEngine engine)
         {
-            var w = new ScriptVar(ScriptVar.Flags.Object);
+            var w = ScriptVar.CreateObject();
             var buf = new StringBuilder();
             var capturedEngine = engine;
 
-            var finishHandlers = new ScriptVar(); finishHandlers.SetArray();
+            var finishHandlers = ScriptVar.CreateUndefined(); finishHandlers.SetArray();
             w.AddChild("__finishHandlers__", finishHandlers);
 
             var capturedW = w;
             var capturedBuf = buf;
 
             // .write(chunk)
-            var writeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            writeFn.AddChild("chunk", new ScriptVar(ScriptVar.Flags.Undefined));
+            var writeFn = ScriptVar.CreateNativeFunction();
+            writeFn.AddChild("chunk", ScriptVar.CreateUndefined());
             writeFn.SetCallback((scope, _) =>
             {
                 var chunk = scope.FindChild("chunk")?.Var;
@@ -182,8 +182,8 @@ namespace DScript.Extras.FunctionProviders
             w.AddChild("write", writeFn);
 
             // .end(chunk?)
-            var endFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            endFn.AddChild("chunk", new ScriptVar(ScriptVar.Flags.Undefined));
+            var endFn = ScriptVar.CreateNativeFunction();
+            endFn.AddChild("chunk", ScriptVar.CreateUndefined());
             endFn.SetCallback((scope, _) =>
             {
                 var chunk = scope.FindChild("chunk")?.Var;
@@ -206,9 +206,9 @@ namespace DScript.Extras.FunctionProviders
             w.AddChild("end", endFn);
 
             // .on('finish', fn)
-            var onFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            onFn.AddChild("event", new ScriptVar(ScriptVar.Flags.Undefined));
-            onFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            var onFn = ScriptVar.CreateNativeFunction();
+            onFn.AddChild("event", ScriptVar.CreateUndefined());
+            onFn.AddChild("fn", ScriptVar.CreateUndefined());
             onFn.SetCallback((scope, _) =>
             {
                 var evName = scope.FindChild("event")?.Var?.String ?? "";
@@ -223,8 +223,8 @@ namespace DScript.Extras.FunctionProviders
             w.AddChild("on", onFn);
 
             // .getBuffer() — returns accumulated string (not Node.js API; useful for tests)
-            var getBufFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            getBufFn.SetCallback((scope, _) => scope.ReturnVar = new ScriptVar(capturedBuf.ToString()), null);
+            var getBufFn = ScriptVar.CreateNativeFunction();
+            getBufFn.SetCallback((scope, _) => scope.ReturnVar = ScriptVar.FromString(capturedBuf.ToString()), null);
             w.AddChild("getBuffer", getBufFn);
 
             return w;
@@ -239,15 +239,15 @@ namespace DScript.Extras.FunctionProviders
             // Simple implementation: writable + readable piped together.
             var engine = userData as ScriptEngine;
             var r = MakeReadable(engine);
-            var w = new ScriptVar(ScriptVar.Flags.Object);
+            var w = ScriptVar.CreateObject();
 
             // Copy Readable methods onto the transform
             var link = r.FirstChild;
             while (link != null) { w.AddChild(link.Name, link.Var); link = link.Next; }
 
             // .write(chunk) — pushes into the readable side
-            var writeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            writeFn.AddChild("chunk", new ScriptVar(ScriptVar.Flags.Undefined));
+            var writeFn = ScriptVar.CreateNativeFunction();
+            writeFn.AddChild("chunk", ScriptVar.CreateUndefined());
             var capturedR = r;
             var capturedEngine = engine;
             writeFn.SetCallback((scope, _) =>
@@ -261,8 +261,8 @@ namespace DScript.Extras.FunctionProviders
             w.AddChild("write", writeFn);
 
             // .end(chunk?)
-            var endFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            endFn.AddChild("chunk", new ScriptVar(ScriptVar.Flags.Undefined));
+            var endFn = ScriptVar.CreateNativeFunction();
+            endFn.AddChild("chunk", ScriptVar.CreateUndefined());
             endFn.SetCallback((scope, _) =>
             {
                 var chunk = scope.FindChild("chunk")?.Var;
@@ -275,7 +275,7 @@ namespace DScript.Extras.FunctionProviders
                 // Push null to signal end
                 var pushNullFn = capturedR.FindChild("push")?.Var;
                 if (pushNullFn != null && pushNullFn.IsFunction && capturedEngine != null)
-                    capturedEngine.CallFunction(pushNullFn, null, new ScriptVar(ScriptVar.Flags.Null));
+                    capturedEngine.CallFunction(pushNullFn, null, ScriptVar.CreateNull());
             }, null);
             w.AddChild("end", endFn);
 

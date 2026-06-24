@@ -1,4 +1,4 @@
-﻿/*
+/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -122,7 +122,7 @@ namespace DScript
         public void ReplaceWith(ScriptVarLink newVar)
         {
 
-            ReplaceWith(newVar != null ? newVar.Var : new ScriptVar());
+            ReplaceWith(newVar != null ? newVar.Var : ScriptVar.CreateUndefined());
         }
 
         public int GetIntName()

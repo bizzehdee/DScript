@@ -89,7 +89,7 @@ namespace DScript.Extras.FunctionProviders
         public static void SetValuesImpl(ScriptVar var, object userData)
         {
             var set = GetSet(var.GetParameter("this"));
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             var idx = 0;
             foreach (var item in set.Data)
@@ -101,12 +101,12 @@ namespace DScript.Extras.FunctionProviders
         public static void SetEntriesImpl(ScriptVar var, object userData)
         {
             var set = GetSet(var.GetParameter("this"));
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             var idx = 0;
             foreach (var item in set.Data)
             {
-                var pair = new ScriptVar();
+                var pair = ScriptVar.CreateUndefined();
                 pair.SetArray();
                 pair.SetArrayIndex(0, item);
                 pair.SetArrayIndex(1, item);

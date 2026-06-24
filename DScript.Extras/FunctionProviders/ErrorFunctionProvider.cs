@@ -27,10 +27,10 @@ namespace DScript.Extras.FunctionProviders
     {
         private static ScriptVar MakeError(string name, string message)
         {
-            var obj = new ScriptVar(ScriptVar.Flags.Object);
-            obj.AddChild("name", new ScriptVar(name));
-            obj.AddChild("message", new ScriptVar(message));
-            obj.AddChild("stack", new ScriptVar(message.Length > 0 ? $"{name}: {message}" : name));
+            var obj = ScriptVar.CreateObject();
+            obj.AddChild("name", ScriptVar.FromString(name));
+            obj.AddChild("message", ScriptVar.FromString(message));
+            obj.AddChild("stack", ScriptVar.FromString(message.Length > 0 ? $"{name}: {message}" : name));
             return obj;
         }
 
@@ -97,7 +97,7 @@ namespace DScript.Extras.FunctionProviders
             var msgVar = var.GetParameter("msg");
             var errors = var.GetParameter("errors");
             var obj = MakeError("AggregateError", msgVar.IsUndefined ? "" : msgVar.String);
-            obj.AddChild("errors", errors.IsUndefined ? new ScriptVar() : errors.DeepCopy());
+            obj.AddChild("errors", errors.IsUndefined ? ScriptVar.CreateUndefined() : errors.DeepCopy());
             var.ReturnVar = obj;
         }
     }

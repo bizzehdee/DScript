@@ -39,8 +39,8 @@ namespace DScript.Registrars
 
             // Symbol(description?) — ordinary call creates a new symbol.
             // new Symbol() throws TypeError.
-            var symbolCtor = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            symbolCtor.AddChild("description", new ScriptVar(ScriptVar.Flags.Undefined));
+            var symbolCtor = ScriptVar.CreateNativeFunction();
+            symbolCtor.AddChild("description", ScriptVar.CreateUndefined());
             symbolCtor.SetCallback((scope, _) =>
             {
                 var thisVar = scope.FindChild("this")?.Var;
@@ -54,7 +54,7 @@ namespace DScript.Registrars
 
             // Symbol.prototype.description getter — returns the raw description string
             // (or undefined for anonymous symbols) when accessed on a symbol instance.
-            var descGetter = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var descGetter = ScriptVar.CreateNativeFunction();
             descGetter.SetCallback((scope, _) =>
             {
                 var sym = scope.FindChild("this")?.Var;
@@ -62,11 +62,11 @@ namespace DScript.Registrars
                     throw new ScriptException("TypeError: Symbol.prototype.description requires a Symbol");
                 var rawDesc = sym.GetSymbolDescription();
                 var result = rawDesc != null
-                    ? new ScriptVar(rawDesc)
-                    : new ScriptVar(ScriptVar.Flags.Undefined);
+                    ? ScriptVar.FromString(rawDesc)
+                    : ScriptVar.CreateUndefined();
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
             }, null);
-            var descLink = symbolCtor.FindChild("description") ?? symbolCtor.AddChild("description", new ScriptVar());
+            var descLink = symbolCtor.FindChild("description") ?? symbolCtor.AddChild("description", ScriptVar.CreateUndefined());
             descLink.Getter = descGetter;
 
             // Well-known symbols exposed as static properties
@@ -77,8 +77,8 @@ namespace DScript.Registrars
             symbolCtor.AddChild("asyncIterator", WellKnownSymbols.AsyncIterator);
 
             // Symbol.for(key) — global symbol registry
-            var forFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            forFn.AddChild("key", new ScriptVar(ScriptVar.Flags.Undefined));
+            var forFn = ScriptVar.CreateNativeFunction();
+            forFn.AddChild("key", ScriptVar.CreateUndefined());
             forFn.SetCallback((scope, reg) =>
             {
                 var r = (SymbolRegistry)reg;
@@ -95,8 +95,8 @@ namespace DScript.Registrars
             symbolCtor.AddChild("for", forFn);
 
             // Symbol.keyFor(sym) — retrieve key for a registry symbol
-            var keyForFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            keyForFn.AddChild("sym", new ScriptVar(ScriptVar.Flags.Undefined));
+            var keyForFn = ScriptVar.CreateNativeFunction();
+            keyForFn.AddChild("sym", ScriptVar.CreateUndefined());
             keyForFn.SetCallback((scope, reg) =>
             {
                 var r = (SymbolRegistry)reg;
@@ -105,8 +105,8 @@ namespace DScript.Registrars
                     throw new ScriptException("TypeError: Symbol.keyFor requires a Symbol");
                 var symKey = symVar.GetSymbolKey();
                 ScriptVar result = r.SymbolKeyToKey.TryGetValue(symKey, out var k)
-                    ? new ScriptVar(k)
-                    : new ScriptVar(ScriptVar.Flags.Undefined);
+                    ? ScriptVar.FromString(k)
+                    : ScriptVar.CreateUndefined();
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
             }, registry);
             symbolCtor.AddChild("keyFor", keyForFn);

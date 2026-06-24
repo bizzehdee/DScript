@@ -192,17 +192,17 @@ static ScriptEngine MakeEngine(string scriptPath, string[] scriptArgs)
 
     // Expose __filename and __dirname globals
     var absPath = Path.GetFullPath(scriptPath);
-    engine.Root.FindChildOrCreate("__filename").ReplaceWith(new ScriptVar(absPath));
+    engine.Root.FindChildOrCreate("__filename").ReplaceWith(ScriptVar.FromString(absPath));
     engine.Root.FindChildOrCreate("__dirname").ReplaceWith(
-        new ScriptVar(Path.GetDirectoryName(absPath) ?? "."));
+        ScriptVar.FromString(Path.GetDirectoryName(absPath) ?? "."));
 
     // Expose process.argv
-    var argv = new ScriptVar(ScriptVar.Flags.Array);
-    argv.SetArrayIndex(0, new ScriptVar("dscript"));
-    argv.SetArrayIndex(1, new ScriptVar(absPath));
+    var argv = ScriptVar.CreateArray();
+    argv.SetArrayIndex(0, ScriptVar.FromString("dscript"));
+    argv.SetArrayIndex(1, ScriptVar.FromString(absPath));
     for (var i = 0; i < scriptArgs.Length; i++)
-        argv.SetArrayIndex(i + 2, new ScriptVar(scriptArgs[i]));
-    var process = new ScriptVar(ScriptVar.Flags.Object);
+        argv.SetArrayIndex(i + 2, ScriptVar.FromString(scriptArgs[i]));
+    var process = ScriptVar.CreateObject();
     process.AddChild("argv", argv);
     engine.Root.FindChildOrCreate("process").ReplaceWith(process);
 

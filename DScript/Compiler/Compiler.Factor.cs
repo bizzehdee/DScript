@@ -70,14 +70,14 @@ namespace DScript.Compiler
                 {
                     if (chunk.IsStrict && IsLegacyOctal(lexer.TokenString))
                         throw new ScriptException("SyntaxError: Octal literals are not allowed in strict mode");
-                    var value = new ScriptVar(lexer.TokenString, ScriptVar.Flags.Integer).Int;
+                    var value = ScriptVar.ParseLiteral(lexer.TokenString, ScriptVar.Flags.Integer).Int;
                     lexer.Match(ScriptLex.LexTypes.Int);
                     EmitConstantInt(value);
                     break;
                 }
                 case ScriptLex.LexTypes.Float:
                 {
-                    var value = new ScriptVar(lexer.TokenString, ScriptVar.Flags.Double).Float;
+                    var value = ScriptVar.ParseLiteral(lexer.TokenString, ScriptVar.Flags.Double).Float;
                     lexer.Match(ScriptLex.LexTypes.Float);
                     chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Double(value)));
                     break;

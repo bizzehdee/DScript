@@ -34,8 +34,8 @@ namespace DScript.Vm
         private Thread _thread;
         private readonly SemaphoreSlim _callerReady = new(0, 1);
         private readonly SemaphoreSlim _generatorReady = new(0, 1);
-        private ScriptVar _yieldedValue = new ScriptVar();
-        private ScriptVar _resumeValue = new ScriptVar();
+        private ScriptVar _yieldedValue = ScriptVar.CreateUndefined();
+        private ScriptVar _resumeValue = ScriptVar.CreateUndefined();
         private bool _done;
         private Exception _error;
         private bool _started;
@@ -64,7 +64,7 @@ namespace DScript.Vm
         /// </summary>
         public void Complete(ScriptVar returnValue)
         {
-            _yieldedValue = returnValue ?? new ScriptVar();
+            _yieldedValue = returnValue ?? ScriptVar.CreateUndefined();
             _done = true;
         }
 
@@ -74,9 +74,9 @@ namespace DScript.Vm
         public (ScriptVar value, bool done) Next(ScriptVar input, Action<GeneratorObject> startBody)
         {
             if (_done)
-                return (new ScriptVar(), true);
+                return (ScriptVar.CreateUndefined(), true);
 
-            _resumeValue = input ?? new ScriptVar();
+            _resumeValue = input ?? ScriptVar.CreateUndefined();
 
             if (!_started)
             {

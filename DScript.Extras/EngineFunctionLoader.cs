@@ -1,4 +1,4 @@
-﻿/*
+/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -76,20 +76,20 @@ namespace DScript.Extras
             var envLink = processVar.FindChild("env");
             if (envLink == null)
             {
-                processVar.AddChild("env", new ScriptVar(ScriptVar.Flags.Object));
+                processVar.AddChild("env", ScriptVar.CreateObject());
                 envLink = processVar.FindChild("env");
             }
             if (envLink == null) return;
 
-            var getter = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var getter = ScriptVar.CreateNativeFunction();
             getter.SetCallback((scope, _) =>
             {
                 EnginePermissionStore.Require(engine, EnginePermissions.EnvironmentVariablesRead);
-                var envObj = new ScriptVar(ScriptVar.Flags.Object);
+                var envObj = ScriptVar.CreateObject();
                 foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
                 {
                     if (entry.Key is string key && entry.Value is string val)
-                        envObj.AddChild(key, new ScriptVar(val));
+                        envObj.AddChild(key, ScriptVar.FromString(val));
                 }
                 scope.ReturnVar = envObj;
             }, null);
@@ -117,10 +117,10 @@ namespace DScript.Extras
         /// </summary>
         public static void SetArgv(ScriptEngine engine, string[] argv)
         {
-            var arr = new ScriptVar();
+            var arr = ScriptVar.CreateUndefined();
             arr.SetArray();
             for (var i = 0; i < argv.Length; i++)
-                arr.SetArrayIndex(i, new ScriptVar(argv[i]));
+                arr.SetArrayIndex(i, ScriptVar.FromString(argv[i]));
             engine.Root.AddChildNoDup("__argv__", arr);
         }
 

@@ -117,7 +117,7 @@ namespace DScript.Test
         {
             var engine = MakeEngine();
             engine.Execute("var result = ''; process.on('custom', function(x) { result = x; });");
-            ProcessFunctionProvider.DispatchEvent(engine, "custom", new ScriptVar("hello"));
+            ProcessFunctionProvider.DispatchEvent(engine, "custom", ScriptVar.FromString("hello"));
             Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("hello"));
         }
 

@@ -1,4 +1,4 @@
-﻿/*
+/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -48,7 +48,7 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar.SetArray();
             var idx = 0;
             ProviderHelpers.ForEachEnumerableChild(obj, link =>
-                var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name)));
+                var.ReturnVar.SetArrayIndex(idx++, ScriptVar.FromString(link.Name)));
         }
 
         [ScriptMethod("hasOwnProperty", "name")]
@@ -78,9 +78,9 @@ namespace DScript.Extras.FunctionProviders
             var idx = 0;
             ProviderHelpers.ForEachEnumerableChild(obj, link =>
             {
-                var pair = new ScriptVar();
+                var pair = ScriptVar.CreateUndefined();
                 pair.SetArray();
-                pair.SetArrayIndex(0, new ScriptVar(link.Name));
+                pair.SetArrayIndex(0, ScriptVar.FromString(link.Name));
                 pair.SetArrayIndex(1, link.Var.DeepCopy());
                 var.ReturnVar.SetArrayIndex(idx++, pair);
             });
@@ -104,7 +104,7 @@ namespace DScript.Extras.FunctionProviders
         public static void ObjectFromEntriesImpl(ScriptVar var, object userData)
         {
             var entries = var.GetParameter("entries");
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             var len = entries.GetArrayLength();
             for (var i = 0; i < len; i++)
             {
@@ -135,7 +135,7 @@ namespace DScript.Extras.FunctionProviders
         public static void ObjectCreateImpl(ScriptVar var, object userData)
         {
             var proto = var.GetParameter("proto");
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             if (!proto.IsNull && !proto.IsUndefined)
                 result.AddChildNoDup(ScriptVar.PrototypeClassName, proto);
             var.ReturnVar = result;
@@ -148,7 +148,7 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar.SetArray();
             var idx = 0;
             ProviderHelpers.ForEachOwnChild(obj, link =>
-                var.ReturnVar.SetArrayIndex(idx++, new ScriptVar(link.Name)));
+                var.ReturnVar.SetArrayIndex(idx++, ScriptVar.FromString(link.Name)));
         }
 
         [ScriptMethod("hasOwn", "obj", "key")]
@@ -218,7 +218,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var obj = var.GetParameter("obj");
             var proto = obj.FindChild(ScriptVar.PrototypeClassName);
-            var.ReturnVar = proto != null ? proto.Var : new ScriptVar();  // null if no prototype
+            var.ReturnVar = proto != null ? proto.Var : ScriptVar.CreateUndefined();  // null if no prototype
         }
 
         [ScriptMethod("setPrototypeOf", "obj", "proto")]
@@ -248,26 +248,26 @@ namespace DScript.Extras.FunctionProviders
         public static void ObjectGetOwnPropertyDescriptorsImpl(ScriptVar var, object userData)
         {
             var obj = var.GetParameter("obj");
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             ProviderHelpers.ForEachOwnChild(obj, link => result.AddChildNoDup(link.Name, BuildDescriptor(link)));
             var.ReturnVar = result;
         }
 
         private static ScriptVar BuildDescriptor(ScriptVarLink link)
         {
-            var desc = new ScriptVar();
+            var desc = ScriptVar.CreateUndefined();
             if (link.IsAccessor)
             {
-                desc.AddChildNoDup("get", link.Getter ?? new ScriptVar());
-                desc.AddChildNoDup("set", link.Setter ?? new ScriptVar());
+                desc.AddChildNoDup("get", link.Getter ?? ScriptVar.CreateUndefined());
+                desc.AddChildNoDup("set", link.Setter ?? ScriptVar.CreateUndefined());
             }
             else
             {
                 desc.AddChildNoDup("value", link.Var.DeepCopy());
-                desc.AddChildNoDup("writable", new ScriptVar(link.Writable ? 1 : 0));
+                desc.AddChildNoDup("writable", ScriptVar.FromInt(link.Writable ? 1 : 0));
             }
-            desc.AddChildNoDup("enumerable", new ScriptVar(link.Enumerable ? 1 : 0));
-            desc.AddChildNoDup("configurable", new ScriptVar(link.Configurable ? 1 : 0));
+            desc.AddChildNoDup("enumerable", ScriptVar.FromInt(link.Enumerable ? 1 : 0));
+            desc.AddChildNoDup("configurable", ScriptVar.FromInt(link.Configurable ? 1 : 0));
             return desc;
         }
 
@@ -296,7 +296,7 @@ namespace DScript.Extras.FunctionProviders
 
             if (getterLink != null || setterLink != null)
             {
-                if (link == null) link = obj.AddChild(key, new ScriptVar());
+                if (link == null) link = obj.AddChild(key, ScriptVar.CreateUndefined());
                 if (getterLink != null) link.Getter = getterLink.Var;
                 if (setterLink != null) link.Setter = setterLink.Var;
             }
@@ -310,7 +310,7 @@ namespace DScript.Extras.FunctionProviders
                 }
                 else if (link == null)
                 {
-                    link = obj.AddChild(key, new ScriptVar());
+                    link = obj.AddChild(key, ScriptVar.CreateUndefined());
                 }
                 var writableLink = desc.FindChild("writable");
                 if (writableLink != null) link.Writable = writableLink.Var.Bool;
@@ -330,16 +330,16 @@ namespace DScript.Extras.FunctionProviders
             var keyFn = var.GetParameter("keyFn");
             var len = arr.GetArrayLength();
 
-            var result = new ScriptVar(ScriptVar.Flags.Object);
+            var result = ScriptVar.CreateObject();
             for (var i = 0; i < len; i++)
             {
                 var elem = arr.GetArrayIndex(i);
-                var key = engine.CallFunction(keyFn, null, elem, new ScriptVar(i)).String;
+                var key = engine.CallFunction(keyFn, null, elem, ScriptVar.FromInt(i)).String;
 
                 var group = result.FindChild(key);
                 if (group == null)
                 {
-                    var newArr = new ScriptVar();
+                    var newArr = ScriptVar.CreateUndefined();
                     newArr.SetArray();
                     result.AddChild(key, newArr);
                     group = result.FindChild(key);

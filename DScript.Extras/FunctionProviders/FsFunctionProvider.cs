@@ -79,10 +79,10 @@ namespace DScript.Extras.FunctionProviders
             if (!encVar.IsUndefined && encVar.String == "buffer")
             {
                 var bytes = File.ReadAllBytes(path);
-                var arr = new ScriptVar();
+                var arr = ScriptVar.CreateUndefined();
                 arr.SetArray();
                 for (var i = 0; i < bytes.Length; i++)
-                    arr.SetArrayIndex(i, new ScriptVar(bytes[i]));
+                    arr.SetArrayIndex(i, ScriptVar.FromInt(bytes[i]));
                 var.ReturnVar = arr;
             }
             else
@@ -106,10 +106,10 @@ namespace DScript.Extras.FunctionProviders
             var path = var.GetParameter("path").String;
             RequireFsRead(userData, path);
             var entries = Directory.GetFileSystemEntries(path);
-            var arr = new ScriptVar();
+            var arr = ScriptVar.CreateUndefined();
             arr.SetArray();
             for (var i = 0; i < entries.Length; i++)
-                arr.SetArrayIndex(i, new ScriptVar(Path.GetFileName(entries[i])));
+                arr.SetArrayIndex(i, ScriptVar.FromString(Path.GetFileName(entries[i])));
             var.ReturnVar = arr;
         }
 
@@ -135,18 +135,18 @@ namespace DScript.Extras.FunctionProviders
                 mtimeMs = (di.LastWriteTimeUtc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
             }
 
-            var stat = new ScriptVar(ScriptVar.Flags.Object);
-            stat.AddChild("size",    new ScriptVar((int)size));
-            stat.AddChild("mtimeMs", new ScriptVar(mtimeMs));
+            var stat = ScriptVar.CreateObject();
+            stat.AddChild("size",    ScriptVar.FromInt((int)size));
+            stat.AddChild("mtimeMs", ScriptVar.FromDouble(mtimeMs));
 
             var isFileCaptured = isFile;
             var isDirCaptured  = isDir;
 
-            var isFileFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            isFileFn.SetCallback((scope, _) => { scope.ReturnVar = new ScriptVar(isFileCaptured); }, null);
+            var isFileFn = ScriptVar.CreateNativeFunction();
+            isFileFn.SetCallback((scope, _) => { scope.ReturnVar = ScriptVar.FromBool(isFileCaptured); }, null);
 
-            var isDirFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            isDirFn.SetCallback((scope, _) => { scope.ReturnVar = new ScriptVar(isDirCaptured); }, null);
+            var isDirFn = ScriptVar.CreateNativeFunction();
+            isDirFn.SetCallback((scope, _) => { scope.ReturnVar = ScriptVar.FromBool(isDirCaptured); }, null);
 
             stat.AddChild("isFile",      isFileFn);
             stat.AddChild("isDirectory", isDirFn);

@@ -1,4 +1,4 @@
-﻿/*
+/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -305,7 +305,7 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar.SetArray();
             for (var x = 0; x < len; x++)
             {
-                var mapped = engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr);
+                var mapped = engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr);
                 var.ReturnVar.SetArrayIndex(x, mapped);
             }
         }
@@ -323,7 +323,7 @@ namespace DScript.Extras.FunctionProviders
             for (var x = 0; x < len; x++)
             {
                 var element = arr.GetArrayIndex(x);
-                var keep = engine.CallFunction(callback, null, element, new ScriptVar(x), arr);
+                var keep = engine.CallFunction(callback, null, element, ScriptVar.FromInt(x), arr);
                 if (keep.Bool)
                 {
                     var.ReturnVar.SetArrayIndex(outIdx++, element.DeepCopy());
@@ -341,7 +341,7 @@ namespace DScript.Extras.FunctionProviders
 
             for (var x = 0; x < len; x++)
             {
-                engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr);
+                engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr);
             }
         }
 
@@ -365,7 +365,7 @@ namespace DScript.Extras.FunctionProviders
 
             for (var x = start; x < len; x++)
             {
-                accumulator = engine.CallFunction(callback, null, accumulator, arr.GetArrayIndex(x), new ScriptVar(x), arr);
+                accumulator = engine.CallFunction(callback, null, accumulator, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr);
             }
 
             var.ReturnVar = accumulator;
@@ -383,7 +383,7 @@ namespace DScript.Extras.FunctionProviders
             for (var x = 0; x < len; x++)
             {
                 var elem = arr.GetArrayIndex(x);
-                if (engine.CallFunction(callback, null, elem, new ScriptVar(x), arr).Bool)
+                if (engine.CallFunction(callback, null, elem, ScriptVar.FromInt(x), arr).Bool)
                 {
                     var.ReturnVar = elem;
                     return;
@@ -401,7 +401,7 @@ namespace DScript.Extras.FunctionProviders
             var len = arr.GetArrayLength();
             for (var x = 0; x < len; x++)
             {
-                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr).Bool)
+                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr).Bool)
                 {
                     var.ReturnVar.Int = x;
                     return;
@@ -420,7 +420,7 @@ namespace DScript.Extras.FunctionProviders
             for (var x = len - 1; x >= 0; x--)
             {
                 var elem = arr.GetArrayIndex(x);
-                if (engine.CallFunction(callback, null, elem, new ScriptVar(x), arr).Bool)
+                if (engine.CallFunction(callback, null, elem, ScriptVar.FromInt(x), arr).Bool)
                 {
                     var.ReturnVar = elem;
                     return;
@@ -438,7 +438,7 @@ namespace DScript.Extras.FunctionProviders
             var len = arr.GetArrayLength();
             for (var x = len - 1; x >= 0; x--)
             {
-                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr).Bool)
+                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr).Bool)
                 {
                     var.ReturnVar.Int = x;
                     return;
@@ -456,7 +456,7 @@ namespace DScript.Extras.FunctionProviders
             var len = arr.GetArrayLength();
             for (var x = 0; x < len; x++)
             {
-                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr).Bool)
+                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr).Bool)
                 {
                     var.ReturnVar.Int = 1;
                     return;
@@ -474,7 +474,7 @@ namespace DScript.Extras.FunctionProviders
             var len = arr.GetArrayLength();
             for (var x = 0; x < len; x++)
             {
-                if (!engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr).Bool)
+                if (!engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr).Bool)
                 {
                     var.ReturnVar.Int = 0;
                     return;
@@ -502,7 +502,7 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var depthVar = var.GetParameter("depth");
             var depth = depthVar.IsUndefined ? 1 : depthVar.Int;
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             FlattenInto(result, arr, depth);
             var.ReturnVar = result;
@@ -529,11 +529,11 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
-            var mapped = new ScriptVar();
+            var mapped = ScriptVar.CreateUndefined();
             mapped.SetArray();
             for (var x = 0; x < len; x++)
-                mapped.SetArrayIndex(x, engine.CallFunction(callback, null, arr.GetArrayIndex(x), new ScriptVar(x), arr));
-            var result = new ScriptVar();
+                mapped.SetArrayIndex(x, engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr));
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             FlattenInto(result, mapped, 1);
             var.ReturnVar = result;
@@ -557,7 +557,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var arr = var.GetParameter("this");
             var other = var.GetParameter("other");
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             var outIdx = 0;
             var lenA = arr.GetArrayLength();
@@ -583,7 +583,7 @@ namespace DScript.Extras.FunctionProviders
             var deleteCount = deleteCountVar.IsUndefined ? len - start : Math.Min(Math.Max(deleteCountVar.Int, 0), len - start);
 
             // Build removed array
-            var removed = new ScriptVar();
+            var removed = ScriptVar.CreateUndefined();
             removed.SetArray();
             for (var i = 0; i < deleteCount; i++)
                 removed.SetArrayIndex(i, arr.GetArrayIndex(start + i).DeepCopy());
@@ -626,13 +626,13 @@ namespace DScript.Extras.FunctionProviders
         {
             var arr = var.GetParameter("this");
             var len = arr.GetArrayLength();
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             for (var i = 0; i < len; i++)
             {
-                var pair = new ScriptVar();
+                var pair = ScriptVar.CreateUndefined();
                 pair.SetArray();
-                pair.SetArrayIndex(0, new ScriptVar(i));
+                pair.SetArrayIndex(0, ScriptVar.FromInt(i));
                 pair.SetArrayIndex(1, arr.GetArrayIndex(i).DeepCopy());
                 result.SetArrayIndex(i, pair);
             }
@@ -644,10 +644,10 @@ namespace DScript.Extras.FunctionProviders
         {
             var arr = var.GetParameter("this");
             var len = arr.GetArrayLength();
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             for (var i = 0; i < len; i++)
-                result.SetArrayIndex(i, new ScriptVar(i));
+                result.SetArrayIndex(i, ScriptVar.FromInt(i));
             var.ReturnVar = result;
         }
 
@@ -656,7 +656,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var arr = var.GetParameter("this");
             var len = arr.GetArrayLength();
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             for (var i = 0; i < len; i++)
                 result.SetArrayIndex(i, arr.GetArrayIndex(i).DeepCopy());
@@ -677,13 +677,13 @@ namespace DScript.Extras.FunctionProviders
             var engine = (ScriptEngine)userData;
             var iterable = var.GetParameter("iterable");
             var mapFn = var.GetParameter("mapFn");
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             var len = iterable.GetArrayLength();
             for (var i = 0; i < len; i++)
             {
                 var elem = iterable.GetArrayIndex(i);
-                var mapped = mapFn.IsFunction ? engine.CallFunction(mapFn, null, elem, new ScriptVar(i)) : elem.DeepCopy();
+                var mapped = mapFn.IsFunction ? engine.CallFunction(mapFn, null, elem, ScriptVar.FromInt(i)) : elem.DeepCopy();
                 result.SetArrayIndex(i, mapped);
             }
             var.ReturnVar = result;
@@ -693,7 +693,7 @@ namespace DScript.Extras.FunctionProviders
         public static void ArrayOfImpl(ScriptVar var, object userData)
         {
             var val = var.GetParameter("val");
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             if (!val.IsUndefined)
                 result.SetArrayIndex(0, val.DeepCopy());
@@ -720,7 +720,7 @@ namespace DScript.Extras.FunctionProviders
             }
 
             for (var x = start; x >= 0; x--)
-                accumulator = engine.CallFunction(callback, null, accumulator, arr.GetArrayIndex(x), new ScriptVar(x), arr);
+                accumulator = engine.CallFunction(callback, null, accumulator, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr);
 
             var.ReturnVar = accumulator;
         }
@@ -742,7 +742,7 @@ namespace DScript.Extras.FunctionProviders
             else
                 values.Sort((a, b) => string.CompareOrdinal(a.String, b.String));
 
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             for (var x = 0; x < len; x++)
                 result.SetArrayIndex(x, values[x]);
@@ -754,7 +754,7 @@ namespace DScript.Extras.FunctionProviders
         {
             var arr = var.GetParameter("this");
             var len = arr.GetArrayLength();
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             for (var x = 0; x < len; x++)
                 result.SetArrayIndex(x, arr.GetArrayIndex(len - 1 - x).DeepCopy());
@@ -782,7 +782,7 @@ namespace DScript.Extras.FunctionProviders
             for (var i = start + deleteCount; i < len; i++)
                 items.Add(arr.GetArrayIndex(i).DeepCopy());
 
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             for (var i = 0; i < items.Count; i++)
                 result.SetArrayIndex(i, items[i]);
@@ -799,7 +799,7 @@ namespace DScript.Extras.FunctionProviders
 
             if (index < 0) index = len + index;
 
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             for (var i = 0; i < len; i++)
                 result.SetArrayIndex(i, i == index ? val.DeepCopy() : arr.GetArrayIndex(i).DeepCopy());

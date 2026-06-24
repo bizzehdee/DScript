@@ -34,7 +34,7 @@ namespace DScript.Extras.FunctionProviders
         /// <summary>Build a ScriptVar that wraps this DateObject and exposes Date instance methods.</summary>
         public ScriptVar ToScriptVar()
         {
-            var sv = new ScriptVar(ScriptVar.Flags.Object);
+            var sv = ScriptVar.CreateObject();
             sv.SetData(this);
             return sv;
         }

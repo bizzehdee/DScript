@@ -58,12 +58,12 @@ namespace DScript.Vm
         {
             switch (Kind)
             {
-                case ConstantKind.Int: return new ScriptVar(IntValue);
-                case ConstantKind.Double: return new ScriptVar(DoubleValue);
-                case ConstantKind.String: return new ScriptVar(StringValue, ScriptVar.Flags.String);
-                case ConstantKind.Regex: return new ScriptVar(StringValue, ScriptVar.Flags.Regexp);
+                case ConstantKind.Int: return ScriptVar.FromInt(IntValue);
+                case ConstantKind.Double: return ScriptVar.FromDouble(DoubleValue);
+                case ConstantKind.String: return ScriptVar.ParseLiteral(StringValue, ScriptVar.Flags.String);
+                case ConstantKind.Regex: return ScriptVar.ParseLiteral(StringValue, ScriptVar.Flags.Regexp);
                 case ConstantKind.BigInt: return ScriptVar.CreateBigInt(BigIntValue);
-                default: return new ScriptVar();
+                default: return ScriptVar.CreateUndefined();
             }
         }
 

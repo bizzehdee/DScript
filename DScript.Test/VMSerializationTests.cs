@@ -116,14 +116,14 @@ namespace DScript.Test
         public void TestSerializeDeserialize_ScriptVar()
         {
             // Create a complex variable structure
-            var root = new ScriptVar(null, ScriptVar.Flags.Object);
-            root.AddChild("name", new ScriptVar("Test"));
-            root.AddChild("age", new ScriptVar(42));
-            root.AddChild("score", new ScriptVar(98.5));
-            
-            var nested = new ScriptVar(null, ScriptVar.Flags.Object);
-            nested.AddChild("city", new ScriptVar("London"));
-            nested.AddChild("country", new ScriptVar("UK"));
+            var root = ScriptVar.CreateObject();
+            root.AddChild("name", ScriptVar.FromString("Test"));
+            root.AddChild("age", ScriptVar.FromInt(42));
+            root.AddChild("score", ScriptVar.FromDouble(98.5));
+
+            var nested = ScriptVar.CreateObject();
+            nested.AddChild("city", ScriptVar.FromString("London"));
+            nested.AddChild("country", ScriptVar.FromString("UK"));
             root.AddChild("location", nested);
 
             // Serialize
@@ -159,10 +159,10 @@ namespace DScript.Test
         [Test]
         public void TestSerializeDeserialize_Array()
         {
-            var arr = new ScriptVar(null, ScriptVar.Flags.Array);
-            arr.SetArrayIndex(0, new ScriptVar(1));
-            arr.SetArrayIndex(1, new ScriptVar(2));
-            arr.SetArrayIndex(2, new ScriptVar(3));
+            var arr = ScriptVar.CreateArray();
+            arr.SetArrayIndex(0, ScriptVar.FromInt(1));
+            arr.SetArrayIndex(1, ScriptVar.FromInt(2));
+            arr.SetArrayIndex(2, ScriptVar.FromInt(3));
 
             // Serialize
             byte[] serialized;
@@ -193,7 +193,8 @@ namespace DScript.Test
         [Test]
         public void TestSerializeDeserialize_Function()
         {
-            var func = new ScriptVar("{ return a + b; }", ScriptVar.Flags.Function);
+            var func = ScriptVar.CreateFunction();
+            func.SetData("{ return a + b; }");
             func.AddChild("a", null);
             func.AddChild("b", null);
 

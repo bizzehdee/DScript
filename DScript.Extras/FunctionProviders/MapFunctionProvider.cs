@@ -94,7 +94,7 @@ namespace DScript.Extras.FunctionProviders
         public static void MapKeysImpl(ScriptVar var, object userData)
         {
             var map = GetMap(var.GetParameter("this"));
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             var idx = 0;
             foreach (var k in map.Data.Keys)
@@ -106,7 +106,7 @@ namespace DScript.Extras.FunctionProviders
         public static void MapValuesImpl(ScriptVar var, object userData)
         {
             var map = GetMap(var.GetParameter("this"));
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             var idx = 0;
             foreach (var v in map.Data.Values)
@@ -118,12 +118,12 @@ namespace DScript.Extras.FunctionProviders
         public static void MapEntriesImpl(ScriptVar var, object userData)
         {
             var map = GetMap(var.GetParameter("this"));
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             var idx = 0;
             foreach (var kvp in map.Data)
             {
-                var pair = new ScriptVar();
+                var pair = ScriptVar.CreateUndefined();
                 pair.SetArray();
                 pair.SetArrayIndex(0, kvp.Key);
                 pair.SetArrayIndex(1, kvp.Value);
@@ -154,7 +154,7 @@ namespace DScript.Extras.FunctionProviders
             for (var i = 0; i < len; i++)
             {
                 var elem = arr.GetArrayIndex(i);
-                var key = engine.CallFunction(keyFn, null, elem, new ScriptVar(i));
+                var key = engine.CallFunction(keyFn, null, elem, ScriptVar.FromInt(i));
 
                 // Find existing group for this key
                 ScriptVar group = null;
@@ -165,7 +165,7 @@ namespace DScript.Extras.FunctionProviders
 
                 if (group == null)
                 {
-                    group = new ScriptVar();
+                    group = ScriptVar.CreateUndefined();
                     group.SetArray();
                     mapObj.Data[key.DeepCopy()] = group;
                 }

@@ -1,4 +1,4 @@
-﻿﻿/*
+﻿/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -111,7 +111,7 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar.SetArray();
             for (var x = 0; x < spltStrs.Length; x++)
             {
-                var.ReturnVar.SetArrayIndex(x, new ScriptVar(spltStrs[x]));
+                var.ReturnVar.SetArrayIndex(x, ScriptVar.FromString(spltStrs[x]));
             }
 
         }
@@ -133,7 +133,7 @@ namespace DScript.Extras.FunctionProviders
                 var allMatches = regex.Matches(str);
                 if (allMatches.Count == 0) { var.ReturnVar.SetUndefined(); return; }
                 for (var i = 0; i < allMatches.Count; i++)
-                    var.ReturnVar.SetArrayIndex(i, new ScriptVar(allMatches[i].Value));
+                    var.ReturnVar.SetArrayIndex(i, ScriptVar.FromString(allMatches[i].Value));
                 return;
             }
 
@@ -145,10 +145,10 @@ namespace DScript.Extras.FunctionProviders
             for (var i = 0; i < match.Groups.Count; i++)
             {
                 var g = match.Groups[i];
-                var.ReturnVar.SetArrayIndex(i, g.Success ? new ScriptVar(g.Value) : new ScriptVar(ScriptVar.Flags.Undefined));
+                var.ReturnVar.SetArrayIndex(i, g.Success ? ScriptVar.FromString(g.Value) : ScriptVar.CreateUndefined());
             }
-            var.ReturnVar.AddChild("index", new ScriptVar(match.Index));
-            var.ReturnVar.AddChild("input", new ScriptVar(str));
+            var.ReturnVar.AddChild("index", ScriptVar.FromInt(match.Index));
+            var.ReturnVar.AddChild("input", ScriptVar.FromString(str));
             var.ReturnVar.AddChild("groups", RegExpFunctionProvider.BuildNamedGroups(regex, match));
             if (regexVar.RegexHasIndices)
                 var.ReturnVar.AddChild("indices", RegExpFunctionProvider.BuildIndices(regex, match));
@@ -404,15 +404,15 @@ namespace DScript.Extras.FunctionProviders
             for (var i = 0; i < matches.Count; i++)
             {
                 var m = matches[i];
-                var matchArr = new ScriptVar();
+                var matchArr = ScriptVar.CreateUndefined();
                 matchArr.SetArray();
                 for (var g = 0; g < m.Groups.Count; g++)
                 {
                     var grp = m.Groups[g];
-                    matchArr.SetArrayIndex(g, grp.Success ? new ScriptVar(grp.Value) : new ScriptVar(ScriptVar.Flags.Undefined));
+                    matchArr.SetArrayIndex(g, grp.Success ? ScriptVar.FromString(grp.Value) : ScriptVar.CreateUndefined());
                 }
-                matchArr.AddChild("index", new ScriptVar(m.Index));
-                matchArr.AddChild("input", new ScriptVar(str));
+                matchArr.AddChild("index", ScriptVar.FromInt(m.Index));
+                matchArr.AddChild("input", ScriptVar.FromString(str));
                 matchArr.AddChild("groups", RegExpFunctionProvider.BuildNamedGroups(regex, m));
                 var.ReturnVar.SetArrayIndex(i, matchArr);
             }

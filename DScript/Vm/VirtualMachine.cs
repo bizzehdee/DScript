@@ -47,7 +47,7 @@ namespace DScript.Vm
         // Shared read-only operand for unary 0-based ops. MathsOp only reads its
         // operands (results are always freshly allocated), so sharing is safe and
         // avoids allocating a throwaway zero on every Negate/Not.
-        private static readonly ScriptVar Zero = new(0);
+        private static readonly ScriptVar Zero = ScriptVar.FromInt(0);
 
         // Shared immutable singletons for the four primitive constants that are
         // produced on virtually every bytecode tick (comparisons, undefined reads,
@@ -60,10 +60,10 @@ namespace DScript.Vm
 
         static VirtualMachine()
         {
-            SharedTrue      = new ScriptVar(1);      SharedTrue.PreventExtensionsSelf();
-            SharedFalse     = new ScriptVar(0);      SharedFalse.PreventExtensionsSelf();
-            SharedUndefined = new ScriptVar(ScriptVar.Flags.Undefined); SharedUndefined.PreventExtensionsSelf();
-            SharedNull      = new ScriptVar(ScriptVar.Flags.Null);      SharedNull.PreventExtensionsSelf();
+            SharedTrue      = ScriptVar.FromInt(1);      SharedTrue.PreventExtensionsSelf();
+            SharedFalse     = ScriptVar.FromInt(0);      SharedFalse.PreventExtensionsSelf();
+            SharedUndefined = ScriptVar.CreateUndefined(); SharedUndefined.PreventExtensionsSelf();
+            SharedNull      = ScriptVar.CreateNull();      SharedNull.PreventExtensionsSelf();
         }
 
         // --- structured exception handling ----------------------------------
@@ -106,7 +106,7 @@ namespace DScript.Vm
 
         private ScriptVar BorrowFrameVars()
         {
-            return frameVarsPool.Count > 0 ? frameVarsPool.Pop() : new ScriptVar(ScriptVar.Flags.Object);
+            return frameVarsPool.Count > 0 ? frameVarsPool.Pop() : ScriptVar.CreateObject();
         }
 
         private void ReturnFrameVars(ScriptVar vars)
@@ -256,7 +256,7 @@ namespace DScript.Vm
         /// </summary>
         public ScriptVar Run(Chunk chunk)
         {
-            return Run(chunk, new Environment(new ScriptVar(ScriptVar.Flags.Object), null));
+            return Run(chunk, new Environment(ScriptVar.CreateObject(), null));
         }
 
         public ScriptVar Run(Chunk chunk, Environment env)
@@ -286,7 +286,7 @@ namespace DScript.Vm
             // discard anything the chunk left behind to keep the stack balanced
             sp = startDepth;
 
-            return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
+            return result ?? ScriptVar.CreateUndefined();
         }
 
         private ScriptVar Execute(Chunk chunk, Environment env, GeneratorObject genObj = null, GeneratorState gsState = null)
@@ -396,14 +396,14 @@ namespace DScript.Vm
                             }
                             obj = obj.ProxyTarget ?? obj;
                         }
-                        var keys = new ScriptVar(ScriptVar.Flags.Array);
+                        var keys = ScriptVar.CreateArray();
                         var index = 0;
                         var member = obj.FirstChild;
                         while (member != null)
                         {
                             if (member.Name != ScriptVar.PrototypeClassName && member.Enumerable)
                             {
-                                keys.SetArrayIndex(index++, new ScriptVar(member.Name));
+                                keys.SetArrayIndex(index++, ScriptVar.FromString(member.Name));
                             }
                             member = member.Next;
                         }
@@ -526,13 +526,13 @@ namespace DScript.Vm
                         {
                             // Built-in virtual properties: not cached (rare fast path).
                             if (obj.IsArray && name == "length")
-                                propResult = new ScriptVar(obj.GetArrayLength());
+                                propResult = ScriptVar.FromInt(obj.GetArrayLength());
                             else if (obj.IsString && name == "length")
-                                propResult = new ScriptVar(obj.String.Length);
+                                propResult = ScriptVar.FromInt(obj.String.Length);
                             else if (name == "size" && obj.GetData() is INativeContainer container)
-                                propResult = new ScriptVar(container.GetSize());
+                                propResult = ScriptVar.FromInt(container.GetSize());
                             else
-                                propResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                                propResult = ScriptVar.CreateUndefined();
                         }
 
                         Push(propResult);
@@ -577,14 +577,14 @@ namespace DScript.Vm
                     {
                         var name = chunk.Names[ReadOperand(code, ref ip)];
                         DeleteMember(Pop(), name);
-                        Push(new ScriptVar(true));
+                        Push(ScriptVar.FromBool(true));
                         break;
                     }
                     case OpCode.DeleteIndex:
                     {
                         var key = Pop();
                         DeleteMember(Pop(), KeyName(key));
-                        Push(new ScriptVar(true));
+                        Push(ScriptVar.FromBool(true));
                         break;
                     }
 
@@ -599,15 +599,15 @@ namespace DScript.Vm
                             var hasTrap = handler?.FindChild("has")?.Var;
                             if (hasTrap != null && hasTrap.IsFunction)
                             {
-                                var r = InvokeCallable(hasTrap, handler, new[] { obj.ProxyTarget, new ScriptVar(key.String) });
-                                Push(new ScriptVar(r?.Bool == true));
+                                var r = InvokeCallable(hasTrap, handler, new[] { obj.ProxyTarget, ScriptVar.FromString(key.String) });
+                                Push(ScriptVar.FromBool(r?.Bool == true));
                                 break;
                             }
                             obj = obj.ProxyTarget ?? obj;
                         }
                         var exists = obj.FindChild(key.String) != null ||
                                      (engine != null && engine.FindInParentClasses(obj, key.String) != null);
-                        Push(new ScriptVar(exists));
+                        Push(ScriptVar.FromBool(exists));
                         break;
                     }
                     case OpCode.InstanceOf:
@@ -619,11 +619,11 @@ namespace DScript.Vm
                         if (hasInstanceLink != null && hasInstanceLink.Var.IsFunction)
                         {
                             var result = InvokeCallable(hasInstanceLink.Var, ctor, new[] { value });
-                            Push(new ScriptVar(result?.Bool ?? false));
+                            Push(ScriptVar.FromBool(result?.Bool ?? false));
                         }
                         else
                         {
-                            Push(new ScriptVar(IsInstanceOf(value, ctor)));
+                            Push(ScriptVar.FromBool(IsInstanceOf(value, ctor)));
                         }
                         break;
                     }
@@ -676,7 +676,7 @@ namespace DScript.Vm
                         if (a.IsInt && IntBinary(a.Int, intValue, operatorCode, out var fast))
                             Push(fast);
                         else
-                            Push(a.MathsOp(new ScriptVar(intValue), operatorCode));
+                            Push(a.MathsOp(ScriptVar.FromInt(intValue), operatorCode));
                         break;
                     }
                     case OpCode.Shift:
@@ -692,8 +692,8 @@ namespace DScript.Vm
                         var a = Pop();
                         // numeric fast path avoids the MathsOp dispatch + a temp;
                         // fall back to MathsOp for the (rare) non-numeric cases
-                        if (a.IsInt) Push(new ScriptVar(-a.Int));
-                        else if (a.IsDouble) Push(new ScriptVar(-a.Float));
+                        if (a.IsInt) Push(ScriptVar.FromInt(-a.Int));
+                        else if (a.IsDouble) Push(ScriptVar.FromDouble(-a.Float));
                         else if (a.IsBigInt) Push(ScriptVar.CreateBigInt(-a.BigIntData));
                         else Push(Zero.MathsOp(a, (ScriptLex.LexTypes)'-'));
                         break;
@@ -708,7 +708,7 @@ namespace DScript.Vm
                     {
                         var a = Pop();
                         if (a.IsBigInt) Push(ScriptVar.CreateBigInt(~a.BigIntData));
-                        else Push(new ScriptVar(~a.Int));
+                        else Push(ScriptVar.FromInt(~a.Int));
                         break;
                     }
                     case OpCode.ToNumber:
@@ -720,15 +720,15 @@ namespace DScript.Vm
                     case OpCode.Typeof:
                     {
                         var a = Pop();
-                        Push(new ScriptVar(a.GetObjectType()));
+                        Push(ScriptVar.FromString(a.GetObjectType()));
                         break;
                     }
 
                     case OpCode.NewObject:
-                        Push(new ScriptVar(ScriptVar.Flags.Object));
+                        Push(ScriptVar.CreateObject());
                         break;
                     case OpCode.NewArray:
-                        Push(new ScriptVar(ScriptVar.Flags.Array));
+                        Push(ScriptVar.CreateArray());
                         break;
                     case OpCode.InitProp:
                     {
@@ -742,7 +742,7 @@ namespace DScript.Vm
                         var name = chunk.Names[ReadOperand(code, ref ip)];
                         var getter = Pop();
                         var obj = Peek();
-                        var link = obj.FindChild(name) ?? obj.AddChild(name, new ScriptVar());
+                        var link = obj.FindChild(name) ?? obj.AddChild(name, ScriptVar.CreateUndefined());
                         link.Getter = getter;
                         break;
                     }
@@ -751,7 +751,7 @@ namespace DScript.Vm
                         var name = chunk.Names[ReadOperand(code, ref ip)];
                         var setter = Pop();
                         var obj = Peek();
-                        var link = obj.FindChild(name) ?? obj.AddChild(name, new ScriptVar());
+                        var link = obj.FindChild(name) ?? obj.AddChild(name, ScriptVar.CreateUndefined());
                         link.Setter = setter;
                         break;
                     }
@@ -823,7 +823,7 @@ namespace DScript.Vm
                     case OpCode.MakeClosure:
                     {
                         var fnChunk = chunk.Functions[ReadOperand(code, ref ip)];
-                        var fn = new ScriptVar(ScriptVar.Flags.Function);
+                        var fn = ScriptVar.CreateFunction();
                         fn.SetData(new VmFunction(fnChunk, env));
                         Push(fn);
                         break;
@@ -966,7 +966,7 @@ namespace DScript.Vm
                         if (symIterLink != null && symIterLink.Var.IsFunction)
                         {
                             var iterator = InvokeCallable(symIterLink.Var, iterable, System.Array.Empty<ScriptVar>());
-                            Push(iterator ?? new ScriptVar(ScriptVar.Flags.Object));
+                            Push(iterator ?? ScriptVar.CreateObject());
                             break;
                         }
                         // If it's an array, use a lightweight native iterator that
@@ -979,13 +979,13 @@ namespace DScript.Vm
                         }
                         // Unknown — return an immediately-done iterator
                         {
-                            var doneIter = new ScriptVar(ScriptVar.Flags.Object);
-                            var doneFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                            var doneIter = ScriptVar.CreateObject();
+                            var doneFn = ScriptVar.CreateNativeFunction();
                             doneFn.SetCallback((scope, _) =>
                             {
-                                var result = new ScriptVar(ScriptVar.Flags.Object);
-                                result.AddChild("value", new ScriptVar());
-                                result.AddChild("done", new ScriptVar(true));
+                                var result = ScriptVar.CreateObject();
+                                result.AddChild("value", ScriptVar.CreateUndefined());
+                                result.AddChild("done", ScriptVar.FromBool(true));
                                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
                             }, null);
                             doneIter.AddChild("next", doneFn);
@@ -1023,7 +1023,7 @@ namespace DScript.Vm
                             result = null;
                         var done = result?.FindChild("done")?.Var.Bool ?? true;
                         if (done) { ip = exitOffset; break; }
-                        Push(result.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        Push(result.FindChild("value")?.Var ?? ScriptVar.CreateUndefined());
                         break;
                     }
                     case OpCode.GetAsyncIterator:
@@ -1037,7 +1037,7 @@ namespace DScript.Vm
                             if (asyncIterLink != null && asyncIterLink.Var.IsFunction)
                             {
                                 var iterator = InvokeCallable(asyncIterLink.Var, iterable, System.Array.Empty<ScriptVar>());
-                                Push(iterator ?? new ScriptVar(ScriptVar.Flags.Object));
+                                Push(iterator ?? ScriptVar.CreateObject());
                                 break;
                             }
                         }
@@ -1048,27 +1048,27 @@ namespace DScript.Vm
                         if (symIterLink2 != null && symIterLink2.Var.IsFunction)
                         {
                             var iterator = InvokeCallable(symIterLink2.Var, iterable, System.Array.Empty<ScriptVar>());
-                            Push(iterator ?? new ScriptVar(ScriptVar.Flags.Object));
+                            Push(iterator ?? ScriptVar.CreateObject());
                             break;
                         }
                         if (iterable.IsArray)
                         {
                             var idx2 = new[] { 0 };
                             var len2 = iterable.GetArrayLength();
-                            var iterObj2 = new ScriptVar(ScriptVar.Flags.Object);
-                            var nextFn2 = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                            var iterObj2 = ScriptVar.CreateObject();
+                            var nextFn2 = ScriptVar.CreateNativeFunction();
                             nextFn2.SetCallback((scope, _) =>
                             {
-                                var r2 = new ScriptVar(ScriptVar.Flags.Object);
+                                var r2 = ScriptVar.CreateObject();
                                 if (idx2[0] < len2)
                                 {
                                     r2.AddChild("value", iterable.GetArrayIndex(idx2[0]++));
-                                    r2.AddChild("done", new ScriptVar(false));
+                                    r2.AddChild("done", ScriptVar.FromBool(false));
                                 }
                                 else
                                 {
-                                    r2.AddChild("value", new ScriptVar());
-                                    r2.AddChild("done", new ScriptVar(true));
+                                    r2.AddChild("value", ScriptVar.CreateUndefined());
+                                    r2.AddChild("done", ScriptVar.FromBool(true));
                                 }
                                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(r2);
                             }, null);
@@ -1076,7 +1076,7 @@ namespace DScript.Vm
                             Push(iterObj2);
                             break;
                         }
-                        Push(new ScriptVar(ScriptVar.Flags.Object)); // empty done iterator
+                        Push(ScriptVar.CreateObject()); // empty done iterator
                         break;
                     }
                     case OpCode.ForAwaitOfStep:
@@ -1090,24 +1090,24 @@ namespace DScript.Vm
                         if (nextLink != null)
                             nextResult = InvokeCallable(nextLink.Var, iter, Array.Empty<ScriptVar>());
                         else
-                            nextResult = new ScriptVar(ScriptVar.Flags.Object);
+                            nextResult = ScriptVar.CreateObject();
                         // Yield the Promise so the async drive loop awaits it
                         var resolved = genObj.Yield(nextResult);
                         var done = resolved?.FindChild("done")?.Var.Bool ?? true;
                         if (done) { ip = exitOffset; break; }
-                        Push(resolved?.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        Push(resolved?.FindChild("value")?.Var ?? ScriptVar.CreateUndefined());
                         break;
                     }
                     case OpCode.PushImportMeta:
                     {
-                        var meta = new ScriptVar(ScriptVar.Flags.Object);
+                        var meta = ScriptVar.CreateObject();
                         var modulePath = engine.CurrentModulePath ?? string.Empty;
-                        meta.AddChild("url", new ScriptVar(modulePath));
-                        meta.AddChild("filename", new ScriptVar(modulePath));
+                        meta.AddChild("url", ScriptVar.FromString(modulePath));
+                        meta.AddChild("filename", ScriptVar.FromString(modulePath));
                         var dir = modulePath.Length > 0
                             ? System.IO.Path.GetDirectoryName(modulePath) ?? string.Empty
                             : string.Empty;
-                        meta.AddChild("dirname", new ScriptVar(dir));
+                        meta.AddChild("dirname", ScriptVar.FromString(dir));
                         Push(meta);
                         break;
                     }
@@ -1125,7 +1125,7 @@ namespace DScript.Vm
                         }
                         catch (ScriptException ex)
                         {
-                            var errorVar = new ScriptVar(ex.Message);
+                            var errorVar = ScriptVar.FromString(ex.Message);
                             Push(PromiseObject.Rejected(errorVar).ToScriptVar(this));
                             break;
                         }
@@ -1140,7 +1140,7 @@ namespace DScript.Vm
                         // bind them directly into the call frame (no ScriptVar[]).
                         if (ctor != null && ctor.IsFunction && !ctor.IsNative)
                         {
-                            var instance = new ScriptVar(ScriptVar.Flags.Object);
+                            var instance = ScriptVar.CreateObject();
                             instance.AddChild(ScriptVar.PrototypeClassName, ctor);
                             var result = InvokeVmFunctionFromStack(ctor, instance, argc);
                             sp--; // discard the constructor left below the (popped) args
@@ -1218,11 +1218,11 @@ namespace DScript.Vm
                         for (var k = numExprs - 1; k >= 0; k--)
                             exprs[k] = Pop();
 
-                        var rawArr = new ScriptVar(ScriptVar.Flags.Array);
+                        var rawArr = ScriptVar.CreateArray();
                         for (var k = numStrings - 1; k >= 0; k--)
                             rawArr.SetArrayIndex(k, Pop());
 
-                        var cookedArr = new ScriptVar(ScriptVar.Flags.Array);
+                        var cookedArr = ScriptVar.CreateArray();
                         for (var k = numStrings - 1; k >= 0; k--)
                             cookedArr.SetArrayIndex(k, Pop());
 
@@ -1319,7 +1319,7 @@ namespace DScript.Vm
                     {
                         blockEnvStack ??= new Stack<Environment>();
                         blockEnvStack.Push(env);
-                        env = new Environment(new ScriptVar(ScriptVar.Flags.Object), env, isBlockScope: true);
+                        env = new Environment(ScriptVar.CreateObject(), env, isBlockScope: true);
                         break;
                     }
                     case OpCode.LeaveBlock:
@@ -1438,10 +1438,10 @@ namespace DScript.Vm
                         }
                         else
                         {
-                            if (obj.IsArray && name == "length") propResult = new ScriptVar(obj.GetArrayLength());
-                            else if (obj.IsString && name == "length") propResult = new ScriptVar(obj.String.Length);
-                            else if (name == "size" && obj.GetData() is INativeContainer container2) propResult = new ScriptVar(container2.GetSize());
-                            else propResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                            if (obj.IsArray && name == "length") propResult = ScriptVar.FromInt(obj.GetArrayLength());
+                            else if (obj.IsString && name == "length") propResult = ScriptVar.FromInt(obj.String.Length);
+                            else if (name == "size" && obj.GetData() is INativeContainer container2) propResult = ScriptVar.FromInt(container2.GetSize());
+                            else propResult = ScriptVar.CreateUndefined();
                         }
                         Push(propResult);
                         break;
@@ -1572,10 +1572,10 @@ namespace DScript.Vm
                         }
                         else
                         {
-                            if (obj.IsArray && propName == "length")         propResult = new ScriptVar(obj.GetArrayLength());
-                            else if (obj.IsString && propName == "length")   propResult = new ScriptVar(obj.String.Length);
-                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr) propResult = new ScriptVar(ctnr.GetSize());
-                            else propResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                            if (obj.IsArray && propName == "length")         propResult = ScriptVar.FromInt(obj.GetArrayLength());
+                            else if (obj.IsString && propName == "length")   propResult = ScriptVar.FromInt(obj.String.Length);
+                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr) propResult = ScriptVar.FromInt(ctnr.GetSize());
+                            else propResult = ScriptVar.CreateUndefined();
                         }
                         Push(propResult);
                         break;
@@ -1631,10 +1631,10 @@ namespace DScript.Vm
                         }
                         else
                         {
-                            if (obj.IsArray && propName == "length")         propResult = new ScriptVar(obj.GetArrayLength());
-                            else if (obj.IsString && propName == "length")   propResult = new ScriptVar(obj.String.Length);
-                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr2) propResult = new ScriptVar(ctnr2.GetSize());
-                            else propResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                            if (obj.IsArray && propName == "length")         propResult = ScriptVar.FromInt(obj.GetArrayLength());
+                            else if (obj.IsString && propName == "length")   propResult = ScriptVar.FromInt(obj.String.Length);
+                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr2) propResult = ScriptVar.FromInt(ctnr2.GetSize());
+                            else propResult = ScriptVar.CreateUndefined();
                         }
                         Push(propResult);
                         break;
@@ -1713,7 +1713,7 @@ namespace DScript.Vm
                         }
                         else
                         {
-                            methodResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                            methodResult = ScriptVar.CreateUndefined();
                         }
                         Push(methodResult);
                         break;
@@ -1755,7 +1755,7 @@ namespace DScript.Vm
                             }
                             else
                             {
-                                callTarget = new ScriptVar(ScriptVar.Flags.Undefined);
+                                callTarget = ScriptVar.CreateUndefined();
                             }
                         }
                         Push(InvokeCallable(callTarget, obj, System.Array.Empty<ScriptVar>()));
@@ -1800,7 +1800,7 @@ namespace DScript.Vm
                         }
                         else
                         {
-                            methodResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                            methodResult = ScriptVar.CreateUndefined();
                         }
                         Push(methodResult);
                         break;
@@ -1842,7 +1842,7 @@ namespace DScript.Vm
                             }
                             else
                             {
-                                callTarget = new ScriptVar(ScriptVar.Flags.Undefined);
+                                callTarget = ScriptVar.CreateUndefined();
                             }
                         }
                         Push(InvokeCallable(callTarget, obj, System.Array.Empty<ScriptVar>()));
@@ -1913,7 +1913,7 @@ namespace DScript.Vm
                     {
                         var name = chunk.Names[frame.CatchVarIdx];
                         var link = env.Vars.FindChildOrCreate(name);
-                        link.ReplaceWith(ex.VarObj ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        link.ReplaceWith(ex.VarObj ?? ScriptVar.CreateUndefined());
                         env.Version++;
                     }
                     // Push a catch-protecting frame so that any exception thrown
@@ -1977,7 +1977,7 @@ namespace DScript.Vm
                 if (applyTrap != null && applyTrap.IsFunction)
                 {
                     var argsArr = ArgsToArray(args);
-                    return InvokeCallable(applyTrap, handler, new[] { callee.ProxyTarget, thisArg ?? new ScriptVar(ScriptVar.Flags.Undefined), argsArr });
+                    return InvokeCallable(applyTrap, handler, new[] { callee.ProxyTarget, thisArg ?? ScriptVar.CreateUndefined(), argsArr });
                 }
                 callee = callee.ProxyTarget ?? callee;
                 if (callee == null || !callee.IsFunction)
@@ -1986,7 +1986,7 @@ namespace DScript.Vm
 
             if (callee.IsNative)
             {
-                var scope = new ScriptVar(ScriptVar.Flags.Function);
+                var scope = ScriptVar.CreateFunction();
                 if (thisArg != null) scope.AddChildNoDup("this", thisArg);
 
                 var p = callee.FirstChild;
@@ -2034,7 +2034,7 @@ namespace DScript.Vm
             }
 
             var recyclable = vmfn.Body.RecyclableFrame;
-            var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
+            var vars = recyclable ? BorrowFrameVars() : ScriptVar.CreateObject();
             var callEnv = new Environment(vars, vmfn.Captured);
             if (thisArg != null)
                 vars.AddChildNoDup("this", thisArg);
@@ -2052,7 +2052,7 @@ namespace DScript.Vm
             // Handle rest parameter
             if (restIdx2 >= 0)
             {
-                var restArr = new ScriptVar(ScriptVar.Flags.Array);
+                var restArr = ScriptVar.CreateArray();
                 var restLen = 0;
                 for (var j = restIdx2; j < (args?.Length ?? 0); j++)
                 {
@@ -2064,7 +2064,7 @@ namespace DScript.Vm
             // Bind arguments object for non-arrow functions
             if (!vmfn.Body.IsArrow)
             {
-                var argObj = new ScriptVar(ScriptVar.Flags.Array);
+                var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < (args?.Length ?? 0); j++)
                     argObj.SetArrayIndex(j, BindArg(args, j));
                 if (vmfn.Body.IsStrict) AddStrictArgumentsPoisonPills(argObj);
@@ -2074,7 +2074,7 @@ namespace DScript.Vm
             _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
             if (recyclable)
             {
-                try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
+                try { return Execute(vmfn.Body, callEnv) ?? ScriptVar.CreateUndefined(); }
                 finally
                 {
                     ReturnFrameVars(vars);
@@ -2082,7 +2082,7 @@ namespace DScript.Vm
                 }
             }
 
-            try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
+            try { return Execute(vmfn.Body, callEnv) ?? ScriptVar.CreateUndefined(); }
             finally { _profiler?.Leave(); }
         }
 
@@ -2132,7 +2132,7 @@ namespace DScript.Vm
             }
 
             var recyclable = vmfn.Body.RecyclableFrame;
-            var vars = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
+            var vars = recyclable ? BorrowFrameVars() : ScriptVar.CreateObject();
             var callEnv = new Environment(vars, vmfn.Captured);
             if (thisArg != null)
                 vars.AddChildNoDup("this", thisArg);
@@ -2151,7 +2151,7 @@ namespace DScript.Vm
             // Handle rest parameter
             if (restIdx >= 0)
             {
-                var restArr = new ScriptVar(ScriptVar.Flags.Array);
+                var restArr = ScriptVar.CreateArray();
                 var restLen = 0;
                 for (var j = restIdx; j < argc; j++)
                 {
@@ -2163,7 +2163,7 @@ namespace DScript.Vm
             // Bind arguments object for non-arrow functions
             if (!vmfn.Body.IsArrow)
             {
-                var argObj = new ScriptVar(ScriptVar.Flags.Array);
+                var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < argc; j++)
                     argObj.SetArrayIndex(j, BindArgValue(stack[argBase + j]));
                 if (vmfn.Body.IsStrict) AddStrictArgumentsPoisonPills(argObj);
@@ -2195,7 +2195,7 @@ namespace DScript.Vm
 
                     vmfn       = nextFn;
                     recyclable = vmfn.Body.RecyclableFrame;
-                    vars       = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
+                    vars       = recyclable ? BorrowFrameVars() : ScriptVar.CreateObject();
                     callEnv    = new Environment(vars, vmfn.Captured);
                     BindArgsArrayToVars(vmfn, vars, nextArgs, nextThis);
 
@@ -2231,7 +2231,7 @@ namespace DScript.Vm
             }
             if (restIdx >= 0)
             {
-                var restArr = new ScriptVar(ScriptVar.Flags.Array);
+                var restArr = ScriptVar.CreateArray();
                 var restLen = 0;
                 for (var j = restIdx; j < argc; j++)
                     restArr.SetArrayIndex(restLen++, BindArgValue(args[j]));
@@ -2239,7 +2239,7 @@ namespace DScript.Vm
             }
             if (!vmfn.Body.IsArrow)
             {
-                var argObj = new ScriptVar(ScriptVar.Flags.Array);
+                var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < argc; j++)
                     argObj.SetArrayIndex(j, BindArgValue(args[j]));
                 if (vmfn.Body.IsStrict) AddStrictArgumentsPoisonPills(argObj);
@@ -2251,7 +2251,7 @@ namespace DScript.Vm
         // Used by the generator path to capture args before starting the body thread.
         private static Environment BuildCallEnvironment(VmFunction vmfn, ScriptVar thisArg, ScriptVar[] args)
         {
-            var vars = new ScriptVar(ScriptVar.Flags.Object); // generators never recycle frames
+            var vars = ScriptVar.CreateObject(); // generators never recycle frames
             var env = new Environment(vars, vmfn.Captured);
             if (thisArg != null) vars.AddChildNoDup("this", thisArg);
 
@@ -2263,7 +2263,7 @@ namespace DScript.Vm
 
             if (restIdx >= 0)
             {
-                var restArr = new ScriptVar(ScriptVar.Flags.Array);
+                var restArr = ScriptVar.CreateArray();
                 var restLen = 0;
                 for (var j = restIdx; j < (args?.Length ?? 0); j++)
                     restArr.SetArrayIndex(restLen++, BindArg(args, j));
@@ -2273,7 +2273,7 @@ namespace DScript.Vm
             // Bind arguments object for non-arrow functions
             if (!vmfn.Body.IsArrow)
             {
-                var argObj = new ScriptVar(ScriptVar.Flags.Array);
+                var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < (args?.Length ?? 0); j++)
                     argObj.SetArrayIndex(j, BindArg(args, j));
                 vars.AddChild("arguments", argObj);
@@ -2292,25 +2292,25 @@ namespace DScript.Vm
 
             var genObj = new GeneratorObject();
 
-            var iterObj = new ScriptVar(ScriptVar.Flags.Object);
+            var iterObj = ScriptVar.CreateObject();
 
-            var nextFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var nextFn = ScriptVar.CreateNativeFunction();
             // Declare a "value" parameter so callers can pass a resume value via .next(v)
-            nextFn.AddChild("value", new ScriptVar());
+            nextFn.AddChild("value", ScriptVar.CreateUndefined());
             nextFn.SetCallback((scope, _) =>
             {
                 var inputLink = scope.FindChild("value");
-                var input = inputLink?.Var ?? new ScriptVar();
+                var input = inputLink?.Var ?? ScriptVar.CreateUndefined();
 
                 var (value, done) = genObj.Next(input, g =>
                 {
                     var result = Execute(vmfn.Body, callEnv, g);
-                    g.Complete(result ?? new ScriptVar());
+                    g.Complete(result ?? ScriptVar.CreateUndefined());
                 });
 
-                var resultObj = new ScriptVar(ScriptVar.Flags.Object);
+                var resultObj = ScriptVar.CreateObject();
                 resultObj.AddChild("value", value);
-                resultObj.AddChild("done", new ScriptVar(done));
+                resultObj.AddChild("done", ScriptVar.FromBool(done));
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(resultObj);
             }, null);
 
@@ -2327,19 +2327,19 @@ namespace DScript.Vm
             var gs = new GeneratorState();
             var genVm = new VirtualMachine(engine);
 
-            var iterObj = new ScriptVar(ScriptVar.Flags.Object);
-            var nextFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            nextFn.AddChild("value", new ScriptVar());
+            var iterObj = ScriptVar.CreateObject();
+            var nextFn = ScriptVar.CreateNativeFunction();
+            nextFn.AddChild("value", ScriptVar.CreateUndefined());
             nextFn.SetCallback((scope, _) =>
             {
                 var inputLink = scope.FindChild("value");
-                var input = inputLink?.Var ?? new ScriptVar();
+                var input = inputLink?.Var ?? ScriptVar.CreateUndefined();
 
-                var resultObj = new ScriptVar(ScriptVar.Flags.Object);
+                var resultObj = ScriptVar.CreateObject();
                 if (gs.Done)
                 {
-                    resultObj.AddChild("value", new ScriptVar());
-                    resultObj.AddChild("done", new ScriptVar(true));
+                    resultObj.AddChild("value", ScriptVar.CreateUndefined());
+                    resultObj.AddChild("done", ScriptVar.FromBool(true));
                 }
                 else
                 {
@@ -2349,13 +2349,13 @@ namespace DScript.Vm
                     genVm.Execute(vmfn.Body, callEnv, null, gs);
                     if (!gs.Done)
                     {
-                        resultObj.AddChild("value", gs.YieldedValue ?? new ScriptVar());
-                        resultObj.AddChild("done", new ScriptVar(false));
+                        resultObj.AddChild("value", gs.YieldedValue ?? ScriptVar.CreateUndefined());
+                        resultObj.AddChild("done", ScriptVar.FromBool(false));
                     }
                     else
                     {
-                        resultObj.AddChild("value", new ScriptVar());
-                        resultObj.AddChild("done", new ScriptVar(true));
+                        resultObj.AddChild("value", ScriptVar.CreateUndefined());
+                        resultObj.AddChild("done", ScriptVar.FromBool(true));
                     }
                 }
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(resultObj);
@@ -2382,7 +2382,7 @@ namespace DScript.Vm
                     var (yielded, done) = genObj.Next(resumeValue, g =>
                     {
                         var result = Execute(vmfn.Body, callEnv, g);
-                        g.Complete(result ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                        g.Complete(result ?? ScriptVar.CreateUndefined());
                     });
 
                     if (done)
@@ -2402,8 +2402,8 @@ namespace DScript.Vm
                 catch (Exception ex)
                 {
                     var msg = ex is JITException jit
-                        ? (jit.VarObj ?? new ScriptVar(ex.Message))
-                        : new ScriptVar(ex.Message);
+                        ? (jit.VarObj ?? ScriptVar.FromString(ex.Message))
+                        : ScriptVar.FromString(ex.Message);
                     outerPromise.Reject(msg);
                 }
             }
@@ -2415,7 +2415,7 @@ namespace DScript.Vm
             }
 
             // Start the async function immediately (first .Next call starts the thread).
-            MicroTaskQueue.Enqueue(() => DriveNext(new ScriptVar(ScriptVar.Flags.Undefined)));
+            MicroTaskQueue.Enqueue(() => DriveNext(ScriptVar.CreateUndefined()));
 
             return outerPromise.ToScriptVar(this);
         }
@@ -2428,7 +2428,7 @@ namespace DScript.Vm
         private ScriptVar CreateAsyncGeneratorIterator(VmFunction vmfn, Environment callEnv)
         {
             var genObj = new GeneratorObject();
-            var iterObj = new ScriptVar(ScriptVar.Flags.Object);
+            var iterObj = ScriptVar.CreateObject();
 
             ScriptVar MakeNextPromise(ScriptVar inputValue)
             {
@@ -2441,15 +2441,15 @@ namespace DScript.Vm
                         var (yielded, done) = genObj.Next(resume, g =>
                         {
                             var result = Execute(vmfn.Body, callEnv, g);
-                            g.Complete(result ?? new ScriptVar(ScriptVar.Flags.Undefined));
+                            g.Complete(result ?? ScriptVar.CreateUndefined());
                         });
 
                         if (done)
                         {
                             // Generator finished: resolve with {value: returnVal, done: true}
-                            var finalObj = new ScriptVar(ScriptVar.Flags.Object);
+                            var finalObj = ScriptVar.CreateObject();
                             finalObj.AddChild("value", yielded);
-                            finalObj.AddChild("done", new ScriptVar(true));
+                            finalObj.AddChild("done", ScriptVar.FromBool(true));
                             promise.Resolve(finalObj);
                             return;
                         }
@@ -2459,16 +2459,16 @@ namespace DScript.Vm
                         // Wrap and check: if it resolves to a {value,done} it was a yield;
                         // otherwise it was an await value — re-drive to get the next yield.
                         // Simple approach: always treat as a user yield ({value, done:false}).
-                        var resultObj = new ScriptVar(ScriptVar.Flags.Object);
+                        var resultObj = ScriptVar.CreateObject();
                         resultObj.AddChild("value", yielded);
-                        resultObj.AddChild("done", new ScriptVar(false));
+                        resultObj.AddChild("done", ScriptVar.FromBool(false));
                         promise.Resolve(resultObj);
                     }
                     catch (Exception ex)
                     {
                         var msg = ex is JITException jit
-                            ? (jit.VarObj ?? new ScriptVar(ex.Message))
-                            : new ScriptVar(ex.Message);
+                            ? (jit.VarObj ?? ScriptVar.FromString(ex.Message))
+                            : ScriptVar.FromString(ex.Message);
                         promise.Reject(msg);
                     }
                 }
@@ -2477,18 +2477,18 @@ namespace DScript.Vm
                 return promise.ToScriptVar(this);
             }
 
-            var nextFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            nextFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+            var nextFn = ScriptVar.CreateNativeFunction();
+            nextFn.AddChild("value", ScriptVar.CreateUndefined());
             nextFn.SetCallback((scope, _) =>
             {
                 var inputLink = scope.FindChild("value");
-                var input = inputLink?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var input = inputLink?.Var ?? ScriptVar.CreateUndefined();
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(MakeNextPromise(input));
             }, null);
             iterObj.AddChild("next", nextFn);
 
             // [Symbol.asyncIterator]() { return this; }
-            var asyncIterSelf = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var asyncIterSelf = ScriptVar.CreateNativeFunction();
             asyncIterSelf.SetCallback((scope, _) =>
             {
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(iterObj);
@@ -2502,14 +2502,14 @@ namespace DScript.Vm
         // for strict-mode functions (ES5 §10.6).
         private static void AddStrictArgumentsPoisonPills(ScriptVar argObj)
         {
-            var poison = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var poison = ScriptVar.CreateNativeFunction();
             poison.SetCallback((_, _) =>
                 throw new ScriptException("TypeError: 'callee' and 'caller' are not accessible in strict mode"), null);
 
-            var calleeLink = argObj.AddChild("callee", new ScriptVar(ScriptVar.Flags.Undefined));
+            var calleeLink = argObj.AddChild("callee", ScriptVar.CreateUndefined());
             calleeLink.Getter = poison;
             calleeLink.Setter = poison;
-            var callerLink = argObj.AddChild("caller", new ScriptVar(ScriptVar.Flags.Undefined));
+            var callerLink = argObj.AddChild("caller", ScriptVar.CreateUndefined());
             callerLink.Getter = poison;
             callerLink.Setter = poison;
         }
@@ -2558,7 +2558,7 @@ namespace DScript.Vm
                 ctor = ctor.ProxyTarget ?? ctor;
             }
 
-            var instance = new ScriptVar(ScriptVar.Flags.Object);
+            var instance = ScriptVar.CreateObject();
 
             // link the instance to its constructor so shared members resolve
             instance.AddChild(ScriptVar.PrototypeClassName, ctor);
@@ -2582,10 +2582,10 @@ namespace DScript.Vm
 
         private static ScriptVar ArgsToArray(ScriptVar[] args)
         {
-            var arr = new ScriptVar(ScriptVar.Flags.Array);
+            var arr = ScriptVar.CreateArray();
             for (var i = 0; i < args.Length; i++)
                 arr.AddChild(ScriptVar.IndexName(i), args[i]);
-            arr.AddChild("length", new ScriptVar(args.Length));
+            arr.AddChild("length", ScriptVar.FromInt(args.Length));
             return arr;
         }
 
@@ -2597,7 +2597,7 @@ namespace DScript.Vm
                 var handler = obj.ProxyHandler;
                 var getTrap = handler?.FindChild("get")?.Var;
                 if (getTrap != null && getTrap.IsFunction)
-                    return InvokeCallable(getTrap, handler, new[] { obj.ProxyTarget, new ScriptVar(name), obj });
+                    return InvokeCallable(getTrap, handler, new[] { obj.ProxyTarget, ScriptVar.FromString(name), obj });
                 obj = obj.ProxyTarget ?? obj;
             }
 
@@ -2613,15 +2613,15 @@ namespace DScript.Vm
                 return link.Var;
             }
 
-            if (obj.IsArray && name == "length") return new ScriptVar(obj.GetArrayLength());
-            if (obj.IsString && name == "length") return new ScriptVar(obj.String.Length);
+            if (obj.IsArray && name == "length") return ScriptVar.FromInt(obj.GetArrayLength());
+            if (obj.IsString && name == "length") return ScriptVar.FromInt(obj.String.Length);
             if (obj.IsFunction)
             {
                 if (name == "name")
                 {
-                    if (obj.IsNative) return new ScriptVar(obj.FindChild("name")?.Var?.String ?? "");
+                    if (obj.IsNative) return ScriptVar.FromString(obj.FindChild("name")?.Var?.String ?? "");
                     var vmfn2 = (VmFunction)obj.GetData();
-                    return new ScriptVar(vmfn2?.Body?.Name ?? "");
+                    return ScriptVar.FromString(vmfn2?.Body?.Name ?? "");
                 }
                 if (name == "length")
                 {
@@ -2630,10 +2630,10 @@ namespace DScript.Vm
                         var cnt = 0;
                         var p2 = obj.FirstChild;
                         while (p2 != null) { cnt++; p2 = p2.Next; }
-                        return new ScriptVar(cnt);
+                        return ScriptVar.FromInt(cnt);
                     }
                     var vmfn3 = (VmFunction)obj.GetData();
-                    return new ScriptVar(vmfn3?.Body?.Parameters?.Count ?? 0);
+                    return ScriptVar.FromInt(vmfn3?.Body?.Parameters?.Count ?? 0);
                 }
             }
 
@@ -2642,9 +2642,9 @@ namespace DScript.Vm
             // ScriptVar's data field; this avoids a static registered property that
             // would always return the count at registration time (0).
             if (name == "size" && obj.GetData() is INativeContainer container)
-                return new ScriptVar(container.GetSize());
+                return ScriptVar.FromInt(container.GetSize());
 
-            return new ScriptVar(ScriptVar.Flags.Undefined);
+            return ScriptVar.CreateUndefined();
         }
 
         private void SetMember(ScriptVar obj, string name, ScriptVar value, bool strict = false)
@@ -2656,7 +2656,7 @@ namespace DScript.Vm
                 var setTrap = handler?.FindChild("set")?.Var;
                 if (setTrap != null && setTrap.IsFunction)
                 {
-                    InvokeCallable(setTrap, handler, new[] { obj.ProxyTarget, new ScriptVar(name), value, obj });
+                    InvokeCallable(setTrap, handler, new[] { obj.ProxyTarget, ScriptVar.FromString(name), value, obj });
                     return;
                 }
                 obj = obj.ProxyTarget ?? obj;
@@ -2704,7 +2704,7 @@ namespace DScript.Vm
                 var deleteTrap = handler?.FindChild("deleteProperty")?.Var;
                 if (deleteTrap != null && deleteTrap.IsFunction)
                 {
-                    InvokeCallable(deleteTrap, handler, new[] { obj.ProxyTarget, new ScriptVar(name) });
+                    InvokeCallable(deleteTrap, handler, new[] { obj.ProxyTarget, ScriptVar.FromString(name) });
                     return;
                 }
                 obj = obj.ProxyTarget ?? obj;
@@ -2759,7 +2759,7 @@ namespace DScript.Vm
                 child = child.Next;
             }
             for (var i = 0; i < len; i++)
-                result[i] ??= new ScriptVar(ScriptVar.Flags.Undefined);
+                result[i] ??= ScriptVar.CreateUndefined();
             return result;
         }
 
@@ -2793,14 +2793,14 @@ namespace DScript.Vm
         {
             switch ((char)op)
             {
-                case '+': result = new ScriptVar(a + b); return true;
-                case '-': result = new ScriptVar(a - b); return true;
-                case '*': result = new ScriptVar(a * b); return true;
-                case '/': result = b == 0 ? new ScriptVar((double)a / b) : new ScriptVar(a / b); return true;
-                case '&': result = new ScriptVar(a & b); return true;
-                case '|': result = new ScriptVar(a | b); return true;
-                case '^': result = new ScriptVar(a ^ b); return true;
-                case '%': result = b == 0 ? new ScriptVar(double.NaN) : new ScriptVar(a % b); return true;
+                case '+': result = ScriptVar.FromInt(a + b); return true;
+                case '-': result = ScriptVar.FromInt(a - b); return true;
+                case '*': result = ScriptVar.FromInt(a * b); return true;
+                case '/': result = b == 0 ? ScriptVar.FromDouble((double)a / b) : ScriptVar.FromInt(a / b); return true;
+                case '&': result = ScriptVar.FromInt(a & b); return true;
+                case '|': result = ScriptVar.FromInt(a | b); return true;
+                case '^': result = ScriptVar.FromInt(a ^ b); return true;
+                case '%': result = b == 0 ? ScriptVar.FromDouble(double.NaN) : ScriptVar.FromInt(a % b); return true;
                 case (char)ScriptLex.LexTypes.Equal:  result = a == b ? SharedTrue : SharedFalse; return true;
                 case (char)ScriptLex.LexTypes.NEqual: result = a != b ? SharedTrue : SharedFalse; return true;
                 case '<':                              result = a <  b ? SharedTrue : SharedFalse; return true;
@@ -2829,9 +2829,9 @@ namespace DScript.Vm
             var shift = b.Int;
             switch (op)
             {
-                case ScriptLex.LexTypes.LShift: return new ScriptVar(a.Int << shift);
-                case ScriptLex.LexTypes.RShift: return new ScriptVar(a.Int >> shift);
-                case ScriptLex.LexTypes.RShiftUnsigned: return new ScriptVar(a.Int >>> shift);
+                case ScriptLex.LexTypes.LShift: return ScriptVar.FromInt(a.Int << shift);
+                case ScriptLex.LexTypes.RShift: return ScriptVar.FromInt(a.Int >> shift);
+                case ScriptLex.LexTypes.RShiftUnsigned: return ScriptVar.FromInt(a.Int >>> shift);
                 default: throw new ScriptException("Unsupported shift operator");
             }
         }
@@ -2847,10 +2847,10 @@ namespace DScript.Vm
             if (value.IsString &&
                 double.TryParse(value.String, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
             {
-                return new ScriptVar(parsed);
+                return ScriptVar.FromDouble(parsed);
             }
 
-            return new ScriptVar(double.NaN);
+            return ScriptVar.FromDouble(double.NaN);
         }
     }
 }

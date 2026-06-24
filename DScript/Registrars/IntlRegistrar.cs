@@ -29,7 +29,7 @@ namespace DScript.Registrars
     {
         internal static void Register(ScriptEngine engine)
         {
-            var intl = new ScriptVar(ScriptVar.Flags.Object);
+            var intl = ScriptVar.CreateObject();
 
             RegisterGetCanonicalLocales(intl);
             RegisterCollator(intl, engine);
@@ -47,12 +47,12 @@ namespace DScript.Registrars
             var fn = MakeNative1("locales", (scope, _) =>
             {
                 var localesVar = scope.FindChild("locales")?.Var;
-                var arr = new ScriptVar(ScriptVar.Flags.Array);
+                var arr = ScriptVar.CreateArray();
                 int idx = 0;
 
                 if (localesVar == null || localesVar.IsUndefined || localesVar.IsNull)
                 {
-                    arr.AddChild("length", new ScriptVar(0));
+                    arr.AddChild("length", ScriptVar.FromInt(0));
                     scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(arr);
                     return;
                 }
@@ -60,7 +60,7 @@ namespace DScript.Registrars
                 if (localesVar.IsString)
                 {
                     var tag = NormalizeLocale(localesVar.String);
-                    arr.AddChild(ScriptVar.IndexName(idx++), new ScriptVar(tag));
+                    arr.AddChild(ScriptVar.IndexName(idx++), ScriptVar.FromString(tag));
                 }
                 else if (localesVar.IsArray)
                 {
@@ -69,11 +69,11 @@ namespace DScript.Registrars
                     {
                         var item = localesVar.GetArrayIndex(i);
                         if (item != null && item.IsString)
-                            arr.AddChild(ScriptVar.IndexName(idx++), new ScriptVar(NormalizeLocale(item.String)));
+                            arr.AddChild(ScriptVar.IndexName(idx++), ScriptVar.FromString(NormalizeLocale(item.String)));
                     }
                 }
 
-                arr.AddChild("length", new ScriptVar(idx));
+                arr.AddChild("length", ScriptVar.FromInt(idx));
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(arr);
             });
             intl.AddChild("getCanonicalLocales", fn);
@@ -87,7 +87,7 @@ namespace DScript.Registrars
                 var localeStr = scope.FindChild("locale")?.Var?.String ?? string.Empty;
                 var culture = GetCulture(localeStr);
 
-                var collatorObj = new ScriptVar(ScriptVar.Flags.Object);
+                var collatorObj = ScriptVar.CreateObject();
 
                 // compare(a, b) — returns negative, zero, or positive
                 var compareFn = MakeNative2("a", "b", (cScope, cultureRef) =>
@@ -98,7 +98,7 @@ namespace DScript.Registrars
 #pragma warning disable CA1309 // Culture-sensitive comparison is intentional: Intl.Collator must use locale-aware ordering
                     var result = string.Compare(sa, sb, ci, CompareOptions.None);
 #pragma warning restore CA1309
-                    cScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(result));
+                    cScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromInt(result));
                 });
                 compareFn.SetCallback(compareFn.GetCallback(), culture);
                 collatorObj.AddChild("compare", compareFn);
@@ -107,10 +107,10 @@ namespace DScript.Registrars
                 var resolvedFn = MakeNative0((rScope, cultureRef) =>
                 {
                     var ci = (CultureInfo)cultureRef;
-                    var opts = new ScriptVar(ScriptVar.Flags.Object);
-                    opts.AddChild("locale", new ScriptVar(ci.Name));
-                    opts.AddChild("usage", new ScriptVar("sort"));
-                    opts.AddChild("sensitivity", new ScriptVar("variant"));
+                    var opts = ScriptVar.CreateObject();
+                    opts.AddChild("locale", ScriptVar.FromString(ci.Name));
+                    opts.AddChild("usage", ScriptVar.FromString("sort"));
+                    opts.AddChild("sensitivity", ScriptVar.FromString("variant"));
                     rScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(opts);
                 });
                 resolvedFn.SetCallback(resolvedFn.GetCallback(), culture);
@@ -134,7 +134,7 @@ namespace DScript.Registrars
                 var minFrac = options?.FindChild("minimumFractionDigits")?.Var?.Int ?? -1;
                 var maxFrac = options?.FindChild("maximumFractionDigits")?.Var?.Int ?? -1;
 
-                var nfObj = new ScriptVar(ScriptVar.Flags.Object);
+                var nfObj = ScriptVar.CreateObject();
 
                 // format(number)
                 var formatFn = MakeNative1("value", (fScope, ctx) =>
@@ -170,7 +170,7 @@ namespace DScript.Registrars
                     {
                         result = n.ToString(CultureInfo.InvariantCulture);
                     }
-                    fScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(result));
+                    fScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromString(result));
                 });
                 formatFn.SetCallback(formatFn.GetCallback(), (culture, style, currency, minFrac, maxFrac));
                 nfObj.AddChild("format", formatFn);
@@ -180,12 +180,12 @@ namespace DScript.Registrars
                 {
                     var (ci2, _, _, _, _) = ((CultureInfo, string, string, int, int))ctx;
                     var n = pScope.FindChild("value")?.Var?.Float ?? 0;
-                    var arr = new ScriptVar(ScriptVar.Flags.Array);
-                    var part = new ScriptVar(ScriptVar.Flags.Object);
-                    part.AddChild("type", new ScriptVar("literal"));
-                    part.AddChild("value", new ScriptVar(n.ToString(CultureInfo.InvariantCulture)));
+                    var arr = ScriptVar.CreateArray();
+                    var part = ScriptVar.CreateObject();
+                    part.AddChild("type", ScriptVar.FromString("literal"));
+                    part.AddChild("value", ScriptVar.FromString(n.ToString(CultureInfo.InvariantCulture)));
                     arr.AddChild("0", part);
-                    arr.AddChild("length", new ScriptVar(1));
+                    arr.AddChild("length", ScriptVar.FromInt(1));
                     pScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(arr);
                 });
                 formatToPartsFn.SetCallback(formatToPartsFn.GetCallback(), (culture, style, currency, minFrac, maxFrac));
@@ -195,11 +195,11 @@ namespace DScript.Registrars
                 var resolvedFn = MakeNative0((rScope, ctx) =>
                 {
                     var (ci3, fStyle2, fCurrency2, fMinFrac2, fMaxFrac2) = ((CultureInfo, string, string, int, int))ctx;
-                    var opts = new ScriptVar(ScriptVar.Flags.Object);
-                    opts.AddChild("locale", new ScriptVar(ci3.Name.Length > 0 ? ci3.Name : "en-US"));
-                    opts.AddChild("style", new ScriptVar(fStyle2));
-                    opts.AddChild("minimumFractionDigits", new ScriptVar(fMinFrac2 >= 0 ? fMinFrac2 : 0));
-                    opts.AddChild("maximumFractionDigits", new ScriptVar(fMaxFrac2 >= 0 ? fMaxFrac2 : 3));
+                    var opts = ScriptVar.CreateObject();
+                    opts.AddChild("locale", ScriptVar.FromString(ci3.Name.Length > 0 ? ci3.Name : "en-US"));
+                    opts.AddChild("style", ScriptVar.FromString(fStyle2));
+                    opts.AddChild("minimumFractionDigits", ScriptVar.FromInt(fMinFrac2 >= 0 ? fMinFrac2 : 0));
+                    opts.AddChild("maximumFractionDigits", ScriptVar.FromInt(fMaxFrac2 >= 0 ? fMaxFrac2 : 3));
                     rScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(opts);
                 });
                 resolvedFn.SetCallback(resolvedFn.GetCallback(), (culture, style, currency, minFrac, maxFrac));
@@ -220,7 +220,7 @@ namespace DScript.Registrars
                 var options = scope.FindChild("options")?.Var;
                 var dateStyle = options?.FindChild("dateStyle")?.Var?.String ?? "short";
 
-                var dtfObj = new ScriptVar(ScriptVar.Flags.Object);
+                var dtfObj = ScriptVar.CreateObject();
 
                 // format(timestamp) — timestamp is milliseconds since Unix epoch
                 var formatFn = MakeNative1("value", (fScope, ctx) =>
@@ -243,7 +243,7 @@ namespace DScript.Registrars
                     {
                         result = dt.ToString("d", CultureInfo.InvariantCulture);
                     }
-                    fScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(result));
+                    fScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromString(result));
                 });
                 formatFn.SetCallback(formatFn.GetCallback(), (culture, dateStyle));
                 dtfObj.AddChild("format", formatFn);
@@ -254,12 +254,12 @@ namespace DScript.Registrars
                     var (ci2, _) = ((CultureInfo, string))ctx;
                     var ms = pScope.FindChild("value")?.Var?.Float ?? 0;
                     var dt = DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
-                    var arr = new ScriptVar(ScriptVar.Flags.Array);
-                    var part = new ScriptVar(ScriptVar.Flags.Object);
-                    part.AddChild("type", new ScriptVar("literal"));
-                    part.AddChild("value", new ScriptVar(dt.ToString("d", ci2)));
+                    var arr = ScriptVar.CreateArray();
+                    var part = ScriptVar.CreateObject();
+                    part.AddChild("type", ScriptVar.FromString("literal"));
+                    part.AddChild("value", ScriptVar.FromString(dt.ToString("d", ci2)));
                     arr.AddChild("0", part);
-                    arr.AddChild("length", new ScriptVar(1));
+                    arr.AddChild("length", ScriptVar.FromInt(1));
                     pScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(arr);
                 });
                 formatToPartsFn.SetCallback(formatToPartsFn.GetCallback(), (culture, dateStyle));
@@ -269,9 +269,9 @@ namespace DScript.Registrars
                 var resolvedFn = MakeNative0((rScope, ctx) =>
                 {
                     var (ci3, ds2) = ((CultureInfo, string))ctx;
-                    var opts = new ScriptVar(ScriptVar.Flags.Object);
-                    opts.AddChild("locale", new ScriptVar(ci3.Name.Length > 0 ? ci3.Name : "en-US"));
-                    opts.AddChild("dateStyle", new ScriptVar(ds2));
+                    var opts = ScriptVar.CreateObject();
+                    opts.AddChild("locale", ScriptVar.FromString(ci3.Name.Length > 0 ? ci3.Name : "en-US"));
+                    opts.AddChild("dateStyle", ScriptVar.FromString(ds2));
                     rScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(opts);
                 });
                 resolvedFn.SetCallback(resolvedFn.GetCallback(), (culture, dateStyle));
@@ -292,7 +292,7 @@ namespace DScript.Registrars
                 var options = scope.FindChild("options")?.Var;
                 var type = options?.FindChild("type")?.Var?.String ?? "language";
 
-                var dnObj = new ScriptVar(ScriptVar.Flags.Object);
+                var dnObj = ScriptVar.CreateObject();
 
                 // of(code)
                 var ofFn = MakeNative1("code", (oScope, ctx) =>
@@ -315,7 +315,7 @@ namespace DScript.Registrars
                     {
                         result = code;
                     }
-                    oScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(result));
+                    oScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromString(result));
                 });
                 ofFn.SetCallback(ofFn.GetCallback(), (culture, type));
                 dnObj.AddChild("of", ofFn);
@@ -333,7 +333,7 @@ namespace DScript.Registrars
                 var localeStr = scope.FindChild("locale")?.Var?.String ?? string.Empty;
                 var culture = GetCulture(localeStr);
 
-                var prObj = new ScriptVar(ScriptVar.Flags.Object);
+                var prObj = ScriptVar.CreateObject();
 
                 // select(n) — returns "one", "two", "few", "many", "other"
                 var selectFn = MakeNative1("value", (sScope, ctx) =>
@@ -341,7 +341,7 @@ namespace DScript.Registrars
                     var ci = (CultureInfo)ctx;
                     var n = sScope.FindChild("value")?.Var?.Float ?? 0;
                     var plural = GetPluralCategory(n, ci);
-                    sScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(plural));
+                    sScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromString(plural));
                 });
                 selectFn.SetCallback(selectFn.GetCallback(), culture);
                 prObj.AddChild("select", selectFn);
@@ -350,9 +350,9 @@ namespace DScript.Registrars
                 var resolvedFn = MakeNative0((rScope, ctx) =>
                 {
                     var ci2 = (CultureInfo)ctx;
-                    var opts = new ScriptVar(ScriptVar.Flags.Object);
-                    opts.AddChild("locale", new ScriptVar(ci2.Name.Length > 0 ? ci2.Name : "en-US"));
-                    opts.AddChild("type", new ScriptVar("cardinal"));
+                    var opts = ScriptVar.CreateObject();
+                    opts.AddChild("locale", ScriptVar.FromString(ci2.Name.Length > 0 ? ci2.Name : "en-US"));
+                    opts.AddChild("type", ScriptVar.FromString("cardinal"));
                     rScope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(opts);
                 });
                 resolvedFn.SetCallback(resolvedFn.GetCallback(), culture);
@@ -413,24 +413,24 @@ namespace DScript.Registrars
 
         private static ScriptVar MakeNative0(ScriptEngine.ScriptCallbackCB cb)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var fn = ScriptVar.CreateNativeFunction();
             fn.SetCallback(cb, null);
             return fn;
         }
 
         private static ScriptVar MakeNative1(string p1, ScriptEngine.ScriptCallbackCB cb)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild(p1, new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild(p1, ScriptVar.CreateUndefined());
             fn.SetCallback(cb, null);
             return fn;
         }
 
         private static ScriptVar MakeNative2(string p1, string p2, ScriptEngine.ScriptCallbackCB cb)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild(p1, new ScriptVar(ScriptVar.Flags.Undefined));
-            fn.AddChild(p2, new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild(p1, ScriptVar.CreateUndefined());
+            fn.AddChild(p2, ScriptVar.CreateUndefined());
             fn.SetCallback(cb, null);
             return fn;
         }

@@ -41,21 +41,21 @@ namespace DScript.Extras.FunctionProviders
             var engine = userData as ScriptEngine;
             var handler = var.GetParameter("fn");
 
-            var serverObj = new ScriptVar(ScriptVar.Flags.Object);
+            var serverObj = ScriptVar.CreateObject();
 
             // Store request handler function
-            serverObj.AddChild(HandlerKey, handler.IsFunction ? handler : new ScriptVar(ScriptVar.Flags.Undefined));
-            serverObj.AddChild(RunningKey, new ScriptVar(0));
+            serverObj.AddChild(HandlerKey, handler.IsFunction ? handler : ScriptVar.CreateUndefined());
+            serverObj.AddChild(RunningKey, ScriptVar.FromInt(0));
 
             var capturedServer = serverObj;
             var capturedEngine = engine;
 
             // .listen(port, host?, cb?) — starts the HttpListener and blocks processing
             // requests synchronously one at a time until .close() is called.
-            var listenFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            listenFn.AddChild("port", new ScriptVar(ScriptVar.Flags.Undefined));
-            listenFn.AddChild("host", new ScriptVar(ScriptVar.Flags.Undefined));
-            listenFn.AddChild("cb", new ScriptVar(ScriptVar.Flags.Undefined));
+            var listenFn = ScriptVar.CreateNativeFunction();
+            listenFn.AddChild("port", ScriptVar.CreateUndefined());
+            listenFn.AddChild("host", ScriptVar.CreateUndefined());
+            listenFn.AddChild("cb", ScriptVar.CreateUndefined());
             listenFn.SetCallback((scope, _) =>
             {
                 var portVar = scope.FindChild("port")?.Var;
@@ -75,7 +75,7 @@ namespace DScript.Extras.FunctionProviders
                 listener.Start();
 
                 // Store listener so close() can stop it
-                var listenerVar = new ScriptVar(ScriptVar.Flags.Object);
+                var listenerVar = ScriptVar.CreateObject();
                 listenerVar.SetData(listener);
                 capturedServer.AddChildNoDup(ListenerKey, listenerVar);
                 capturedServer.FindChild(RunningKey).Var.Int = 1;
@@ -112,8 +112,8 @@ namespace DScript.Extras.FunctionProviders
             // Sets running=0 so the loop exits after HandleRequest returns.
             // For calls from outside a handler (e.g. another thread), also calls hl.Stop()
             // to interrupt a blocking GetContext(); the loop will catch the exception and exit.
-            var closeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            closeFn.AddChild("cb", new ScriptVar(ScriptVar.Flags.Undefined));
+            var closeFn = ScriptVar.CreateNativeFunction();
+            closeFn.AddChild("cb", ScriptVar.CreateUndefined());
             closeFn.SetCallback((scope, _) =>
             {
                 capturedServer.FindChild(RunningKey).Var.Int = 0;
@@ -156,14 +156,14 @@ namespace DScript.Extras.FunctionProviders
 
         private static ScriptVar BuildRequestObject(HttpListenerRequest req, ScriptEngine engine)
         {
-            var reqVar = new ScriptVar(ScriptVar.Flags.Object);
-            reqVar.AddChild("method", new ScriptVar(req.HttpMethod));
-            reqVar.AddChild("url", new ScriptVar(req.RawUrl ?? "/"));
+            var reqVar = ScriptVar.CreateObject();
+            reqVar.AddChild("method", ScriptVar.FromString(req.HttpMethod));
+            reqVar.AddChild("url", ScriptVar.FromString(req.RawUrl ?? "/"));
 
             // headers object
-            var headersVar = new ScriptVar(ScriptVar.Flags.Object);
+            var headersVar = ScriptVar.CreateObject();
             foreach (string key in req.Headers.Keys)
-                headersVar.AddChild(key.ToLowerInvariant(), new ScriptVar(req.Headers[key] ?? ""));
+                headersVar.AddChild(key.ToLowerInvariant(), ScriptVar.FromString(req.Headers[key] ?? ""));
             reqVar.AddChild("headers", headersVar);
 
             // Read body
@@ -178,8 +178,8 @@ namespace DScript.Extras.FunctionProviders
 
             // .on('data', fn) — fires immediately with the body (synchronous model)
             // .on('end', fn) — fires immediately after data
-            var dataHandlers  = new ScriptVar(); dataHandlers.SetArray();
-            var endHandlers   = new ScriptVar(); endHandlers.SetArray();
+            var dataHandlers  = ScriptVar.CreateUndefined(); dataHandlers.SetArray();
+            var endHandlers   = ScriptVar.CreateUndefined(); endHandlers.SetArray();
             const string dataKey = "__reqData__";
             const string endKey  = "__reqEnd__";
             reqVar.AddChild(dataKey, dataHandlers);
@@ -189,9 +189,9 @@ namespace DScript.Extras.FunctionProviders
             var capturedBody = bodyStr;
             var capturedEngine = engine;
 
-            var onFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            onFn.AddChild("event", new ScriptVar(ScriptVar.Flags.Undefined));
-            onFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            var onFn = ScriptVar.CreateNativeFunction();
+            onFn.AddChild("event", ScriptVar.CreateUndefined());
+            onFn.AddChild("fn", ScriptVar.CreateUndefined());
             onFn.SetCallback((scope, _) =>
             {
                 var evName = scope.FindChild("event")?.Var?.String ?? "";
@@ -199,7 +199,7 @@ namespace DScript.Extras.FunctionProviders
                 if (fn == null || !fn.IsFunction || capturedEngine == null) return;
 
                 if (evName == "data" && !string.IsNullOrEmpty(capturedBody))
-                    capturedEngine.CallFunction(fn, null, new ScriptVar(capturedBody));
+                    capturedEngine.CallFunction(fn, null, ScriptVar.FromString(capturedBody));
                 else if (evName == "end")
                     capturedEngine.CallFunction(fn, null);
                 // 'data' with empty body: just don't fire (no data)
@@ -224,12 +224,12 @@ namespace DScript.Extras.FunctionProviders
             // connection before the client has read the response body.
             state.Response.KeepAlive = false;
 
-            var respVar = new ScriptVar(ScriptVar.Flags.Object);
+            var respVar = ScriptVar.CreateObject();
 
             // .writeHead(status, headers?)
-            var writeHeadFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            writeHeadFn.AddChild("status", new ScriptVar(ScriptVar.Flags.Undefined));
-            writeHeadFn.AddChild("headers", new ScriptVar(ScriptVar.Flags.Undefined));
+            var writeHeadFn = ScriptVar.CreateNativeFunction();
+            writeHeadFn.AddChild("status", ScriptVar.CreateUndefined());
+            writeHeadFn.AddChild("headers", ScriptVar.CreateUndefined());
             writeHeadFn.SetCallback((scope, _) =>
             {
                 var statusVar = scope.FindChild("status")?.Var;
@@ -250,8 +250,8 @@ namespace DScript.Extras.FunctionProviders
             respVar.AddChild("writeHead", writeHeadFn);
 
             // .write(data)
-            var writeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            writeFn.AddChild("data", new ScriptVar(ScriptVar.Flags.Undefined));
+            var writeFn = ScriptVar.CreateNativeFunction();
+            writeFn.AddChild("data", ScriptVar.CreateUndefined());
             writeFn.SetCallback((scope, _) =>
             {
                 if (state.Ended) return;
@@ -263,8 +263,8 @@ namespace DScript.Extras.FunctionProviders
             respVar.AddChild("write", writeFn);
 
             // .end(data?)
-            var endFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            endFn.AddChild("data", new ScriptVar(ScriptVar.Flags.Undefined));
+            var endFn = ScriptVar.CreateNativeFunction();
+            endFn.AddChild("data", ScriptVar.CreateUndefined());
             endFn.SetCallback((scope, _) =>
             {
                 if (state.Ended) return;

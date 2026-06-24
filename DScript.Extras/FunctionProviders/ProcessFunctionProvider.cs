@@ -1,4 +1,4 @@
-﻿/*
+/*
 Copyright (c) 2014 - 2020 Darren Horrocks
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -53,7 +53,7 @@ namespace DScript.Extras.FunctionProviders
             EnginePermissionStore.Require(engine, EnginePermissions.ProcessExit);
             var codeVar = var.GetParameter("code");
             var code = codeVar.IsUndefined ? 0 : codeVar.Int;
-            DispatchEvent(engine, "exit", new ScriptVar(code));
+            DispatchEvent(engine, "exit", ScriptVar.FromInt(code));
             Environment.Exit(code);
         }
 
@@ -87,7 +87,7 @@ namespace DScript.Extras.FunctionProviders
                 var.ReturnVar = argvLink.Var;
             else
             {
-                var empty = new ScriptVar();
+                var empty = ScriptVar.CreateUndefined();
                 empty.SetArray();
                 var.ReturnVar = empty;
             }
@@ -127,7 +127,7 @@ namespace DScript.Extras.FunctionProviders
             var handlers = engine.Root.FindChild(handlerKey);
             if (handlers == null)
             {
-                var arr = new ScriptVar();
+                var arr = ScriptVar.CreateUndefined();
                 arr.SetArray();
                 engine.Root.AddChild(handlerKey, arr);
                 handlers = engine.Root.FindChild(handlerKey);

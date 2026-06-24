@@ -29,7 +29,7 @@ namespace DScript.Test
         public void RaiseEvent_HandlerCalledWithArgs()
         {
             var engine = MakeEngine("var result = 0; on('tick', function(v) { result = v; });");
-            engine.RaiseEvent("tick", new ScriptVar(42));
+            engine.RaiseEvent("tick", ScriptVar.FromInt(42));
             Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(42));
         }
 
@@ -57,7 +57,7 @@ namespace DScript.Test
         public void RaiseEvent_MultipleArgs_AllForwarded()
         {
             var engine = MakeEngine("var x = 0, y = 0; on('move', function(a, b) { x = a; y = b; });");
-            engine.RaiseEvent("move", new ScriptVar(10), new ScriptVar(20));
+            engine.RaiseEvent("move", ScriptVar.FromInt(10), ScriptVar.FromInt(20));
             Assert.That(engine.Root.GetParameter("x").Int, Is.EqualTo(10));
             Assert.That(engine.Root.GetParameter("y").Int, Is.EqualTo(20));
         }
@@ -142,7 +142,7 @@ namespace DScript.Test
         public void RaiseEvent_AfterHandlerRegistered_Fires()
         {
             var engine = MakeEngine("var result = 0; on('late', function(v) { result = v; });");
-            engine.RaiseEvent("late", new ScriptVar(5));
+            engine.RaiseEvent("late", ScriptVar.FromInt(5));
             Assert.That(engine.Root.GetParameter("result").Int, Is.EqualTo(5));
         }
     }

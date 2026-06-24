@@ -28,8 +28,8 @@ namespace DScript.Extras.Registrars
     {
         internal static void Register(ScriptEngine engine)
         {
-            var ctor = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            ctor.AddChild("target", new ScriptVar(ScriptVar.Flags.Undefined));
+            var ctor = ScriptVar.CreateNativeFunction();
+            ctor.AddChild("target", ScriptVar.CreateUndefined());
             ctor.SetCallback((scope, _) =>
             {
                 var thisVar = scope.FindChild("this")?.Var;

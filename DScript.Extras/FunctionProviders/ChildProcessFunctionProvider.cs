@@ -171,14 +171,14 @@ namespace DScript.Extras.FunctionProviders
                 throw new ScriptException($"spawnSync failed: {ex.Message}");
             }
 
-            var result = new ScriptVar(ScriptVar.Flags.Object);
-            result.AddChild("stdout", new ScriptVar(stdout));
-            result.AddChild("stderr", new ScriptVar(stderr));
-            result.AddChild("status", new ScriptVar(status));
+            var result = ScriptVar.CreateObject();
+            result.AddChild("stdout", ScriptVar.FromString(stdout));
+            result.AddChild("stderr", ScriptVar.FromString(stderr));
+            result.AddChild("status", ScriptVar.FromInt(status));
             if (signal != null)
-                result.AddChild("signal", new ScriptVar(signal));
+                result.AddChild("signal", ScriptVar.FromString(signal));
             else
-                result.AddChild("signal", new ScriptVar(ScriptVar.Flags.Null));
+                result.AddChild("signal", ScriptVar.CreateNull());
 
             var.ReturnVar = result;
         }
@@ -207,14 +207,14 @@ namespace DScript.Extras.FunctionProviders
             catch (Exception ex)
             {
                 if (cb.IsFunction && engine != null)
-                    engine.CallFunction(cb, null, new ScriptVar(ex.Message));
+                    engine.CallFunction(cb, null, ScriptVar.FromString(ex.Message));
                 return;
             }
 
             if (cb.IsFunction && engine != null)
             {
-                var errArg = exitCode != 0 ? new ScriptVar(stderr.Trim()) : new ScriptVar(ScriptVar.Flags.Null);
-                engine.CallFunction(cb, null, errArg, new ScriptVar(stdout), new ScriptVar(stderr));
+                var errArg = exitCode != 0 ? ScriptVar.FromString(stderr.Trim()) : ScriptVar.CreateNull();
+                engine.CallFunction(cb, null, errArg, ScriptVar.FromString(stdout), ScriptVar.FromString(stderr));
             }
         }
 
@@ -256,13 +256,13 @@ namespace DScript.Extras.FunctionProviders
             const string dataKey     = "__cpData__";
             const string errorKey    = "__cpError__";
 
-            var procObj = new ScriptVar(ScriptVar.Flags.Object);
+            var procObj = ScriptVar.CreateObject();
             // Mark as not-yet-exited; set to int after the process finishes.
-            procObj.AddChild(exitCodeKey, new ScriptVar(ScriptVar.Flags.Undefined));
-            procObj.AddChild(stdoutKey, new ScriptVar(ScriptVar.Flags.Undefined));
+            procObj.AddChild(exitCodeKey, ScriptVar.CreateUndefined());
+            procObj.AddChild(stdoutKey, ScriptVar.CreateUndefined());
 
-            var dataHandlers = new ScriptVar(); dataHandlers.SetArray();
-            var errorHandlers = new ScriptVar(); errorHandlers.SetArray();
+            var dataHandlers = ScriptVar.CreateUndefined(); dataHandlers.SetArray();
+            var errorHandlers = ScriptVar.CreateUndefined(); errorHandlers.SetArray();
             procObj.AddChild(dataKey, dataHandlers);
             procObj.AddChild(errorKey, errorHandlers);
 
@@ -270,9 +270,9 @@ namespace DScript.Extras.FunctionProviders
             // fire 'exit' / 'data' immediately; otherwise store for deferred firing.
             var capturedObj = procObj;
             var capturedEngine = engine;
-            var onFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            onFn.AddChild("event", new ScriptVar(ScriptVar.Flags.Undefined));
-            onFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            var onFn = ScriptVar.CreateNativeFunction();
+            onFn.AddChild("event", ScriptVar.CreateUndefined());
+            onFn.AddChild("fn", ScriptVar.CreateUndefined());
             onFn.SetCallback((scope, _) =>
             {
                 var evName = scope.FindChild("event")?.Var?.String ?? "";
@@ -319,7 +319,7 @@ namespace DScript.Extras.FunctionProviders
                 using var proc = Process.Start(psi);
                 if (proc != null)
                 {
-                    procObj.AddChild("pid", new ScriptVar(proc.Id));
+                    procObj.AddChild("pid", ScriptVar.FromInt(proc.Id));
                     stdout = proc.StandardOutput.ReadToEnd();
                     proc.StandardError.ReadToEnd(); // drain stderr to prevent deadlock
                     proc.WaitForExit(timeout);
@@ -327,7 +327,7 @@ namespace DScript.Extras.FunctionProviders
                 }
                 else
                 {
-                    procObj.AddChild("pid", new ScriptVar(-1));
+                    procObj.AddChild("pid", ScriptVar.FromInt(-1));
                 }
             }
             catch (Exception ex)
@@ -342,7 +342,7 @@ namespace DScript.Extras.FunctionProviders
                         {
                             var fn = errArr.GetArrayIndex(i);
                             if (fn.IsFunction)
-                                engine.CallFunction(fn, null, new ScriptVar(ex.Message));
+                                engine.CallFunction(fn, null, ScriptVar.FromString(ex.Message));
                         }
                     }
                 }

@@ -41,10 +41,10 @@ namespace DScript.Extras.FunctionProviders
             var n = var.GetParameter("n").Int;
             if (n < 0) n = 0;
             var bytes = RandomNumberGenerator.GetBytes(n);
-            var result = new ScriptVar();
+            var result = ScriptVar.CreateUndefined();
             result.SetArray();
             for (var i = 0; i < bytes.Length; i++)
-                result.SetArrayIndex(i, new ScriptVar(bytes[i]));
+                result.SetArrayIndex(i, ScriptVar.FromInt(bytes[i]));
             var.ReturnVar = result;
         }
 
@@ -57,7 +57,7 @@ namespace DScript.Extras.FunctionProviders
             for (var i = 0; i < len; i++)
             {
                 var value = BitConverter.ToInt32(bytes, i * 4);
-                arr.SetArrayIndex(i, new ScriptVar(value));
+                arr.SetArrayIndex(i, ScriptVar.FromInt(value));
             }
             var.ReturnVar = arr;
         }
@@ -66,7 +66,7 @@ namespace DScript.Extras.FunctionProviders
         public static void CryptoCreateHashImpl(ScriptVar var, object userData)
         {
             var algo = var.GetParameter("algo").String;
-            var hashObj = new ScriptVar(ScriptVar.Flags.Object);
+            var hashObj = ScriptVar.CreateObject();
             var accumulator = new StringBuilder();
 
             hashObj.AddChild("update", MakeUpdateFn(accumulator));
@@ -81,7 +81,7 @@ namespace DScript.Extras.FunctionProviders
             var key = var.GetParameter("key").String;
             var accumulator = new StringBuilder();
 
-            var hmacObj = new ScriptVar(ScriptVar.Flags.Object);
+            var hmacObj = ScriptVar.CreateObject();
             hmacObj.AddChild("update", MakeUpdateFn(accumulator));
             hmacObj.AddChild("digest", MakeHmacDigestFn(algo, key, accumulator));
             var.ReturnVar = hmacObj;
@@ -89,8 +89,8 @@ namespace DScript.Extras.FunctionProviders
 
         private static ScriptVar MakeUpdateFn(StringBuilder accumulator)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild("data", new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild("data", ScriptVar.CreateUndefined());
             fn.SetCallback((scope, _) =>
             {
                 var data = scope.FindChild("data")?.Var;
@@ -104,8 +104,8 @@ namespace DScript.Extras.FunctionProviders
 
         private static ScriptVar MakeHashDigestFn(string algo, StringBuilder accumulator)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild("enc", new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild("enc", ScriptVar.CreateUndefined());
             fn.SetCallback((scope, _) =>
             {
                 var input = Encoding.UTF8.GetBytes(accumulator.ToString());
@@ -123,8 +123,8 @@ namespace DScript.Extras.FunctionProviders
 
         private static ScriptVar MakeHmacDigestFn(string algo, string key, StringBuilder accumulator)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild("enc", new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild("enc", ScriptVar.CreateUndefined());
             fn.SetCallback((scope, _) =>
             {
                 var input = Encoding.UTF8.GetBytes(accumulator.ToString());

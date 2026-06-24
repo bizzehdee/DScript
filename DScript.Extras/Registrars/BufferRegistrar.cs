@@ -30,7 +30,7 @@ namespace DScript.Extras.Registrars
     {
         internal static void Register(ScriptEngine engine)
         {
-            var bufferCtorVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var bufferCtorVar = ScriptVar.CreateNativeFunction();
             bufferCtorVar.SetCallback((scope, _) =>
             {
                 // new Buffer() — create empty 0-byte buffer
@@ -39,17 +39,17 @@ namespace DScript.Extras.Registrars
                 {
                     var buf = new BufferObject(0);
                     thisVar.SetData(buf);
-                    thisVar.AddChild("length", new ScriptVar(0));
+                    thisVar.AddChild("length", ScriptVar.FromInt(0));
                 }
             }, null);
 
             // Buffer.from(src, enc?)
-            var fromFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fromFn.AddChild("src", new ScriptVar(ScriptVar.Flags.Undefined));
-            fromFn.AddChild("enc", new ScriptVar(ScriptVar.Flags.Undefined));
+            var fromFn = ScriptVar.CreateNativeFunction();
+            fromFn.AddChild("src", ScriptVar.CreateUndefined());
+            fromFn.AddChild("enc", ScriptVar.CreateUndefined());
             fromFn.SetCallback((scope, _) =>
             {
-                var src = scope.FindChild("src")?.Var ?? new ScriptVar();
+                var src = scope.FindChild("src")?.Var ?? ScriptVar.CreateUndefined();
                 var encVar = scope.FindChild("enc")?.Var;
                 byte[] bytes;
                 if (src.IsArray)
@@ -68,9 +68,9 @@ namespace DScript.Extras.Registrars
             }, null);
 
             // Buffer.alloc(size, fill?)
-            var allocFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            allocFn.AddChild("size", new ScriptVar(ScriptVar.Flags.Undefined));
-            allocFn.AddChild("fill", new ScriptVar(ScriptVar.Flags.Undefined));
+            var allocFn = ScriptVar.CreateNativeFunction();
+            allocFn.AddChild("size", ScriptVar.CreateUndefined());
+            allocFn.AddChild("fill", ScriptVar.CreateUndefined());
             allocFn.SetCallback((scope, _) =>
             {
                 var size = scope.FindChild("size")?.Var?.Int ?? 0;
@@ -85,8 +85,8 @@ namespace DScript.Extras.Registrars
             }, null);
 
             // Buffer.allocUnsafe(size)
-            var allocUnsafeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            allocUnsafeFn.AddChild("size", new ScriptVar(ScriptVar.Flags.Undefined));
+            var allocUnsafeFn = ScriptVar.CreateNativeFunction();
+            allocUnsafeFn.AddChild("size", ScriptVar.CreateUndefined());
             allocUnsafeFn.SetCallback((scope, _) =>
             {
                 var size = scope.FindChild("size")?.Var?.Int ?? 0;
@@ -94,20 +94,20 @@ namespace DScript.Extras.Registrars
             }, null);
 
             // Buffer.isBuffer(val)
-            var isBufferFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            isBufferFn.AddChild("val", new ScriptVar(ScriptVar.Flags.Undefined));
+            var isBufferFn = ScriptVar.CreateNativeFunction();
+            isBufferFn.AddChild("val", ScriptVar.CreateUndefined());
             isBufferFn.SetCallback((scope, _) =>
             {
                 var val = scope.FindChild("val")?.Var;
-                scope.ReturnVar = new ScriptVar(val?.GetData() is BufferObject);
+                scope.ReturnVar = ScriptVar.FromBool(val?.GetData() is BufferObject);
             }, null);
 
             // Buffer.concat(list)
-            var concatFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            concatFn.AddChild("list", new ScriptVar(ScriptVar.Flags.Undefined));
+            var concatFn = ScriptVar.CreateNativeFunction();
+            concatFn.AddChild("list", ScriptVar.CreateUndefined());
             concatFn.SetCallback((scope, _) =>
             {
-                var list = scope.FindChild("list")?.Var ?? new ScriptVar();
+                var list = scope.FindChild("list")?.Var ?? ScriptVar.CreateUndefined();
                 var total = 0;
                 var count = list.GetArrayLength();
                 var arrays = new byte[count][];
@@ -142,9 +142,9 @@ namespace DScript.Extras.Registrars
 
         internal static ScriptVar MakeBuffer(byte[] data)
         {
-            var sv = new ScriptVar(ScriptVar.Flags.Object);
+            var sv = ScriptVar.CreateObject();
             sv.SetData(new BufferObject(data));
-            sv.AddChild("length", new ScriptVar(data.Length));
+            sv.AddChild("length", ScriptVar.FromInt(data.Length));
             var ctor = FunctionProviders.BufferFunctionProvider.CtorVar;
             if (ctor != null)
                 sv.AddChild(ScriptVar.PrototypeClassName, ctor);

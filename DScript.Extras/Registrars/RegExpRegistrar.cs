@@ -28,9 +28,9 @@ namespace DScript.Extras.Registrars
     {
         internal static void Register(ScriptEngine engine)
         {
-            var regExpCtorVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            regExpCtorVar.AddChild("pattern", new ScriptVar(ScriptVar.Flags.Undefined));
-            regExpCtorVar.AddChild("flags", new ScriptVar(ScriptVar.Flags.Undefined));
+            var regExpCtorVar = ScriptVar.CreateNativeFunction();
+            regExpCtorVar.AddChild("pattern", ScriptVar.CreateUndefined());
+            regExpCtorVar.AddChild("flags", ScriptVar.CreateUndefined());
             regExpCtorVar.SetCallback((scope, _) =>
             {
                 var pattern = scope.FindChild("pattern")?.Var?.String ?? "";
@@ -71,26 +71,26 @@ namespace DScript.Extras.Registrars
                 if (thisVar != null)
                 {
                     thisVar.SetData(regex);
-                    thisVar.AddChild("source", new ScriptVar(pattern));
-                    thisVar.AddChild("flags", new ScriptVar(sortedFlags));
-                    thisVar.AddChild("global", new ScriptVar(global));
-                    thisVar.AddChild("ignoreCase", new ScriptVar((opts & RegexOptions.IgnoreCase) != 0));
-                    thisVar.AddChild("multiline", new ScriptVar((opts & RegexOptions.Multiline) != 0));
-                    thisVar.AddChild("dotAll", new ScriptVar(hasS));
-                    thisVar.AddChild("hasIndices", new ScriptVar(hasIndices));
-                    thisVar.AddChild("unicode", new ScriptVar(hasUnicode && !hasUnicodeSets));
-                    thisVar.AddChild("unicodeSets", new ScriptVar(hasUnicodeSets));
+                    thisVar.AddChild("source", ScriptVar.FromString(pattern));
+                    thisVar.AddChild("flags", ScriptVar.FromString(sortedFlags));
+                    thisVar.AddChild("global", ScriptVar.FromBool(global));
+                    thisVar.AddChild("ignoreCase", ScriptVar.FromBool((opts & RegexOptions.IgnoreCase) != 0));
+                    thisVar.AddChild("multiline", ScriptVar.FromBool((opts & RegexOptions.Multiline) != 0));
+                    thisVar.AddChild("dotAll", ScriptVar.FromBool(hasS));
+                    thisVar.AddChild("hasIndices", ScriptVar.FromBool(hasIndices));
+                    thisVar.AddChild("unicode", ScriptVar.FromBool(hasUnicode && !hasUnicodeSets));
+                    thisVar.AddChild("unicodeSets", ScriptVar.FromBool(hasUnicodeSets));
                 }
             }, null);
 
             // RegExp.escape static method (ES2025)
-            var escapeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            escapeFn.AddChild("input", new ScriptVar(ScriptVar.Flags.Undefined));
+            var escapeFn = ScriptVar.CreateNativeFunction();
+            escapeFn.AddChild("input", ScriptVar.CreateUndefined());
             escapeFn.SetCallback((scope, _) =>
             {
                 var input = scope.FindChild("input")?.Var?.String ?? "";
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(
-                    new ScriptVar(Regex.Escape(input)));
+                    ScriptVar.FromString(Regex.Escape(input)));
             }, null);
             regExpCtorVar.AddChild("escape", escapeFn);
 

@@ -397,9 +397,9 @@ namespace DScript.Test
 
         private static ScriptVar MakeNumberCallFrame(double thisValue, params (string name, ScriptVar value)[] args)
         {
-            var frame = new ScriptVar(ScriptVar.Flags.Function);
-            frame.AddChildNoDup("this", new ScriptVar(thisValue));
-            frame.AddChildNoDup(ScriptVar.ReturnVarName, new ScriptVar(ScriptVar.Flags.Undefined));
+            var frame = ScriptVar.CreateFunction();
+            frame.AddChildNoDup("this", ScriptVar.FromDouble(thisValue));
+            frame.AddChildNoDup(ScriptVar.ReturnVarName, ScriptVar.CreateUndefined());
             foreach (var (name, value) in args)
                 frame.AddChildNoDup(name, value);
             return frame;
@@ -408,7 +408,7 @@ namespace DScript.Test
         [Test]
         public void Number_ToPrecision_FiveDigits()
         {
-            var frame = MakeNumberCallFrame(123.456, ("digits", new ScriptVar(5)));
+            var frame = MakeNumberCallFrame(123.456, ("digits", ScriptVar.FromInt(5)));
             NumberFunctionProvider.NumberToPrecisionImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("123.46"));
         }
@@ -424,7 +424,7 @@ namespace DScript.Test
         [Test]
         public void Number_ToPrecision_TwoDigits()
         {
-            var frame = MakeNumberCallFrame(9.876, ("digits", new ScriptVar(2)));
+            var frame = MakeNumberCallFrame(9.876, ("digits", ScriptVar.FromInt(2)));
             NumberFunctionProvider.NumberToPrecisionImpl(frame, null);
             Assert.That(frame.ReturnVar.String, Is.EqualTo("9.9"));
         }

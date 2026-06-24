@@ -1,4 +1,4 @@
-﻿using NUnit.Framework;
+using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -10,7 +10,7 @@ namespace DScript.Test
         [Test]
         public void EmptyScriptVarIsUndefined()
         {
-            var v = new ScriptVar();
+            var v = ScriptVar.CreateUndefined();
 
             Assert.That(v.IsUndefined, Is.True);
         }
@@ -18,7 +18,7 @@ namespace DScript.Test
         [Test]
         public void BoolScriptVarIsIntAndTrue()
         {
-            var v = new ScriptVar(true);
+            var v = ScriptVar.FromBool(true);
 
             Assert.That(v.IsInt, Is.True);
             Assert.That(v.Bool, Is.True);

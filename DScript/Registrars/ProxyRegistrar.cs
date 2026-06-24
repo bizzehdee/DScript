@@ -27,9 +27,9 @@ namespace DScript.Registrars
         internal static void Register(ScriptEngine engine)
         {
             // new Proxy(target, handler)
-            var proxyCtor = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            proxyCtor.AddChild("target", new ScriptVar(ScriptVar.Flags.Undefined));
-            proxyCtor.AddChild("handler", new ScriptVar(ScriptVar.Flags.Undefined));
+            var proxyCtor = ScriptVar.CreateNativeFunction();
+            proxyCtor.AddChild("target", ScriptVar.CreateUndefined());
+            proxyCtor.AddChild("handler", ScriptVar.CreateUndefined());
             proxyCtor.SetCallback((scope, _) =>
             {
                 var target = scope.FindChild("target")?.Var;
@@ -45,9 +45,9 @@ namespace DScript.Registrars
             }, null);
 
             // Proxy.revocable(target, handler) — returns { proxy, revoke }
-            var revocableFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            revocableFn.AddChild("target", new ScriptVar(ScriptVar.Flags.Undefined));
-            revocableFn.AddChild("handler", new ScriptVar(ScriptVar.Flags.Undefined));
+            var revocableFn = ScriptVar.CreateNativeFunction();
+            revocableFn.AddChild("target", ScriptVar.CreateUndefined());
+            revocableFn.AddChild("handler", ScriptVar.CreateUndefined());
             revocableFn.SetCallback((scope, _) =>
             {
                 var target = scope.FindChild("target")?.Var;
@@ -61,18 +61,18 @@ namespace DScript.Registrars
                 var proxy = ScriptVar.CreateProxy(target, handler);
 
                 // revoke() nulls out the handler, making the proxy throw on any trap
-                var revokeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                var revokeFn = ScriptVar.CreateNativeFunction();
                 revokeFn.SetCallback((rScope, proxyRef) =>
                 {
                     var p = (ScriptVar)proxyRef;
                     var handlerLink = p.FindChild("[[ProxyHandler]]");
-                    handlerLink?.ReplaceWith(new ScriptVar(ScriptVar.Flags.Null));
+                    handlerLink?.ReplaceWith(ScriptVar.CreateNull());
                     // Also null target to prevent any further access
                     var targetLink = p.FindChild("[[ProxyTarget]]");
-                    targetLink?.ReplaceWith(new ScriptVar(ScriptVar.Flags.Null));
+                    targetLink?.ReplaceWith(ScriptVar.CreateNull());
                 }, proxy);
 
-                var result = new ScriptVar(ScriptVar.Flags.Object);
+                var result = ScriptVar.CreateObject();
                 result.AddChild("proxy", proxy);
                 result.AddChild("revoke", revokeFn);
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);

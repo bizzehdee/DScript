@@ -30,15 +30,15 @@ namespace DScript.Registrars
         {
             // BigInt(value) — factory function, not a constructor.
             // new BigInt() throws TypeError.
-            var bigIntCtor = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            bigIntCtor.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+            var bigIntCtor = ScriptVar.CreateNativeFunction();
+            bigIntCtor.AddChild("value", ScriptVar.CreateUndefined());
             bigIntCtor.SetCallback((scope, _) =>
             {
                 var thisVar = scope.FindChild("this")?.Var;
                 if (thisVar != null && thisVar.IsObject)
                     throw new ScriptException("TypeError: BigInt is not a constructor");
 
-                var val = scope.FindChild("value")?.Var ?? new ScriptVar();
+                var val = scope.FindChild("value")?.Var ?? ScriptVar.CreateUndefined();
                 BigInteger result;
 
                 if (val.IsBigInt)

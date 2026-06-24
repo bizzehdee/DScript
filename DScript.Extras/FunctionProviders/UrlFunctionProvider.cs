@@ -49,18 +49,18 @@ namespace DScript.Extras.FunctionProviders
                 throw new ScriptException($"Invalid URL: {ex.Message}");
             }
 
-            var obj = new ScriptVar(ScriptVar.Flags.Object);
-            obj.AddChild("href",     new ScriptVar(uri.AbsoluteUri));
-            obj.AddChild("protocol", new ScriptVar(uri.Scheme + ":"));
-            obj.AddChild("host",     new ScriptVar(uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}"));
-            obj.AddChild("hostname", new ScriptVar(uri.Host));
-            obj.AddChild("port",     new ScriptVar(uri.IsDefaultPort ? "" : uri.Port.ToString()));
-            obj.AddChild("pathname", new ScriptVar(uri.AbsolutePath));
-            obj.AddChild("search",   new ScriptVar(string.IsNullOrEmpty(uri.Query) ? "" : uri.Query));
-            obj.AddChild("hash",     new ScriptVar(string.IsNullOrEmpty(uri.Fragment) ? "" : uri.Fragment));
-            obj.AddChild("origin",   new ScriptVar($"{uri.Scheme}://{uri.Host}:{uri.Port}"));
-            obj.AddChild("username", new ScriptVar(uri.UserInfo.Split(':')[0]));
-            obj.AddChild("password", new ScriptVar(uri.UserInfo.Contains(':') ? uri.UserInfo.Split(':')[1] : ""));
+            var obj = ScriptVar.CreateObject();
+            obj.AddChild("href",     ScriptVar.FromString(uri.AbsoluteUri));
+            obj.AddChild("protocol", ScriptVar.FromString(uri.Scheme + ":"));
+            obj.AddChild("host",     ScriptVar.FromString(uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}"));
+            obj.AddChild("hostname", ScriptVar.FromString(uri.Host));
+            obj.AddChild("port",     ScriptVar.FromString(uri.IsDefaultPort ? "" : uri.Port.ToString()));
+            obj.AddChild("pathname", ScriptVar.FromString(uri.AbsolutePath));
+            obj.AddChild("search",   ScriptVar.FromString(string.IsNullOrEmpty(uri.Query) ? "" : uri.Query));
+            obj.AddChild("hash",     ScriptVar.FromString(string.IsNullOrEmpty(uri.Fragment) ? "" : uri.Fragment));
+            obj.AddChild("origin",   ScriptVar.FromString($"{uri.Scheme}://{uri.Host}:{uri.Port}"));
+            obj.AddChild("username", ScriptVar.FromString(uri.UserInfo.Split(':')[0]));
+            obj.AddChild("password", ScriptVar.FromString(uri.UserInfo.Contains(':') ? uri.UserInfo.Split(':')[1] : ""));
 
             // searchParams property
             var searchParams = BuildSearchParams(uri.Query);
@@ -68,8 +68,8 @@ namespace DScript.Extras.FunctionProviders
 
             // .toString() method
             var capturedUri = uri;
-            var toStringFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            toStringFn.SetCallback((s, _) => s.ReturnVar = new ScriptVar(capturedUri.AbsoluteUri), null);
+            var toStringFn = ScriptVar.CreateNativeFunction();
+            toStringFn.SetCallback((s, _) => s.ReturnVar = ScriptVar.FromString(capturedUri.AbsoluteUri), null);
             obj.AddChild("toString", toStringFn);
 
             var.ReturnVar = obj;
@@ -87,7 +87,7 @@ namespace DScript.Extras.FunctionProviders
 
         private static ScriptVar BuildSearchParams(string query)
         {
-            var sp = new ScriptVar(ScriptVar.Flags.Object);
+            var sp = ScriptVar.CreateObject();
             var pairs = new List<(string, string)>();
 
             if (!string.IsNullOrEmpty(query))
@@ -107,47 +107,47 @@ namespace DScript.Extras.FunctionProviders
             var capturedPairs = pairs;
 
             // .get(name) — returns first value for name, or null
-            var getFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            getFn.AddChild("name", new ScriptVar(ScriptVar.Flags.Undefined));
+            var getFn = ScriptVar.CreateNativeFunction();
+            getFn.AddChild("name", ScriptVar.CreateUndefined());
             getFn.SetCallback((scope, _) =>
             {
                 var name = scope.FindChild("name")?.Var?.String ?? "";
                 foreach (var (k, v) in capturedPairs)
-                    if (k == name) { scope.ReturnVar = new ScriptVar(v); return; }
-                scope.ReturnVar = new ScriptVar(ScriptVar.Flags.Null);
+                    if (k == name) { scope.ReturnVar = ScriptVar.FromString(v); return; }
+                scope.ReturnVar = ScriptVar.CreateNull();
             }, null);
             sp.AddChild("get", getFn);
 
             // .getAll(name) — returns array of all values for name
-            var getAllFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            getAllFn.AddChild("name", new ScriptVar(ScriptVar.Flags.Undefined));
+            var getAllFn = ScriptVar.CreateNativeFunction();
+            getAllFn.AddChild("name", ScriptVar.CreateUndefined());
             getAllFn.SetCallback((scope, _) =>
             {
                 var name = scope.FindChild("name")?.Var?.String ?? "";
-                var arr = new ScriptVar(); arr.SetArray();
+                var arr = ScriptVar.CreateUndefined(); arr.SetArray();
                 var i = 0;
                 foreach (var (k, v) in capturedPairs)
-                    if (k == name) arr.SetArrayIndex(i++, new ScriptVar(v));
+                    if (k == name) arr.SetArrayIndex(i++, ScriptVar.FromString(v));
                 scope.ReturnVar = arr;
             }, null);
             sp.AddChild("getAll", getAllFn);
 
             // .has(name) — returns bool
-            var hasFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            hasFn.AddChild("name", new ScriptVar(ScriptVar.Flags.Undefined));
+            var hasFn = ScriptVar.CreateNativeFunction();
+            hasFn.AddChild("name", ScriptVar.CreateUndefined());
             hasFn.SetCallback((scope, _) =>
             {
                 var name = scope.FindChild("name")?.Var?.String ?? "";
                 foreach (var (k, _) in capturedPairs)
-                    if (k == name) { scope.ReturnVar = new ScriptVar(1); return; }
-                scope.ReturnVar = new ScriptVar(0);
+                    if (k == name) { scope.ReturnVar = ScriptVar.FromInt(1); return; }
+                scope.ReturnVar = ScriptVar.FromInt(0);
             }, null);
             sp.AddChild("has", hasFn);
 
             // .set(name, value) — replaces or adds
-            var setFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            setFn.AddChild("name",  new ScriptVar(ScriptVar.Flags.Undefined));
-            setFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+            var setFn = ScriptVar.CreateNativeFunction();
+            setFn.AddChild("name",  ScriptVar.CreateUndefined());
+            setFn.AddChild("value", ScriptVar.CreateUndefined());
             setFn.SetCallback((scope, _) =>
             {
                 var name  = scope.FindChild("name")?.Var?.String ?? "";
@@ -158,9 +158,9 @@ namespace DScript.Extras.FunctionProviders
             sp.AddChild("set", setFn);
 
             // .append(name, value)
-            var appendFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            appendFn.AddChild("name",  new ScriptVar(ScriptVar.Flags.Undefined));
-            appendFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+            var appendFn = ScriptVar.CreateNativeFunction();
+            appendFn.AddChild("name",  ScriptVar.CreateUndefined());
+            appendFn.AddChild("value", ScriptVar.CreateUndefined());
             appendFn.SetCallback((scope, _) =>
             {
                 var name  = scope.FindChild("name")?.Var?.String ?? "";
@@ -170,8 +170,8 @@ namespace DScript.Extras.FunctionProviders
             sp.AddChild("append", appendFn);
 
             // .delete(name)
-            var deleteFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            deleteFn.AddChild("name", new ScriptVar(ScriptVar.Flags.Undefined));
+            var deleteFn = ScriptVar.CreateNativeFunction();
+            deleteFn.AddChild("name", ScriptVar.CreateUndefined());
             deleteFn.SetCallback((scope, _) =>
             {
                 var name = scope.FindChild("name")?.Var?.String ?? "";
@@ -180,13 +180,13 @@ namespace DScript.Extras.FunctionProviders
             sp.AddChild("delete", deleteFn);
 
             // .toString()
-            var toStringFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var toStringFn = ScriptVar.CreateNativeFunction();
             toStringFn.SetCallback((scope, _) =>
             {
                 var parts = new System.Collections.Generic.List<string>();
                 foreach (var (k, v) in capturedPairs)
                     parts.Add($"{Uri.EscapeDataString(k)}={Uri.EscapeDataString(v)}");
-                scope.ReturnVar = new ScriptVar(string.Join("&", parts));
+                scope.ReturnVar = ScriptVar.FromString(string.Join("&", parts));
             }, null);
             sp.AddChild("toString", toStringFn);
 

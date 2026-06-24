@@ -28,8 +28,8 @@ namespace DScript.Extras.Registrars
     {
         internal static void Register(ScriptEngine engine)
         {
-            var setCtorVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            setCtorVar.AddChild("iterable", new ScriptVar(ScriptVar.Flags.Undefined));
+            var setCtorVar = ScriptVar.CreateNativeFunction();
+            setCtorVar.AddChild("iterable", ScriptVar.CreateUndefined());
             setCtorVar.SetCallback((scope, _) =>
             {
                 var setObj = new SetObject();

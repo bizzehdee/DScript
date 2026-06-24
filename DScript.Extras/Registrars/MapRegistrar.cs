@@ -29,8 +29,8 @@ namespace DScript.Extras.Registrars
     {
         internal static void Register(ScriptEngine engine)
         {
-            var mapCtorVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            mapCtorVar.AddChild("iterable", new ScriptVar(ScriptVar.Flags.Undefined));
+            var mapCtorVar = ScriptVar.CreateNativeFunction();
+            mapCtorVar.AddChild("iterable", ScriptVar.CreateUndefined());
             mapCtorVar.SetCallback((scope, _) =>
             {
                 var mapObj = new MapObject();

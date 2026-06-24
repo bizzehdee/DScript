@@ -28,7 +28,7 @@ namespace DScript.Registrars
     {
         internal static void Register(ScriptEngine engine)
         {
-            var reflect = new ScriptVar(ScriptVar.Flags.Object);
+            var reflect = ScriptVar.CreateObject();
 
             // Reflect.apply(fn, thisArg, argsList)
             var applyFn = MakeNative3("target", "thisArg", "argumentsList", (scope, _) =>
@@ -57,7 +57,7 @@ namespace DScript.Registrars
                     throw new ScriptException("TypeError: Reflect.construct: target must be a function");
 
                 var args = SpreadArgs(argsList);
-                var instance = new ScriptVar(ScriptVar.Flags.Object);
+                var instance = ScriptVar.CreateObject();
 
                 // Set prototype from target.prototype
                 var proto = target.FindChild(ScriptVar.PrototypeClassName)?.Var;
@@ -83,7 +83,7 @@ namespace DScript.Registrars
                     throw new ScriptException("TypeError: Reflect.get: target must be an object");
 
                 var link = target.FindChild(key);
-                var result = link?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var result = link?.Var ?? ScriptVar.CreateUndefined();
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
             });
             reflect.AddChild("get", getFn);
@@ -93,7 +93,7 @@ namespace DScript.Registrars
             {
                 var target = scope.FindChild("target")?.Var;
                 var key = scope.FindChild("propertyKey")?.Var?.String ?? "undefined";
-                var value = scope.FindChild("value")?.Var ?? new ScriptVar();
+                var value = scope.FindChild("value")?.Var ?? ScriptVar.CreateUndefined();
 
                 if (target == null)
                     throw new ScriptException("TypeError: Reflect.set: target must be an object");
@@ -104,7 +104,7 @@ namespace DScript.Registrars
                 else
                     target.AddChild(key, value);
 
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(true));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromBool(true));
             });
             reflect.AddChild("set", setFn);
 
@@ -118,7 +118,7 @@ namespace DScript.Registrars
                     throw new ScriptException("TypeError: Reflect.has: target must be an object");
 
                 var found = target.FindChild(key) != null;
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(found));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromBool(found));
             });
             reflect.AddChild("has", hasFn);
 
@@ -138,7 +138,7 @@ namespace DScript.Registrars
                     target.RemoveLink(link);
                     link.Dispose();
                 }
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(success));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromBool(success));
             });
             reflect.AddChild("deleteProperty", deleteFn);
 
@@ -149,16 +149,16 @@ namespace DScript.Registrars
                 if (target == null)
                     throw new ScriptException("TypeError: Reflect.ownKeys: target must be an object");
 
-                var arr = new ScriptVar(ScriptVar.Flags.Array);
+                var arr = ScriptVar.CreateArray();
                 int idx = 0;
                 var link = target.FirstChild;
                 while (link != null)
                 {
                     if (link.Name != ScriptVar.PrototypeClassName)
-                        arr.AddChild(ScriptVar.IndexName(idx++), new ScriptVar(link.Name));
+                        arr.AddChild(ScriptVar.IndexName(idx++), ScriptVar.FromString(link.Name));
                     link = link.Next;
                 }
-                arr.AddChild("length", new ScriptVar(idx));
+                arr.AddChild("length", ScriptVar.FromInt(idx));
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(arr);
             });
             reflect.AddChild("ownKeys", ownKeysFn);
@@ -173,14 +173,14 @@ namespace DScript.Registrars
                 if (target == null)
                     throw new ScriptException("TypeError: Reflect.defineProperty: target must be an object");
 
-                var val = desc?.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var val = desc?.FindChild("value")?.Var ?? ScriptVar.CreateUndefined();
                 var link = target.FindChild(key);
                 if (link != null)
                     link.ReplaceWith(val);
                 else
                     target.AddChild(key, val);
 
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(true));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromBool(true));
             });
             reflect.AddChild("defineProperty", definePropFn);
 
@@ -196,15 +196,15 @@ namespace DScript.Registrars
                 var link = target.FindChild(key);
                 if (link == null)
                 {
-                    scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(ScriptVar.Flags.Undefined));
+                    scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.CreateUndefined());
                     return;
                 }
 
-                var desc = new ScriptVar(ScriptVar.Flags.Object);
+                var desc = ScriptVar.CreateObject();
                 desc.AddChild("value", link.Var);
-                desc.AddChild("writable", new ScriptVar(!link.IsConst));
-                desc.AddChild("enumerable", new ScriptVar(true));
-                desc.AddChild("configurable", new ScriptVar(true));
+                desc.AddChild("writable", ScriptVar.FromBool(!link.IsConst));
+                desc.AddChild("enumerable", ScriptVar.FromBool(true));
+                desc.AddChild("configurable", ScriptVar.FromBool(true));
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(desc);
             });
             reflect.AddChild("getOwnPropertyDescriptor", getDescFn);
@@ -217,7 +217,7 @@ namespace DScript.Registrars
                     throw new ScriptException("TypeError: Reflect.getPrototypeOf: target must be an object");
 
                 var proto = target.FindChild(ScriptVar.PrototypeClassName)?.Var
-                            ?? new ScriptVar(ScriptVar.Flags.Null);
+                            ?? ScriptVar.CreateNull();
                 scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(proto);
             });
             reflect.AddChild("getPrototypeOf", getProtoFn);
@@ -243,21 +243,21 @@ namespace DScript.Registrars
                     else
                         target.AddChild(ScriptVar.PrototypeClassName, proto);
                 }
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(true));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromBool(true));
             });
             reflect.AddChild("setPrototypeOf", setProtoFn);
 
             // Reflect.isExtensible — always returns true (DScript objects are always extensible)
             var isExtFn = MakeNative1("target", (scope, _) =>
             {
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(true));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromBool(true));
             });
             reflect.AddChild("isExtensible", isExtFn);
 
             // Reflect.preventExtensions — no-op, returns true
             var preventFn = MakeNative1("target", (scope, _) =>
             {
-                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(new ScriptVar(true));
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(ScriptVar.FromBool(true));
             });
             reflect.AddChild("preventExtensions", preventFn);
 
@@ -270,44 +270,44 @@ namespace DScript.Registrars
             var len = argsList.GetArrayLength();
             var args = new ScriptVar[len];
             for (var i = 0; i < len; i++)
-                args[i] = argsList.GetArrayIndex(i) ?? new ScriptVar();
+                args[i] = argsList.GetArrayIndex(i) ?? ScriptVar.CreateUndefined();
             return args;
         }
 
         private static ScriptVar MakeNative1(string p1, ScriptEngine.ScriptCallbackCB cb)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild(p1, new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild(p1, ScriptVar.CreateUndefined());
             fn.SetCallback(cb, null);
             return fn;
         }
 
         private static ScriptVar MakeNative2(string p1, string p2, ScriptEngine.ScriptCallbackCB cb)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild(p1, new ScriptVar(ScriptVar.Flags.Undefined));
-            fn.AddChild(p2, new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild(p1, ScriptVar.CreateUndefined());
+            fn.AddChild(p2, ScriptVar.CreateUndefined());
             fn.SetCallback(cb, null);
             return fn;
         }
 
         private static ScriptVar MakeNative3(string p1, string p2, string p3, ScriptEngine.ScriptCallbackCB cb)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild(p1, new ScriptVar(ScriptVar.Flags.Undefined));
-            fn.AddChild(p2, new ScriptVar(ScriptVar.Flags.Undefined));
-            fn.AddChild(p3, new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild(p1, ScriptVar.CreateUndefined());
+            fn.AddChild(p2, ScriptVar.CreateUndefined());
+            fn.AddChild(p3, ScriptVar.CreateUndefined());
             fn.SetCallback(cb, null);
             return fn;
         }
 
         private static ScriptVar MakeNative4(string p1, string p2, string p3, string p4, ScriptEngine.ScriptCallbackCB cb)
         {
-            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            fn.AddChild(p1, new ScriptVar(ScriptVar.Flags.Undefined));
-            fn.AddChild(p2, new ScriptVar(ScriptVar.Flags.Undefined));
-            fn.AddChild(p3, new ScriptVar(ScriptVar.Flags.Undefined));
-            fn.AddChild(p4, new ScriptVar(ScriptVar.Flags.Undefined));
+            var fn = ScriptVar.CreateNativeFunction();
+            fn.AddChild(p1, ScriptVar.CreateUndefined());
+            fn.AddChild(p2, ScriptVar.CreateUndefined());
+            fn.AddChild(p3, ScriptVar.CreateUndefined());
+            fn.AddChild(p4, ScriptVar.CreateUndefined());
             fn.SetCallback(cb, null);
             return fn;
         }

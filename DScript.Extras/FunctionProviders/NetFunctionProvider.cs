@@ -39,9 +39,9 @@ namespace DScript.Extras.FunctionProviders
             var engine = userData as ScriptEngine;
             var handler = var.GetParameter("connectionListener");
 
-            var serverObj = new ScriptVar(ScriptVar.Flags.Object);
-            serverObj.AddChild("__netRunning__", new ScriptVar(0));
-            serverObj.AddChild("__netListener__", new ScriptVar(ScriptVar.Flags.Undefined));
+            var serverObj = ScriptVar.CreateObject();
+            serverObj.AddChild("__netRunning__", ScriptVar.FromInt(0));
+            serverObj.AddChild("__netListener__", ScriptVar.CreateUndefined());
 
             if (handler.IsFunction)
                 serverObj.AddChild("__netHandler__", handler);
@@ -50,10 +50,10 @@ namespace DScript.Extras.FunctionProviders
             var capturedEngine = engine;
 
             // .listen(port, host?, cb?)
-            var listenFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            listenFn.AddChild("port", new ScriptVar(ScriptVar.Flags.Undefined));
-            listenFn.AddChild("host", new ScriptVar(ScriptVar.Flags.Undefined));
-            listenFn.AddChild("cb", new ScriptVar(ScriptVar.Flags.Undefined));
+            var listenFn = ScriptVar.CreateNativeFunction();
+            listenFn.AddChild("port", ScriptVar.CreateUndefined());
+            listenFn.AddChild("host", ScriptVar.CreateUndefined());
+            listenFn.AddChild("cb", ScriptVar.CreateUndefined());
             listenFn.SetCallback((scope, _) =>
             {
                 var portVar = scope.FindChild("port")?.Var;
@@ -71,7 +71,7 @@ namespace DScript.Extras.FunctionProviders
                 tcpListener.Start();
 
                 // Store the listener object
-                var listenerVar = new ScriptVar(ScriptVar.Flags.Object);
+                var listenerVar = ScriptVar.CreateObject();
                 listenerVar.SetData(tcpListener);
                 capturedServer.AddChildNoDup("__netListener__", listenerVar);
                 capturedServer.FindChild("__netRunning__").Var.Int = 1;
@@ -122,12 +122,12 @@ namespace DScript.Extras.FunctionProviders
             serverObj.AddChild("listen", listenFn);
 
             // .on('connection', fn)
-            var connHandlers = new ScriptVar(); connHandlers.SetArray();
+            var connHandlers = ScriptVar.CreateUndefined(); connHandlers.SetArray();
             serverObj.AddChild("__netConnHandlers__", connHandlers);
 
-            var onFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            onFn.AddChild("event", new ScriptVar(ScriptVar.Flags.Undefined));
-            onFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            var onFn = ScriptVar.CreateNativeFunction();
+            onFn.AddChild("event", ScriptVar.CreateUndefined());
+            onFn.AddChild("fn", ScriptVar.CreateUndefined());
             onFn.SetCallback((scope, _) =>
             {
                 var evName = scope.FindChild("event")?.Var?.String ?? "";
@@ -142,8 +142,8 @@ namespace DScript.Extras.FunctionProviders
             serverObj.AddChild("on", onFn);
 
             // .close(cb?)
-            var closeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            closeFn.AddChild("cb", new ScriptVar(ScriptVar.Flags.Undefined));
+            var closeFn = ScriptVar.CreateNativeFunction();
+            closeFn.AddChild("cb", ScriptVar.CreateUndefined());
             closeFn.SetCallback((scope, _) =>
             {
                 capturedServer.FindChild("__netRunning__").Var.Int = 0;
@@ -207,14 +207,14 @@ namespace DScript.Extras.FunctionProviders
 
         internal static ScriptVar BuildSocketObject(Socket socket, ScriptEngine engine)
         {
-            var s = new ScriptVar(ScriptVar.Flags.Object);
-            var socketData = new ScriptVar(ScriptVar.Flags.Object);
+            var s = ScriptVar.CreateObject();
+            var socketData = ScriptVar.CreateObject();
             socketData.SetData(socket);
             s.AddChild("__netSocket__", socketData);
 
-            var dataHandlers    = new ScriptVar(); dataHandlers.SetArray();
-            var closeHandlers   = new ScriptVar(); closeHandlers.SetArray();
-            var connectHandlers = new ScriptVar(); connectHandlers.SetArray();
+            var dataHandlers    = ScriptVar.CreateUndefined(); dataHandlers.SetArray();
+            var closeHandlers   = ScriptVar.CreateUndefined(); closeHandlers.SetArray();
+            var connectHandlers = ScriptVar.CreateUndefined(); connectHandlers.SetArray();
             s.AddChild("__netDataHandlers__",    dataHandlers);
             s.AddChild("__netCloseHandlers__",   closeHandlers);
             s.AddChild("__netConnectHandlers__", connectHandlers);
@@ -224,8 +224,8 @@ namespace DScript.Extras.FunctionProviders
             var capturedSocket = socket;
 
             // .write(data)
-            var writeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            writeFn.AddChild("data", new ScriptVar(ScriptVar.Flags.Undefined));
+            var writeFn = ScriptVar.CreateNativeFunction();
+            writeFn.AddChild("data", ScriptVar.CreateUndefined());
             writeFn.SetCallback((scope, _) =>
             {
                 var dataVar = scope.FindChild("data")?.Var;
@@ -236,8 +236,8 @@ namespace DScript.Extras.FunctionProviders
             s.AddChild("write", writeFn);
 
             // .end(data?) — send optional data then shutdown
-            var endFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            endFn.AddChild("data", new ScriptVar(ScriptVar.Flags.Undefined));
+            var endFn = ScriptVar.CreateNativeFunction();
+            endFn.AddChild("data", ScriptVar.CreateUndefined());
             endFn.SetCallback((scope, _) =>
             {
                 var dataVar = scope.FindChild("data")?.Var;
@@ -263,7 +263,7 @@ namespace DScript.Extras.FunctionProviders
             s.AddChild("end", endFn);
 
             // .destroy() — forcibly close
-            var destroyFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var destroyFn = ScriptVar.CreateNativeFunction();
             destroyFn.SetCallback((scope, _) =>
             {
                 try { capturedSocket.Close(); } catch { /* ignore */ }
@@ -271,28 +271,28 @@ namespace DScript.Extras.FunctionProviders
             s.AddChild("destroy", destroyFn);
 
             // .read() — read available data (non-blocking if none available; returns empty string)
-            var readFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var readFn = ScriptVar.CreateNativeFunction();
             readFn.SetCallback((scope, _) =>
             {
-                if (!capturedSocket.Connected) { scope.ReturnVar = new ScriptVar(""); return; }
+                if (!capturedSocket.Connected) { scope.ReturnVar = ScriptVar.FromString(""); return; }
                 var buf = new byte[4096];
                 string result;
                 try
                 {
                     capturedSocket.ReceiveTimeout = 0; // non-blocking peek
-                    if (capturedSocket.Available == 0) { scope.ReturnVar = new ScriptVar(""); return; }
+                    if (capturedSocket.Available == 0) { scope.ReturnVar = ScriptVar.FromString(""); return; }
                     var n = capturedSocket.Receive(buf);
                     result = Encoding.UTF8.GetString(buf, 0, n);
                 }
                 catch { result = ""; }
-                scope.ReturnVar = new ScriptVar(result);
+                scope.ReturnVar = ScriptVar.FromString(result);
             }, null);
             s.AddChild("read", readFn);
 
             // .on(event, fn) — 'data', 'close', 'connect'
-            var onFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            onFn.AddChild("event", new ScriptVar(ScriptVar.Flags.Undefined));
-            onFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            var onFn = ScriptVar.CreateNativeFunction();
+            onFn.AddChild("event", ScriptVar.CreateUndefined());
+            onFn.AddChild("fn", ScriptVar.CreateUndefined());
             onFn.SetCallback((scope, _) =>
             {
                 var evName = scope.FindChild("event")?.Var?.String ?? "";
@@ -317,8 +317,8 @@ namespace DScript.Extras.FunctionProviders
             {
                 if (socket.RemoteEndPoint is IPEndPoint ep)
                 {
-                    s.AddChild("remoteAddress", new ScriptVar(ep.Address.ToString()));
-                    s.AddChild("remotePort", new ScriptVar(ep.Port));
+                    s.AddChild("remoteAddress", ScriptVar.FromString(ep.Address.ToString()));
+                    s.AddChild("remotePort", ScriptVar.FromInt(ep.Port));
                 }
             }
             catch { /* not connected yet */ }

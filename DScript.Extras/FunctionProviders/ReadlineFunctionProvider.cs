@@ -65,32 +65,32 @@ namespace DScript.Extras.FunctionProviders
                 }
             }
 
-            var rl = new ScriptVar(ScriptVar.Flags.Object);
+            var rl = ScriptVar.CreateObject();
 
             // Store streams as native data on child vars so callbacks can retrieve them.
-            var inputVar = new ScriptVar(ScriptVar.Flags.Object);
+            var inputVar = ScriptVar.CreateObject();
             inputVar.SetData(inputReader);
             rl.AddChild(InputKey, inputVar);
 
-            var outputVar = new ScriptVar(ScriptVar.Flags.Object);
+            var outputVar = ScriptVar.CreateObject();
             outputVar.SetData(outputWriter);
             rl.AddChild(OutputKey, outputVar);
 
-            rl.AddChild(ClosedKey, new ScriptVar(0)); // 0 = open
+            rl.AddChild(ClosedKey, ScriptVar.FromInt(0)); // 0 = open
 
-            var lineHandlers = new ScriptVar(); lineHandlers.SetArray();
+            var lineHandlers = ScriptVar.CreateUndefined(); lineHandlers.SetArray();
             rl.AddChild(LineKey, lineHandlers);
 
-            var closeHandlers = new ScriptVar(); closeHandlers.SetArray();
+            var closeHandlers = ScriptVar.CreateUndefined(); closeHandlers.SetArray();
             rl.AddChild(CloseKey, closeHandlers);
 
             // .question(prompt, cb) — write prompt to output, read one line, call cb(answer)
             var capturedRl = rl;
             var capturedEngine = engine;
 
-            var questionFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            questionFn.AddChild("prompt", new ScriptVar(ScriptVar.Flags.Undefined));
-            questionFn.AddChild("cb", new ScriptVar(ScriptVar.Flags.Undefined));
+            var questionFn = ScriptVar.CreateNativeFunction();
+            questionFn.AddChild("prompt", ScriptVar.CreateUndefined());
+            questionFn.AddChild("cb", ScriptVar.CreateUndefined());
             questionFn.SetCallback((scope, _) =>
             {
                 var prompt = scope.FindChild("prompt")?.Var?.String ?? "";
@@ -106,12 +106,12 @@ namespace DScript.Extras.FunctionProviders
                 var line = reader.ReadLine() ?? string.Empty;
 
                 if (cb != null && cb.IsFunction && capturedEngine != null)
-                    capturedEngine.CallFunction(cb, null, new ScriptVar(line));
+                    capturedEngine.CallFunction(cb, null, ScriptVar.FromString(line));
             }, null);
             rl.AddChild("question", questionFn);
 
             // .close() — marks closed and fires 'close' handlers
-            var closeFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            var closeFn = ScriptVar.CreateNativeFunction();
             closeFn.SetCallback((scope, _) =>
             {
                 var closedLink = capturedRl.FindChild(ClosedKey);
@@ -130,9 +130,9 @@ namespace DScript.Extras.FunctionProviders
             rl.AddChild("close", closeFn);
 
             // .on(event, fn) — 'line' or 'close'
-            var onFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            onFn.AddChild("event", new ScriptVar(ScriptVar.Flags.Undefined));
-            onFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            var onFn = ScriptVar.CreateNativeFunction();
+            onFn.AddChild("event", ScriptVar.CreateUndefined());
+            onFn.AddChild("fn", ScriptVar.CreateUndefined());
             onFn.SetCallback((scope, _) =>
             {
                 var evName = scope.FindChild("event")?.Var?.String ?? "";

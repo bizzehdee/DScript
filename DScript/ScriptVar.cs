@@ -32,7 +32,7 @@ using System.Text.RegularExpressions;
 
 namespace DScript
 {
-    public sealed class ScriptVar : IDisposable
+    public sealed partial class ScriptVar : IDisposable
     {
         // Cache compiled regex patterns to avoid recompilation (performance optimization)
         private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
@@ -266,7 +266,7 @@ namespace DScript
         // (flags and the relevant value field). They deliberately avoid the old
         // Init() call, which re-zeroed already-zero fields on every allocation —
         // a measurable cost given how many short-lived ScriptVars the VM creates.
-        public ScriptVar()
+        private ScriptVar()
         {
             // Undefined == 0, so a zero-initialized instance is already correct.
         }
@@ -278,36 +278,36 @@ namespace DScript
         /// the hot paths that build call frames and aggregates. Must not be used
         /// with Integer/Double/Regexp flags, which require a value to parse.
         /// </summary>
-        public ScriptVar(Flags flags)
+        private ScriptVar(Flags flags)
         {
             this.flags = flags;
         }
 
-        public ScriptVar(int val)
+        private ScriptVar(int val)
         {
             flags = Flags.Integer;
             intData = val;
         }
 
-        public ScriptVar(double val)
+        private ScriptVar(double val)
         {
             flags = Flags.Double;
             doubleData = val;
         }
 
-        public ScriptVar(string val)
+        private ScriptVar(string val)
         {
             flags = Flags.String;
             scriptData = val;
         }
 
-        public ScriptVar(bool val)
+        private ScriptVar(bool val)
         {
             flags = Flags.Integer;
             intData = val ? 1 : 0;
         }
 
-        public ScriptVar(string val, Flags flags)
+        private ScriptVar(string val, Flags flags)
         {
             this.flags = flags;
             if (flags.HasFlag(Flags.Integer))
