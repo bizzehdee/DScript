@@ -111,6 +111,74 @@ namespace DScript.Vm
         /// <summary>Lazily-allocated inline cache, one slot per code byte.</summary>
         public InlineCacheEntry[] InlineCache => inlineCache ??= new InlineCacheEntry[CodeBytes.Length];
 
+        // ── Call-site profiles ─────────────────────────────────────────────────
+        // Records the callee diversity seen at each Call/CallMethod/TailCall site
+        // so a future JIT tier can decide to inline (monomorphic), emit a type-
+        // switch (bimorphic), or bail to generic dispatch (megamorphic).
+        //
+        // Indexed by the OPERAND-START offset of the call instruction (ip after the
+        // main loop's ip++ past the opcode byte), matching the InlineCache convention.
+        // Transitions are one-directional: Uninit → Mono → Bi → Mega.
+
+        /// <summary>Morphism class of a call site as observed at runtime.</summary>
+        public enum CallSiteMorphism : byte
+        {
+            /// <summary>Site has not been reached yet.</summary>
+            Uninitialized = 0,
+            /// <summary>Every dispatch so far has gone to the same callee object.</summary>
+            Monomorphic   = 1,
+            /// <summary>Exactly two distinct callees have been observed.</summary>
+            Bimorphic     = 2,
+            /// <summary>Three or more distinct callees have been observed.</summary>
+            Megamorphic   = 3,
+        }
+
+        /// <summary>Per-call-site profiling record.</summary>
+        public struct CallSiteProfile
+        {
+            /// <summary>First observed callee (used for Mono → Bi comparison).</summary>
+            public ScriptVar Callee0 { get; set; }
+            /// <summary>Second observed callee (used for Bi → Mega comparison).</summary>
+            public ScriptVar Callee1 { get; set; }
+            /// <summary>Current morphism classification.</summary>
+            public CallSiteMorphism State { get; set; }
+        }
+
+        private CallSiteProfile[] callProfiles;
+
+        /// <summary>
+        /// Lazily-allocated call-site profile array, one slot per code byte (indexed
+        /// by the operand-start offset of each call instruction).
+        /// </summary>
+        public CallSiteProfile[] CallProfiles => callProfiles ??= new CallSiteProfile[CodeBytes.Length];
+
+        /// <summary>
+        /// Returns the profiling records for every Call/CallMethod/TailCall/TailCallMethod
+        /// instruction in this chunk.  The tuple's <c>SiteOffset</c> is the index into
+        /// <see cref="CallProfiles"/> (operand-start offset, i.e. opcode offset + 1).
+        /// Returns an empty list when no call site has been reached yet.
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<(int SiteOffset, CallSiteProfile Profile)> GetCallSiteProfiles()
+        {
+            if (callProfiles == null)
+                return System.Array.Empty<(int, CallSiteProfile)>();
+
+            var result = new System.Collections.Generic.List<(int, CallSiteProfile)>();
+            var codeBytes = CodeBytes;
+            var ip = 0;
+            while (ip < codeBytes.Length)
+            {
+                var op = (OpCode)codeBytes[ip];
+                if (op is OpCode.Call or OpCode.CallMethod or OpCode.TailCall or OpCode.TailCallMethod)
+                {
+                    var site = ip + 1; // operand-start; matches what the VM uses as the site key
+                    result.Add((site, callProfiles[site]));
+                }
+                ip += InstructionSize(op);
+            }
+            return result;
+        }
+
         /// <summary>Literal value constants referenced by <see cref="OpCode.Constant"/>.</summary>
         public List<ConstantValue> Constants { get; } = [];
 
@@ -801,6 +869,7 @@ namespace DScript.Vm
             Cols.AddRange(newCols);
             codeArray = null;
             inlineCache = null; // offsets have shifted
+            callProfiles = null;
 
             foreach (var fn in Functions) fn.EliminateDeadCode();
         }
@@ -1050,6 +1119,7 @@ namespace DScript.Vm
             Cols.AddRange(newCols);
             codeArray = null;
             inlineCache = null;
+            callProfiles = null;
 
             foreach (var fn in Functions) fn.FoldConstantBranches();
         }
@@ -1304,6 +1374,7 @@ namespace DScript.Vm
             Cols.AddRange(newCols);
             codeArray = null;
             inlineCache = null; // offsets have shifted
+            callProfiles = null;
 
             foreach (var fn in Functions) fn.FuseSuperInstructions();
         }
@@ -1449,6 +1520,7 @@ namespace DScript.Vm
             Cols.AddRange(newCols);
             codeArray = null;
             inlineCache = null; // offsets have shifted
+            callProfiles = null;
 
             foreach (var fn in Functions) fn.NarrowEncodePass();
         }

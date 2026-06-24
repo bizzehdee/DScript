@@ -319,6 +319,8 @@ namespace DScript.Vm
             // Hoist the inline-cache array once so each GetVar/SetVar avoids the
             // property's lazy null-check on every resolution.
             var cache = chunk.InlineCache;
+            // Hoist the call-site profile array for the same reason.
+            var callProf = chunk.CallProfiles;
             var ip = gsState != null && gsState.Started ? gsState.SavedIp : 0;
 
             // Stackless generator resume: push the input value passed to .next(v).
@@ -854,11 +856,13 @@ namespace DScript.Vm
                     }
                     case OpCode.Call:
                     {
+                        var site = ip;
                         var argc = ReadOperand(code, ref ip);
                         // Fast path: a compiled function called with its args already
                         // on the operand stack. Bind them directly into the call
                         // frame instead of materializing a ScriptVar[] per call.
                         var callee = stack[sp - argc - 1];
+                        RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
                             var result = InvokeVmFunctionFromStack(callee, null, argc);
@@ -874,8 +878,10 @@ namespace DScript.Vm
                     }
                     case OpCode.CallMethod:
                     {
+                        var site = ip;
                         var argc = ReadOperand(code, ref ip);
                         var callee = stack[sp - argc - 1];
+                        RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
                             var receiver = stack[sp - argc - 2];
@@ -898,8 +904,10 @@ namespace DScript.Vm
                         // signal the InvokeVmFunctionFromStack trampoline (set the
                         // pending fields, return null) so the callee executes without
                         // adding a C# frame — enabling unbounded tail recursion.
+                        var site = ip;
                         var argc = ReadOperand(code, ref ip);
                         var callee = stack[sp - argc - 1];
+                        RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
                             var vmfn = (VmFunction)callee.GetData();
@@ -928,8 +936,10 @@ namespace DScript.Vm
                     case OpCode.TailCallMethod:
                     {
                         // Tail-position method call — same trampoline logic as TailCall.
+                        var site = ip;
                         var argc = ReadOperand(code, ref ip);
                         var callee = stack[sp - argc - 1];
+                        RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
                             var vmfn = (VmFunction)callee.GetData();
@@ -2787,6 +2797,37 @@ namespace DScript.Vm
             for (var i = 0; i < len; i++)
                 result[i] ??= ScriptVar.CreateUndefined();
             return result;
+        }
+
+        // Record the callee seen at a call site, advancing its morphism class:
+        //   Uninitialized → Monomorphic  (first callee stored in Callee0)
+        //   Monomorphic   → Bimorphic    (second distinct callee stored in Callee1)
+        //   Bimorphic     → Megamorphic  (three or more distinct callees)
+        //   Megamorphic   stays Megamorphic
+        // Spread calls (CallSpread / CallMethodSpread) are not profiled here because
+        // the callee is pop'd before a site index is available; they can be added later.
+        private static void RecordCallSite(Chunk.CallSiteProfile[] profiles, int site, ScriptVar callee)
+        {
+            ref var cp = ref profiles[site];
+            switch (cp.State)
+            {
+                case Chunk.CallSiteMorphism.Uninitialized:
+                    cp.Callee0 = callee;
+                    cp.State   = Chunk.CallSiteMorphism.Monomorphic;
+                    break;
+                case Chunk.CallSiteMorphism.Monomorphic:
+                    if (!ReferenceEquals(cp.Callee0, callee))
+                    {
+                        cp.Callee1 = callee;
+                        cp.State   = Chunk.CallSiteMorphism.Bimorphic;
+                    }
+                    break;
+                case Chunk.CallSiteMorphism.Bimorphic:
+                    if (!ReferenceEquals(cp.Callee0, callee) && !ReferenceEquals(cp.Callee1, callee))
+                        cp.State = Chunk.CallSiteMorphism.Megamorphic;
+                    break;
+                // Megamorphic: no further transitions
+            }
         }
 
         // Resolve a variable name through the inline cache. A site (identified by
