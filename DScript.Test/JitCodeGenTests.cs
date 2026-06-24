@@ -190,15 +190,9 @@ namespace DScript.Test
 
         // ── decline paths: unsupported constructs stay interpreted ──────────────
 
-        [Test]
-        public void LoopBodyIsDeclined()
-        {
-            // f contains a while loop (jumps) and assignments -> not compilable.
-            AssertMatches(
-                "function f(n){ var s = 0; var i = 0; while (i < n) { s = s + i; i = i + 1; } return s; }\n" +
-                "var r=0; var i=0; while(i<1200){ r = f(5); i = i + 1; }\n__result__ = r;",
-                "f", Chunk.JitStatus.Failed);
-        }
+        // Control-flow cases (loops) are back-end-divergent (the closure back-end
+        // declines them), so they live in JitControlFlowTests / JitAssignmentTests
+        // rather than this shared both-back-ends matrix.
 
         [Test]
         public void TryCatchIsDeclined()
