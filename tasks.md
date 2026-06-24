@@ -131,99 +131,104 @@ Double, String concat, monomorphic call, megamorphic call.
 
 ---
 
-## Phase 4 — Guards and Deoptimization
+## Phase 4 — Speculative unboxed-int specialization + deoptimization (re-planned)
 
 ### T18 — `DeoptFrame` struct
 **File:** `DScript/Vm/DeoptFrame.cs`  
-**Work:** Define struct with `Chunk Chunk`, `int InstructionPointer`,
-`ScriptVar[] Locals`.  
+**Work:** Define a readonly struct with `Chunk Chunk`, `ScriptVar[] Args`,
+`Environment Env` — the data needed to re-run a bailed pure chunk on the
+interpreter.  
 **Depends on:** T02
 
-### T19 — `Chunk.DeoptCount` and recompilation policy
-**File:** `DScript/Vm/Chunk.cs`  
-**Work:** Add `int DeoptCount { get; set; }`. Define `JitThresholds.DeoptThreshold
-= 5`. When `DeoptCount >= DeoptThreshold`, reset `JitState` to `Cold` and clear
-`CompiledDelegate` so the chunk recompiles on the next invocation.  
+### T19 — `Chunk.DeoptCount`, `DeoptThreshold`, recompilation policy
+**File:** `DScript/Vm/Chunk.cs`, `DScript/Vm/JitThresholds.cs`  
+**Work:** Add `int DeoptCount { get; set; }` and
+`JitThresholds.DeoptThreshold = 5`. Add a `bool PreferConservativeTier` flag set
+when deopts exceed the threshold; when tripped, clear `CompiledDelegate` and reset
+`JitState` to `Cold` so the next hotness trigger recompiles — to the conservative
+boxed tier.  
 **Depends on:** T18, T03
 
-### T20 — `VirtualMachine.Deoptimize(DeoptFrame)`
+### T20 — `VirtualMachine.Deoptimize(DeoptFrame)` + interpreter-only entry
 **File:** `DScript/Vm/VirtualMachine.cs`  
-**Work:** Static/instance method that reconstructs an interpreter stack frame from
-a `DeoptFrame`, increments `DeoptCount`, applies recompilation policy from T19, and
-resumes interpretation from `InstructionPointer`.  
+**Work:** Add an interpreter-only execution path (Execute that bypasses the JIT
+tier-up gate so it cannot re-enter compiled code). `Deoptimize` increments
+`DeoptCount`, applies the T19 recompilation policy, runs the chunk interpreter-only
+on the supplied `Env`, and returns the result.  
 **Depends on:** T19, T08
 
-### T21 — Emit guard failure calls in JIT output
-**File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`  
-**Work:** Replace the `EmitCallDeopt()` stub from T10 with a real call to
-`VirtualMachine.Deoptimize`, passing a `DeoptFrame` constructed from the current
-IL locals and the bytecode offset of the failing guard.  
+### T21 — Speculative unboxed-int tier in the emitter
+**File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`, `DScript/Jit/DynamicMethodBuilder.cs`  
+**Work:** Add a speculative tier tried before the conservative one. Eligibility:
+pure (no `Call`/`TailCall`/`CallMethod`), branch-free, every binary site profiled
+`Int`-only, int constants only, supported opcodes only, and `!PreferConservativeTier`.
+Emit raw-`int` value flow: `ldc.i4` constants, `GetVar`→guard `IsInt` else deopt→
+push `.Int`, binary→raw int IL (`/`,`%` guard divisor `!=0` else deopt), `Return`→
+`FromInt`. On any guard miss emit
+`return vm.Deoptimize(new DeoptFrame(chunk, args, env))`. Non-eligible chunks fall
+through to the conservative tier.  
 **Depends on:** T20, T16
 
-### T22 — Tests: deoptimization correctness
+### T22 — Tests: speculative int tier + deoptimization correctness
 **File:** `DScript.Test/JitDeoptTests.cs`  
-**Work:** Tests for: guard failure produces correct result via interpreter fallback;
-`DeoptCount` increments; after `DeoptThreshold` deoptimizations the chunk resets to
-`Cold`; recompiled chunk runs again.  
+**Work:** Speculative result matches interpreter for all-int pure functions; a
+type surprise deopts and still returns the correct value; `DeoptCount` increments;
+after `DeoptThreshold` the chunk recompiles to the conservative tier (still
+correct); division-by-zero deopts and matches the interpreter's double result.  
 **Depends on:** T21
 
 ---
 
-## Phase 5 — On-Stack Replacement (OSR)
+## Phase 5 — Speculative unboxed-double tier (re-planned)
 
-### T23 — `OsrEntryFrame` struct
-**File:** `DScript/Vm/OsrEntryFrame.cs`  
-**Work:** Define struct with `Chunk Chunk`, `int TargetIp` (loop-header bytecode
-offset), `ScriptVar[] Locals`, `ScriptVar[] Stack`.  
-**Depends on:** T18
+### T23 — Double value-flow primitives
+**File:** `DScript/Jit/DynamicMethodBuilder.cs`  
+**Work:** Add primitives for raw-`double` flow: guard-numeric-else-deopt, load
+`.Float`, `conv.r8` of a raw int, raw `double` arithmetic, `FromDouble` at boundary.  
+**Depends on:** T21
 
-### T24 — OSR trigger in `Jump` handler
-**File:** `DScript/Vm/VirtualMachine.cs`  
-**Work:** After incrementing `BackEdgeCount` on a backward jump, check
-`BackEdgeCount >= JitThresholds.BackEdgeThreshold && JitState == Cold &&
-JitRegistry.Current != null`. If so: compile the chunk (T16 pipeline), build an
-`OsrEntryFrame` from current interpreter state, call the OSR entry point.  
-**Depends on:** T23, T16, T08
-
-### T25 — OSR entry prologues in the JIT compiler
+### T24 — Unboxed-double tier in the emitter
 **File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`  
-**Work:** For every backward-jump target (loop header), emit a separate IL entry
-label. Each prologue loads locals from `OsrEntryFrame.Locals` into the
-corresponding IL local slots, then falls through to the main compiled body.  
+**Work:** For pure, branch-free functions whose numeric sites are profiled `Double`
+(or mixed int/double), flow raw `double` through IL, guard operands numeric (else
+deopt), `FromDouble` only at return. Tried after the int tier, before conservative.  
+**Depends on:** T23
+
+### T25 — Tests: speculative double tier
+**File:** `DScript.Test/JitDoubleTierTests.cs`  
+**Work:** Double and mixed int/double pure functions match the interpreter; a
+non-numeric surprise deopts and returns the correct value.  
 **Depends on:** T24
 
-### T26 — Tests: OSR correctness
-**File:** `DScript.Test/JitOsrTests.cs`  
-**Work:** Tests for: loop running past `BackEdgeThreshold` exits with correct
-accumulated result; nested loops each fire OSR correctly; OSR + deopt combination
-(guard fails inside OSR-entered loop) falls back and produces correct result.  
-**Depends on:** T25
+> OSR / loop compilation deferred: worse cost/benefit than allocation elimination.
 
 ---
 
 ## Phase 6 — Inline Cache Promotion
 
-### T27 — `ScriptVar.ShapeVersion` counter
+### T26 — `ScriptVar.ShapeVersion` counter
 **File:** `DScript/ScriptVar.cs`  
-**Work:** Add `int ShapeVersion { get; private set; }`. Increment it in
-`AddChild`, `RemoveLink`, and any other method that structurally mutates the
-property map. This is the shape guard key used by the JIT.  
-**Depends on:** nothing (can be done in parallel with earlier phases)
+**Work:** Add `int ShapeVersion { get; private set; }`; increment on structural
+property-map mutation (`AddChild`, `RemoveLink`, …). The shape-guard key.  
+**Depends on:** nothing (parallelisable)
+
+### T27 — `GetProp` support in the conservative tier
+**File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`  
+**Work:** Support `GetProp`/`GetPropN` via a runtime property-read helper, so
+property-reading functions compile at all (prerequisite for IC promotion).  
+**Depends on:** T16
 
 ### T28 — IC-promotion path in the JIT compiler
 **File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`  
-**Work:** For `GetVar`/`SetVar` sites where `InlineCache[offset]` is warm, emit:
-(1) `ldc.i4 <slot>` — the baked slot index; (2) a shape-version guard comparing
-`obj.ShapeVersion` to the version recorded at compile time; (3) on guard pass,
-direct array-element access; (4) on guard fail, call `Deoptimize` (T21).  
-**Depends on:** T27, T21
+**Work:** For warm `GetProp` sites, bake the resolved slot, guard
+`obj.ShapeVersion` against the compile-time version, direct-load on hit, `Deoptimize`
+on miss.  
+**Depends on:** T26, T27, T21
 
-### T29 — Tests: IC promotion correctness and performance
+### T29 — Tests: IC promotion correctness
 **File:** `DScript.Test/JitIcPromotionTests.cs`  
-**Work:** Tests for: warm IC path produces correct property value; adding a new
-property (shape change) triggers deopt and still returns correct value; benchmark
-assertion that IC-promoted run is faster than un-promoted baseline (verified via
-`DScript.Benchmark` before/after numbers recorded in commit message).  
+**Work:** Warm IC path returns the correct property value; a shape change deopts
+and still returns the correct value.  
 **Depends on:** T28
 
 ---
@@ -238,10 +243,14 @@ T05 → T06
 T05 → T10 → T11 → T14 → T15 → T16 → T17
             T12 ──────────────↗
             T13 ──────────────↗
-T02 → T18 → T19 → T20 → T21 → T22
-                   T16 ────↗
-T23 → T24 → T25 → T26
-      T16 ──↗
-T27 → T28 → T29
-      T21 ──↗
+T02 → T18 → T19 → T20 → T21 → T22         (T16 → T21)
+                  T08 ──↗
+T21 → T23 → T24 → T25                      (Phase 5: unboxed double)
+T26 → T28 → T29                            (Phase 6: inline caches)
+T16 → T27 ──↗
+T21 ───────↗
 ```
+
+Status: T01–T17 complete. Phases 4-6 re-planned for maximum performance
+(unbox values, eliminate per-op allocation + MathsOp dispatch; deopt on type
+surprise). OSR/loop compilation deferred.

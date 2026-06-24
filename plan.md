@@ -128,76 +128,98 @@ For each call-site profile:
 
 ---
 
-## Phase 4 — Guards and Deoptimization
+## Phase 4 — Speculative unboxed specialization + deoptimization (re-planned)
 
-**Goal:** when a JIT guard fails at runtime (e.g. a site profiled as Int-only
-receives a String), fall back to the interpreter without corrupting state.
+**Why re-planned:** the Phase 3 emitter is *conservative* — every guard falls back
+to `MathsOp`/general dispatch inline, so the compiled code is correct for any input
+and never needs to bail out. That is safe but still pays two costs on the hot path
+that the interpreter also pays: a heap `ScriptVar` allocation for *every*
+intermediate result (`FromInt`/`FromDouble`), and a virtual `MathsOp` dispatch
+whenever a value isn't statically int. Profiling notes call out allocation as the
+dominant remaining bottleneck, so the largest win available is to **stop allocating
+intermediates**.
 
-### Protocol
+**Goal:** for hot, pure (call-free), straight-line functions whose binary sites are
+profiled as a single numeric type, compile a **speculative** body where values flow
+as **raw `int` (or `double`)** through IL locals/the IL stack — no per-op
+`ScriptVar`, no `MathsOp`. A value is boxed back into a `ScriptVar` only at the
+function's return. Type assumptions are checked by cheap guards; a guard miss
+**deoptimizes**.
 
-Every JIT frame carries a `DeoptFrame` struct:
+### Deoptimization protocol (function-level)
+
+Because the speculative tier only compiles **pure** functions (no calls ⇒ no
+observable side effects before any guard), a guard miss can simply abandon the
+compiled run and **re-execute the whole chunk in the interpreter**, returning that
+result. No mid-stream stack reconstruction is needed.
 
 ```csharp
-public struct DeoptFrame
+public readonly struct DeoptFrame
 {
-    public Chunk Chunk;
-    public int   InstructionPointer;  // bytecode offset of the failing guard
-    public ScriptVar[] Locals;        // snapshot of locals at the guard point
+    public Chunk Chunk;          // the chunk that bailed
+    public ScriptVar[] Args;     // original args of this invocation
+    public Environment Env;      // original call environment (params already bound)
 }
 ```
 
-When a guard fails, the JIT calls `VirtualMachine.Deoptimize(DeoptFrame)`, which:
+The compiled delegate, on a guard miss, does
+`return vm.Deoptimize(new DeoptFrame(chunk, args, env));` which:
 
-1. Reconstructs an interpreter stack frame from the `DeoptFrame`.
-2. Resumes interpretation from `InstructionPointer`.
-3. Increments a `Chunk.DeoptCount` counter (useful for future recompilation decisions).
+1. increments `chunk.DeoptCount`,
+2. runs the chunk on the **interpreter only** (bypassing the JIT tier-up gate so it
+   cannot re-enter the compiled code), and
+3. returns the interpreter's result.
 
 ### Recompilation policy
 
-After `DeoptThreshold` (default: 5) deoptimizations, the chunk's `JitState` is
-reset to `Cold` so it can be recompiled with less aggressive specialization on the
-next hotness trigger.
+After `JitThresholds.DeoptThreshold` (default 5) deopts, the chunk's
+`CompiledDelegate` is cleared and `JitState` reset to `Cold`, so the next hotness
+trigger recompiles it — but the recompile now prefers the **conservative** boxed
+tier (which never deopts), since repeated deopts prove the speculation was wrong.
+
+### Emitter
+
+`ReflectionEmitJitCompiler` gains an unboxed integer tier:
+- **Eligibility:** chunk is pure (no `Call`/`TailCall`/`CallMethod`), branch-free,
+  every binary site profiled `Int`-only, only int constants, supported opcodes only.
+- **Value flow:** `Constant`(int) → `ldc.i4`; `GetVar` → resolve, **guard `IsInt`
+  (else deopt)**, push raw `.Int`; binary → raw int IL (`add`/`sub`/`mul`/`and`/`or`/
+  `^`; `/`,`%` guard divisor `!= 0` else deopt to match `IntBinary`'s double result;
+  comparisons → raw 0/1); `Return` → `FromInt`, `ret`.
+- Non-eligible chunks fall through to the conservative boxed tier from Phase 3.
 
 **Deliverables:**
 - `DScript/Vm/DeoptFrame.cs`
-- `VirtualMachine.Deoptimize(DeoptFrame)`
-- `Chunk.DeoptCount`, recompilation policy
-- Tests: guard failure falls back correctly, result matches pure-interpreter run,
-  recompilation after `DeoptThreshold` exceeded
+- `VirtualMachine.Deoptimize(DeoptFrame)` + an interpreter-only execution entry
+- `Chunk.DeoptCount`, `JitThresholds.DeoptThreshold`, recompilation policy
+- Unboxed-int speculative tier in the emitter
+- Tests: speculative result matches interpreter; a type surprise deopts and still
+  returns the correct value; `DeoptCount` increments; after `DeoptThreshold` the
+  chunk recompiles to the conservative tier; division-by-zero deopts correctly.
 
 ---
 
-## Phase 5 — On-Stack Replacement (OSR)
+## Phase 5 — Unboxed double tier (re-planned)
 
-**Goal:** for a function that is already running in the interpreter when it crosses
-the back-edge threshold, replace the live interpreter frame with a JIT frame
-mid-execution rather than waiting for the next call.
+**Why re-planned:** the original Phase 5 was On-Stack Replacement, which requires
+compiling loops, which in turn requires modelling control flow and a reified operand
+stack — a large subsystem whose payoff (replacing an already-running interpreter
+loop) is narrower than removing allocations. The bigger, more general performance
+win is to extend the unboxed tier to **doubles**, covering floating-point-heavy pure
+functions with the same "no intermediate allocation" benefit.
 
-OSR is optional for correctness but important for long-lived loops (e.g. a
-top-level `while(true)` that never returns).
-
-### Entry point
-
-The VM checks `chunk.BackEdgeCount >= JitThresholds.BackEdgeThreshold` inside the
-`Jump` opcode handler (after incrementing the counter). If the chunk is still `Cold`
-and a JIT compiler is registered:
-
-1. Transition to `Compiling`; compile the chunk (reuse Phase 3 pipeline).
-2. Build an `OsrEntryFrame` from the current interpreter locals and stack pointer.
-3. Jump into the compiled code at the OSR entry point corresponding to the
-   current `ip` (each backward-jump target is an OSR entry).
-
-### Complexity note
-
-OSR requires the JIT to emit a separate entry prologue for every backward-jump
-target (loop header). Each prologue loads locals from the `OsrEntryFrame` into the
-appropriate IL locals before falling through to the main loop body.
+**Goal:** add a speculative **unboxed `double`** tier: for pure, branch-free
+functions whose numeric sites are profiled `Double` (or mixed int/double), flow raw
+`double` through IL (`conv.r8` int operands as needed), guard operands numeric (else
+deopt), and `FromDouble` only at return.
 
 **Deliverables:**
-- `DScript/Vm/OsrEntryFrame.cs`
-- OSR trigger in `VirtualMachine` `Jump` handler
-- OSR entry prologues in `ReflectionEmitJitCompiler`
-- Tests: long-running loop exits with correct result when OSR fires mid-loop
+- Unboxed-double tier in the emitter (shares the deopt machinery from Phase 4)
+- Tests: double and mixed int/double pure functions match the interpreter; a
+  non-numeric surprise deopts and returns the correct value.
+
+> OSR and loop compilation remain possible future work; they are deferred because
+> their cost/benefit is worse than the allocation-elimination tiers above.
 
 ---
 
@@ -214,18 +236,17 @@ The interpreter already stores the resolved slot index for `GetVar`/`SetVar` in
 - If the cache is warm (non-zero slot index), emit `ldc.i4 <slot>` followed by a
   direct array-index load — no name lookup.
 - Emit a guard checking that the object's shape version matches the version
-  recorded when the cache was filled. On mismatch, call the interpreter's
-  `GetVarSlow` helper and update the baked constant via recompilation.
+  recorded when the cache was filled. On mismatch, **deoptimize** (Phase 4).
 
-Shape versioning requires a `ShapeVersion` counter on `ScriptVar` (or its
-underlying property map) that increments on every property addition or deletion.
+Shape versioning requires a `ShapeVersion` counter on `ScriptVar` that increments on
+every property addition or deletion.
 
 **Deliverables:**
-- `ScriptVar.ShapeVersion` (or equivalent)
-- IC-promotion path in `ReflectionEmitJitCompiler`
-- Shape-guard failure triggers re-entry via `Deoptimize` (Phase 4)
-- Tests: warm IC path executes without dictionary lookup (verified via benchmark
-  delta), shape change triggers correct deopt and re-execution
+- `ScriptVar.ShapeVersion`
+- IC-promotion path in `ReflectionEmitJitCompiler` (requires `GetProp` support)
+- Shape-guard failure triggers `Deoptimize` (Phase 4)
+- Tests: warm IC path returns the correct property value; a shape change deopts and
+  still returns the correct value.
 
 ---
 
@@ -233,8 +254,9 @@ underlying property map) that increments on every property addition or deletion.
 
 - **Test coverage**: every new class in `DScript/Jit/` and `DScript/Vm/` additions
   must maintain the 90 % line-coverage gate.
-- **Benchmarks**: Phases 3, 5, and 6 each require before/after `DScript.Benchmark`
-  runs; regressions > 5 % block the commit.
+- **Benchmarks**: Phases 4-6 each require before/after `DScript.Benchmark` runs with
+  the JIT registered; the speculative tiers must beat the interpreter on the
+  arithmetic workloads and must not regress the interpreter-only path.
 - **Platform**: `System.Reflection.Emit` is available on all three platforms
   (.NET 8+ on Windows, Linux, macOS). No platform-specific APIs.
 - **Opcodes**: no new opcodes are needed; the JIT operates above the bytecode layer.
