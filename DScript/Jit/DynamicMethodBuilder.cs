@@ -73,6 +73,10 @@ namespace DScript.Jit
             "IntBinary", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo InvokeCallableMethod = typeof(VirtualMachine).GetMethod(
             "InvokeCallable", new[] { typeof(ScriptVar), typeof(ScriptVar), typeof(ScriptVar[]) });
+        private static readonly MethodInfo DeoptimizeMethod = typeof(VirtualMachine).GetMethod(
+            "Deoptimize", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly ConstructorInfo DeoptFrameCtor = typeof(DeoptFrame).GetConstructor(
+            new[] { typeof(Chunk), typeof(ScriptVar[]), typeof(Environment) });
 
         private static MethodInfo Prop(
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type t,
@@ -277,10 +281,56 @@ namespace DScript.Jit
         /// </summary>
         public void EmitInvokeCallable() => IL.EmitCall(OpCodes.Callvirt, InvokeCallableMethod, null);
 
-        /// <summary>Emit the trailing <c>ret</c> and bake the delegate, binding the data array.</summary>
-        public JitDelegate Finish()
+        // ── speculative unboxed-int tier ────────────────────────────────────────
+
+        /// <summary>
+        /// Prologue guard for the speculative int tier: resolve <paramref name="name"/>,
+        /// branch to <paramref name="deopt"/> if it is not an integer, otherwise cache
+        /// its raw <c>.Int</c> value into <paramref name="intLocal"/>. <paramref name="svTemp"/>
+        /// is a scratch <see cref="ScriptVar"/> local. The IL stack is empty when the
+        /// branch to <paramref name="deopt"/> is taken, so the deopt block can cleanly
+        /// <c>ret</c>.
+        /// </summary>
+        public void EmitResolveGuardedInt(string name, LocalBuilder intLocal, LocalBuilder svTemp, Label deopt)
         {
+            EmitLoadEnv();
+            EmitLoadData(AddData(name), typeof(string));
+            IL.EmitCall(OpCodes.Call, JitGetVarMethod, null);
+            EmitStoreLocal(svTemp);                      // []
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IsIntGetter, null);
+            IL.Emit(OpCodes.Brfalse, deopt);             // [] at deopt
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IntGetter, null);
+            EmitStoreLocal(intLocal);                    // []
+        }
+
+        /// <summary>
+        /// Emit the deopt block at <paramref name="deopt"/>: bail to
+        /// <c>vm.Deoptimize(new DeoptFrame(chunk, args, env))</c> and return its result.
+        /// Assumes a clean IL stack at the label.
+        /// </summary>
+        public void EmitDeoptReturn(Label deopt, int chunkDataIndex)
+        {
+            IL.MarkLabel(deopt);
+            EmitLoadVm();
+            EmitLoadData(chunkDataIndex, typeof(Chunk));
+            EmitLoadArgs();
+            EmitLoadEnv();
+            IL.Emit(OpCodes.Newobj, DeoptFrameCtor);     // DeoptFrame(chunk, args, env)
+            IL.EmitCall(OpCodes.Callvirt, DeoptimizeMethod, null);
             IL.Emit(OpCodes.Ret);
+        }
+
+        /// <summary>
+        /// Bake the delegate, binding the data array. When <paramref name="appendRet"/>
+        /// is true a trailing <c>ret</c> is emitted (the conservative tier relies on it
+        /// to return a fall-through value); the speculative tier emits its own returns
+        /// and passes false.
+        /// </summary>
+        public JitDelegate Finish(bool appendRet = true)
+        {
+            if (appendRet) IL.Emit(OpCodes.Ret);
             return (JitDelegate)method.CreateDelegate(typeof(JitDelegate), data.ToArray());
         }
     }

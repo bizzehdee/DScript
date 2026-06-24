@@ -20,6 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using System.Collections.Generic;
 using System.Reflection.Emit;
 using DScript.Vm;
 
@@ -38,14 +39,136 @@ namespace DScript.Jit
     /// </summary>
     public sealed class ReflectionEmitJitCompiler : IJitCompiler
     {
-        public JitDelegate Compile(Chunk chunk) => CompileCore(chunk);
-
-        private static JitDelegate CompileCore(Chunk chunk)
+        public JitDelegate Compile(Chunk chunk)
         {
             var instrs = JitDecoder.Decode(chunk);
             if (instrs == null)
                 return null; // declined by the shared front-end
 
+            // Speculative unboxed-int tier first (unless repeated deopts proved it
+            // unprofitable), then the conservative boxed tier.
+            if (!chunk.PreferConservativeTier)
+            {
+                var speculative = TryCompileSpeculativeInt(chunk, instrs);
+                if (speculative != null) return speculative;
+            }
+
+            return CompileConservative(chunk, instrs);
+        }
+
+        // ── speculative unboxed-int tier ─────────────────────────────────────────
+        // For a pure (call-free), straight-line function whose binary sites are all
+        // profiled Int-only, compile a body where values flow as raw int through IL —
+        // no per-op ScriptVar allocation, no MathsOp. Variables are type-guarded once
+        // in the prologue (and their .Int cached in locals), so the body is guard-free
+        // and a guard miss deopts with a clean stack. Returns null if not eligible.
+        private static JitDelegate TryCompileSpeculativeInt(Chunk chunk, List<JitInstruction> instrs)
+        {
+            if (!IsIntSpeculable(chunk, instrs))
+                return null;
+
+            var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
+            var svTemp = b.DeclareLocal(typeof(ScriptVar));
+            var deopt = b.IL.DefineLabel();
+            var chunkIndex = b.AddData(chunk);
+
+            // Prologue: resolve + int-guard each distinct variable once, caching its
+            // raw int value in a local. The body then reads locals, never re-resolving.
+            var varLocals = new Dictionary<string, LocalBuilder>();
+            foreach (var instr in instrs)
+            {
+                if (instr.Kind != JitOpKind.PushVar || varLocals.ContainsKey(instr.Name)) continue;
+                var local = b.DeclareLocal(typeof(int));
+                varLocals[instr.Name] = local;
+                b.EmitResolveGuardedInt(instr.Name, local, svTemp, deopt);
+            }
+
+            // Body: raw int value flow.
+            foreach (var instr in instrs)
+            {
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:      b.EmitLdcI4(instr.Constant.IntValue); break;
+                    case JitOpKind.PushIntLiteral: b.EmitLdcI4(instr.IntValue); break;
+                    case JitOpKind.PushVar:        b.EmitLoadLocal(varLocals[instr.Name]); break;
+                    case JitOpKind.Not:
+                        b.IL.Emit(OpCodes.Ldc_I4_0);
+                        b.IL.Emit(OpCodes.Ceq);     // x == 0  → !x
+                        break;
+                    case JitOpKind.Binary:         EmitIntBinaryRaw(b, instr.Op); break;
+                    case JitOpKind.Pop:            b.IL.Emit(OpCodes.Pop); break;
+                    case JitOpKind.Return:
+                        b.EmitFromInt();            // box raw int at the boundary
+                        b.IL.Emit(OpCodes.Ret);
+                        break;
+                }
+            }
+
+            b.EmitDeoptReturn(deopt, chunkIndex);
+            return b.Finish(appendRet: false);
+        }
+
+        // Eligibility for the speculative int tier.
+        private static bool IsIntSpeculable(Chunk chunk, List<JitInstruction> instrs)
+        {
+            if (instrs.Count == 0 || instrs[instrs.Count - 1].Kind != JitOpKind.Return)
+                return false;
+
+            foreach (var instr in instrs)
+            {
+                switch (instr.Kind)
+                {
+                    case JitOpKind.Call:
+                    case JitOpKind.PushNull:
+                    case JitOpKind.PushUndefined:
+                        return false; // not pure / not int-typed
+                    case JitOpKind.PushConst:
+                        if (instr.Constant.Kind != ConstantKind.Int) return false;
+                        break;
+                    case JitOpKind.Binary:
+                        if (InlineIntOp(instr.Op) == null && !IsIntComparison(instr.Op)) return false;
+                        break;
+                }
+            }
+
+            // Require evidence of integer arithmetic: at least one binary site, all
+            // observed as Int-only. (Avoids speculating int on, e.g., string identity
+            // functions that would only ever deopt.)
+            var profiles = chunk.GetBinaryOpProfiles();
+            if (profiles.Count == 0) return false;
+            foreach (var (_, p) in profiles)
+                if (p.LeftTypes != Chunk.BinaryTypeFlags.Int || p.RightTypes != Chunk.BinaryTypeFlags.Int)
+                    return false;
+
+            return true;
+        }
+
+        // Raw-int binary op over two ints on the IL stack. Arithmetic/bitwise are
+        // inlined; comparisons emit 0/1 matching IntBinary's boolean results.
+        private static void EmitIntBinaryRaw(DynamicMethodBuilder b, ScriptLex.LexTypes op)
+        {
+            var inline = InlineIntOp(op);
+            if (inline.HasValue) { b.IL.Emit(inline.Value); return; }
+
+            var il = b.IL;
+            switch (op)
+            {
+                case (ScriptLex.LexTypes)'<':       il.Emit(OpCodes.Clt); break;
+                case (ScriptLex.LexTypes)'>':       il.Emit(OpCodes.Cgt); break;
+                case ScriptLex.LexTypes.LEqual:     il.Emit(OpCodes.Cgt); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); break;
+                case ScriptLex.LexTypes.GEqual:     il.Emit(OpCodes.Clt); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); break;
+                case ScriptLex.LexTypes.Equal:      il.Emit(OpCodes.Ceq); break;
+                case ScriptLex.LexTypes.NEqual:     il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); break;
+            }
+        }
+
+        private static bool IsIntComparison(ScriptLex.LexTypes op) =>
+            (char)op == '<' || (char)op == '>' ||
+            op == ScriptLex.LexTypes.LEqual || op == ScriptLex.LexTypes.GEqual ||
+            op == ScriptLex.LexTypes.Equal || op == ScriptLex.LexTypes.NEqual;
+
+        private static JitDelegate CompileConservative(Chunk chunk, List<JitInstruction> instrs)
+        {
             var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
 
             // Two scratch slots for binary operands and one for IntBinary's out value.
