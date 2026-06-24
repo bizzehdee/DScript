@@ -300,6 +300,17 @@ namespace DScript.Vm
         /// <summary>Current JIT compilation state of this chunk. Starts <see cref="JitStatus.Cold"/>.</summary>
         public JitStatus JitState { get; set; } = JitStatus.Cold;
 
+        /// <summary>
+        /// Returns true when this chunk is a worthwhile JIT candidate: it is still
+        /// <see cref="JitStatus.Cold"/> and either its invocation count or its
+        /// back-edge count has crossed the corresponding <see cref="JitThresholds"/>.
+        /// A chunk that is already compiling, compiled, or failed is never hot.
+        /// </summary>
+        public bool IsHot() =>
+            JitState == JitStatus.Cold &&
+            (InvocationCount >= JitThresholds.InvocationThreshold ||
+             BackEdgeCount   >= JitThresholds.BackEdgeThreshold);
+
         /// <summary>Literal value constants referenced by <see cref="OpCode.Constant"/>.</summary>
         public List<ConstantValue> Constants { get; } = [];
 
