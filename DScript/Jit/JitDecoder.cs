@@ -92,6 +92,18 @@ namespace DScript.Jit
                         ip += 1;
                         break;
 
+                    // Fused GetVar + GetProp superinstruction → expand to primitives.
+                    case OpCode.GetVarGetProp:
+                        instrs.Add(JitInstruction.PushVar(chunk.Names[chunk.ReadInt(ip)]));
+                        instrs.Add(JitInstruction.GetProp(chunk.Names[chunk.ReadInt(ip + 4)]));
+                        ip += 8;
+                        break;
+                    case OpCode.GetVarGetPropN:
+                        instrs.Add(JitInstruction.PushVar(chunk.Names[code[ip]]));
+                        instrs.Add(JitInstruction.GetProp(chunk.Names[code[ip + 1]]));
+                        ip += 2;
+                        break;
+
                     case OpCode.SetVar:
                         instrs.Add(JitInstruction.SetVar(chunk.Names[chunk.ReadInt(ip)]));
                         ip += 4;
