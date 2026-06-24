@@ -98,8 +98,11 @@ namespace DScript.Jit
 
         private static JitDelegate VarNode(string name) => (vm, args, env) => VirtualMachine.JitGetVar(env, name);
 
-        private static JitDelegate GetPropNode(JitDelegate obj, string name) =>
-            (vm, args, env) => vm.JitGetProp(obj(vm, args, env), name);
+        private static JitDelegate GetPropNode(JitDelegate obj, string name)
+        {
+            var cell = new PropCacheCell(); // one inline-cache cell per site
+            return (vm, args, env) => vm.JitGetPropCached(obj(vm, args, env), name, cell);
+        }
 
         private static JitDelegate NullNode() => (vm, args, env) => ScriptVar.CreateNull();
 

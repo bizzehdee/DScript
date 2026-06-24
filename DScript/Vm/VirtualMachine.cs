@@ -2957,13 +2957,19 @@ namespace DScript.Vm
             return Execute(chunk, frame.Env, bypassJit: true) ?? ScriptVar.CreateUndefined();
         }
 
-        // Read a property for JIT-compiled code, mirroring the GetProp opcode's
-        // miss-path semantics exactly: proxy [[Get]], own child, prototype-chain walk,
-        // getter invocation, then the built-in virtual properties. internal so the JIT
-        // emitter / closure back-end can call it. The per-site inline cache lives in
-        // the compiled code; this is the resolve-from-scratch path.
-        internal ScriptVar JitGetProp(ScriptVar obj, string name)
+        // Read a property for JIT-compiled code through a per-site inline cache,
+        // mirroring the GetProp opcode (cache + miss path) exactly: a hit reuses the
+        // cached link (invoking its getter if any); a miss does the full resolve —
+        // proxy [[Get]], own child, prototype-chain walk, getter, built-in
+        // length/size — and refreshes the cell for object/array shapes. internal so
+        // the JIT emitter / closure back-end can call it.
+        internal ScriptVar JitGetPropCached(ScriptVar obj, string name, PropCacheCell cell)
         {
+            if (ReferenceEquals(cell.Object, obj) && cell.Version == obj.ShapeVersion && cell.Link != null)
+                return cell.Link.Getter != null
+                    ? InvokeCallable(cell.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                    : cell.Link.Var;
+
             if (obj.IsProxy) return GetMember(obj, name);
 
             var link = obj.FindChild(name);
@@ -2971,9 +2977,17 @@ namespace DScript.Vm
                 link = engine.FindInParentClasses(obj, name);
 
             if (link != null)
+            {
+                if (obj.IsObject || obj.IsArray)
+                {
+                    cell.Object = obj;
+                    cell.Version = obj.ShapeVersion;
+                    cell.Link = link;
+                }
                 return link.Getter != null
                     ? InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>())
                     : link.Var;
+            }
 
             if (obj.IsArray && name == "length") return ScriptVar.FromInt(obj.GetArrayLength());
             if (obj.IsString && name == "length") return ScriptVar.FromInt(obj.String.Length);
