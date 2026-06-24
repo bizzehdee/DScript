@@ -301,6 +301,13 @@ namespace DScript.Vm
         public JitStatus JitState { get; set; } = JitStatus.Cold;
 
         /// <summary>
+        /// The compiled entry point for this chunk once <see cref="JitState"/> is
+        /// <see cref="JitStatus.Compiled"/>, or <c>null</c> while the chunk is still
+        /// interpreted. The VM invokes this in preference to the interpreter loop.
+        /// </summary>
+        public JitDelegate CompiledDelegate { get; set; }
+
+        /// <summary>
         /// Returns true when this chunk is a worthwhile JIT candidate: it is still
         /// <see cref="JitStatus.Cold"/> and either its invocation count or its
         /// back-edge count has crossed the corresponding <see cref="JitThresholds"/>.
