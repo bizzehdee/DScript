@@ -318,6 +318,39 @@ namespace DScript.Vm
             // Count every entry into this chunk (includes generator resumes, which
             // are legitimate re-entries but are not fresh invocations).
             chunk.InvocationCount++;
+
+            // JIT tier-up. Only plain invocations are eligible: generator and
+            // async resumes (genObj/gsState != null) keep using the interpreter so
+            // their suspended-state machinery is preserved. When no compiler is
+            // registered this whole block is skipped and behaviour is unchanged.
+            if (genObj == null && gsState == null)
+            {
+                if (chunk.CompiledDelegate != null)
+                    return chunk.CompiledDelegate(System.Array.Empty<ScriptVar>(), env.Vars);
+
+                if (chunk.IsHot() && JitRegistry.Current != null)
+                {
+                    chunk.JitState = Chunk.JitStatus.Compiling;
+                    try
+                    {
+                        var compiled = JitRegistry.Current.Compile(chunk);
+                        if (compiled != null)
+                        {
+                            chunk.CompiledDelegate = compiled;
+                            chunk.JitState = Chunk.JitStatus.Compiled;
+                            return compiled(System.Array.Empty<ScriptVar>(), env.Vars);
+                        }
+                        // Compiler declined this chunk: don't retry it.
+                        chunk.JitState = Chunk.JitStatus.Failed;
+                    }
+                    catch
+                    {
+                        // Compilation blew up: fall back to the interpreter for good.
+                        chunk.JitState = Chunk.JitStatus.Failed;
+                    }
+                }
+            }
+
             var code = chunk.CodeBytes;
             // Hoist the inline-cache array once so each GetVar/SetVar avoids the
             // property's lazy null-check on every resolution.
