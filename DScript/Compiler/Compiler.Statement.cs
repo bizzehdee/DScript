@@ -118,10 +118,7 @@ namespace DScript.Compiler
                     CompileTry();
                     break;
                 default:
-                    // expression statement: evaluate and discard the value
-                    CompileBase();
-                    chunk.Emit(OpCode.Pop);
-                    lexer.Match((ScriptLex.LexTypes)';');
+                    CompileExpressionStatement();
                     break;
             }
         }
@@ -592,16 +589,28 @@ namespace DScript.Compiler
                 isMatch: (t, d) => d == 0 && t == ScriptLex.LexTypes.RIn,
                 isStop:  (t, d) => d == 0 && (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')'));
 
-        private void CompileForIn()
+        private void CompileExpressionStatement()
+        {
+            CompileBase();
+            chunk.Emit(OpCode.Pop);
+            lexer.Match((ScriptLex.LexTypes)';');
+        }
+
+        // Skips an optional var/let/const keyword, reads the iterator variable name,
+        // matches the separator (RIn or ROf), and returns the name-table index.
+        private int ParseForIteratorVar(ScriptLex.LexTypes separator)
         {
             if (lexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst or ScriptLex.LexTypes.RLet)
-            {
                 lexer.Match(lexer.TokenType);
-            }
-
-            var loopVar = chunk.AddName(lexer.TokenString);
+            var nameIdx = chunk.AddName(lexer.TokenString);
             lexer.Match(ScriptLex.LexTypes.Id);
-            lexer.Match(ScriptLex.LexTypes.RIn);
+            lexer.Match(separator);
+            return nameIdx;
+        }
+
+        private void CompileForIn()
+        {
+            var loopVar = ParseForIteratorVar(ScriptLex.LexTypes.RIn);
 
             CompileBase();              // object
             chunk.Emit(OpCode.EnumKeys); // -> keys array
@@ -894,64 +903,21 @@ namespace DScript.Compiler
                 isMatch: (t, d) => d == 0 && t == ScriptLex.LexTypes.ROf,
                 isStop:  (t, d) => d == 0 && (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')'));
 
-        private void CompileForOf()
+        private void CompileForOf() =>
+            CompileForOfBase(OpCode.GetIterator, OpCode.ForOfStep, "$forof_iter_");
+
+        private void CompileForAwaitOf() =>
+            CompileForOfBase(OpCode.GetAsyncIterator, OpCode.ForAwaitOfStep, "$forawait_iter_");
+
+        private void CompileForOfBase(OpCode getIterOp, OpCode stepOp, string iterVarPrefix)
         {
-            if (lexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst or ScriptLex.LexTypes.RLet)
-                lexer.Match(lexer.TokenType);
+            var loopVar = ParseForIteratorVar(ScriptLex.LexTypes.ROf);
 
-            var loopVar = chunk.AddName(lexer.TokenString);
-            lexer.Match(ScriptLex.LexTypes.Id);
-            lexer.Match(ScriptLex.LexTypes.ROf);
-
-            CompileBase();                   // push the iterable
-            chunk.Emit(OpCode.GetIterator);  // normalise to an iterator with .next()
+            CompileBase();
+            chunk.Emit(getIterOp);
             lexer.Match((ScriptLex.LexTypes)')');
 
-            // store the iterator in a hidden var
-            var iterVar = chunk.AddName($"$forof_iter_{forInCounter}");
-            forInCounter++;
-
-            chunk.Emit(OpCode.DeclareVar, loopVar);
-            chunk.Emit(OpCode.DeclareVar, iterVar);
-            chunk.Emit(OpCode.SetVar, iterVar);
-            chunk.Emit(OpCode.Pop);
-
-            // while (true) { ForOfStep <exit>; loopVar = value; pop; body }
-            var loopTop = chunk.Count;
-
-            chunk.Emit(OpCode.GetVar, iterVar);
-            var exitJump = chunk.EmitJump(OpCode.ForOfStep); // pops iter; if done, jumps to exit; else pushes value
-
-            // loopVar = value (left on stack by ForOfStep)
-            chunk.Emit(OpCode.SetVar, loopVar);
-            chunk.Emit(OpCode.Pop);
-
-            loops.Push(new LoopContext());
-            CompileStatement(); // body
-
-            var incrStart = chunk.Count;
-            chunk.Emit(OpCode.Jump, loopTop);
-            chunk.PatchJump(exitJump);
-
-            var ctx = loops.Pop();
-            PatchJumps(ctx.BreakJumps, chunk.Count);
-            PatchJumps(ctx.ContinueJumps, incrStart);
-        }
-
-        private void CompileForAwaitOf()
-        {
-            if (lexer.TokenType is ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst or ScriptLex.LexTypes.RLet)
-                lexer.Match(lexer.TokenType);
-
-            var loopVar = chunk.AddName(lexer.TokenString);
-            lexer.Match(ScriptLex.LexTypes.Id);
-            lexer.Match(ScriptLex.LexTypes.ROf);
-
-            CompileBase();                             // push the iterable
-            chunk.Emit(OpCode.GetAsyncIterator);       // normalise to an async iterator
-            lexer.Match((ScriptLex.LexTypes)')');
-
-            var iterVar = chunk.AddName($"$forawait_iter_{forInCounter}");
+            var iterVar = chunk.AddName($"{iterVarPrefix}{forInCounter}");
             forInCounter++;
 
             chunk.Emit(OpCode.DeclareVar, loopVar);
@@ -960,10 +926,8 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.Pop);
 
             var loopTop = chunk.Count;
-
             chunk.Emit(OpCode.GetVar, iterVar);
-            var exitJump = chunk.EmitJump(OpCode.ForAwaitOfStep);
-
+            var exitJump = chunk.EmitJump(stepOp);
             chunk.Emit(OpCode.SetVar, loopVar);
             chunk.Emit(OpCode.Pop);
 

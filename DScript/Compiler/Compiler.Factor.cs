@@ -1219,25 +1219,32 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)']');
         }
 
+        private static readonly Dictionary<ScriptLex.LexTypes, (ScriptLex.LexTypes BaseOp, bool IsShift)> CompoundOps = new()
+        {
+            { ScriptLex.LexTypes.PlusEqual,           ((ScriptLex.LexTypes)'+',          false) },
+            { ScriptLex.LexTypes.MinusEqual,          ((ScriptLex.LexTypes)'-',          false) },
+            { ScriptLex.LexTypes.TimesEqual,          ((ScriptLex.LexTypes)'*',          false) },
+            { ScriptLex.LexTypes.SlashEqual,          ((ScriptLex.LexTypes)'/',          false) },
+            { ScriptLex.LexTypes.PercentEqual,        ((ScriptLex.LexTypes)'%',          false) },
+            { ScriptLex.LexTypes.PowerEqual,          (ScriptLex.LexTypes.Power,         false) },
+            { ScriptLex.LexTypes.AndEqual,            ((ScriptLex.LexTypes)'&',          false) },
+            { ScriptLex.LexTypes.OrEqual,             ((ScriptLex.LexTypes)'|',          false) },
+            { ScriptLex.LexTypes.XorEqual,            ((ScriptLex.LexTypes)'^',          false) },
+            { ScriptLex.LexTypes.LShiftEqual,         (ScriptLex.LexTypes.LShift,        true)  },
+            { ScriptLex.LexTypes.RShiftEqual,         (ScriptLex.LexTypes.RShift,        true)  },
+            { ScriptLex.LexTypes.RShiftUnsignedEqual, (ScriptLex.LexTypes.RShiftUnsigned, true) },
+        };
+
         private static bool TryGetCompoundOp(ScriptLex.LexTypes token, out ScriptLex.LexTypes baseOp, out bool isShift)
         {
-            isShift = false;
-            switch (token)
+            if (CompoundOps.TryGetValue(token, out var entry))
             {
-                case ScriptLex.LexTypes.PlusEqual: baseOp = (ScriptLex.LexTypes)'+'; return true;
-                case ScriptLex.LexTypes.MinusEqual: baseOp = (ScriptLex.LexTypes)'-'; return true;
-                case ScriptLex.LexTypes.TimesEqual: baseOp = (ScriptLex.LexTypes)'*'; return true;
-                case ScriptLex.LexTypes.SlashEqual: baseOp = (ScriptLex.LexTypes)'/'; return true;
-                case ScriptLex.LexTypes.PercentEqual: baseOp = (ScriptLex.LexTypes)'%'; return true;
-                case ScriptLex.LexTypes.PowerEqual:   baseOp = ScriptLex.LexTypes.Power; return true;
-                case ScriptLex.LexTypes.AndEqual: baseOp = (ScriptLex.LexTypes)'&'; return true;
-                case ScriptLex.LexTypes.OrEqual: baseOp = (ScriptLex.LexTypes)'|'; return true;
-                case ScriptLex.LexTypes.XorEqual: baseOp = (ScriptLex.LexTypes)'^'; return true;
-                case ScriptLex.LexTypes.LShiftEqual: baseOp = ScriptLex.LexTypes.LShift; isShift = true; return true;
-                case ScriptLex.LexTypes.RShiftEqual: baseOp = ScriptLex.LexTypes.RShift; isShift = true; return true;
-                case ScriptLex.LexTypes.RShiftUnsignedEqual: baseOp = ScriptLex.LexTypes.RShiftUnsigned; isShift = true; return true;
-                default: baseOp = default; return false;
+                (baseOp, isShift) = entry;
+                return true;
             }
+            baseOp = default;
+            isShift = false;
+            return false;
         }
 
         private void EmitBinaryOrShift(ScriptLex.LexTypes baseOp, bool isShift, int operandStart = -1)
