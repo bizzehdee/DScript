@@ -49,7 +49,8 @@ namespace DScript.Test
         private ScriptEngine MakeEngine()
         {
             var engine = new ScriptEngine();
-            new EngineFunctionLoader().RegisterFunctions(engine);
+            // Tests use a temp dir outside CWD, so FileSystemEscape is required.
+            new EngineFunctionLoader().RegisterFunctions(engine, EnginePermissions.FileSystemUnsafe);
             return engine;
         }
 

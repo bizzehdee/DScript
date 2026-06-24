@@ -34,7 +34,7 @@ namespace DScript.Test
         private static ScriptEngine MakeEngine()
         {
             var engine = new ScriptEngine();
-            new EngineFunctionLoader().RegisterFunctions(engine);
+            new EngineFunctionLoader().RegisterFunctions(engine, EnginePermissions.ProcessSpawn);
             return engine;
         }
 

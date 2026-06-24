@@ -10,7 +10,7 @@ namespace DScript.Test
         private static ScriptVar RunScript(string code)
         {
             var engine = new ScriptEngine();
-            new EngineFunctionLoader().RegisterFunctions(engine);
+            new EngineFunctionLoader().RegisterFunctions(engine, EnginePermissions.EnvironmentVariablesRead);
             engine.Execute(code);
             return engine.Root.GetParameter("__result__");
         }

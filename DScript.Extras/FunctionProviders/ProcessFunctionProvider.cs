@@ -97,13 +97,23 @@ namespace DScript.Extras.FunctionProviders
         public static void ProcessGetenvImpl(ScriptVar var, object userData)
         {
             if (userData is ScriptEngine engine2)
-                EnginePermissionStore.Require(engine2, EnginePermissions.EnvironmentVariables);
+                EnginePermissionStore.Require(engine2, EnginePermissions.EnvironmentVariablesRead);
             var name = var.GetParameter("name").String;
             var value = Environment.GetEnvironmentVariable(name);
             if (value == null)
                 var.ReturnVar.SetUndefined();
             else
                 var.ReturnVar.String = value;
+        }
+
+        [ScriptMethod("setenv", "name", "value")]
+        public static void ProcessSetenvImpl(ScriptVar var, object userData)
+        {
+            if (userData is ScriptEngine engine2)
+                EnginePermissionStore.Require(engine2, EnginePermissions.EnvironmentVariablesWrite);
+            var name = var.GetParameter("name").String;
+            var valueVar = var.GetParameter("value");
+            Environment.SetEnvironmentVariable(name, valueVar.IsUndefined ? null : valueVar.String);
         }
 
         [ScriptMethod("on", "event", "fn")]

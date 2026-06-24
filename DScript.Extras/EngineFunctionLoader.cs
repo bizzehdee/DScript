@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 using System;
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
@@ -36,10 +37,10 @@ namespace DScript.Extras
         /// reflection-free and therefore trim- and Native-AOT-safe.
         /// </summary>
         /// <param name="permissions">
-        /// Optional permission set. Defaults to <see cref="EnginePermissions.All"/> for
-        /// backwards compatibility. Pass a restricted set to sandbox the script.
+        /// Optional permission set. Defaults to <see cref="EnginePermissions.None"/> — safe
+        /// by default. Pass the required flags to grant the script the access it needs.
         /// </param>
-        public void RegisterFunctions(ScriptEngine engine, EnginePermissions permissions = EnginePermissions.All)
+        public void RegisterFunctions(ScriptEngine engine, EnginePermissions permissions = EnginePermissions.None)
         {
             EnginePermissionStore.Set(engine, permissions);
             // Map and Set constructors must be registered before the generated
@@ -59,6 +60,40 @@ namespace DScript.Extras
             EventEmitterRegistrar.RegisterHostEvents(engine);
             GeneratedFunctionRegistrar.RegisterAll(engine, engine);
             SetupErrorPrototypeChain(engine);
+            SetupProcessEnv(engine);
+        }
+
+        // Wires process.env as a lazy accessor so permission is checked on every read.
+        // AddNativeProperty calls the callback once at init with userData=null, which
+        // means it cannot perform per-access permission checks with the engine reference.
+        // Using link.Getter instead gives us a callback at every property access.
+        private static void SetupProcessEnv(ScriptEngine engine)
+        {
+            var processLink = engine.Root.FindChild("process");
+            if (processLink == null) return;
+            var processVar = processLink.Var;
+
+            var envLink = processVar.FindChild("env");
+            if (envLink == null)
+            {
+                processVar.AddChild("env", new ScriptVar(ScriptVar.Flags.Object));
+                envLink = processVar.FindChild("env");
+            }
+            if (envLink == null) return;
+
+            var getter = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            getter.SetCallback((scope, _) =>
+            {
+                EnginePermissionStore.Require(engine, EnginePermissions.EnvironmentVariablesRead);
+                var envObj = new ScriptVar(ScriptVar.Flags.Object);
+                foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+                {
+                    if (entry.Key is string key && entry.Value is string val)
+                        envObj.AddChild(key, new ScriptVar(val));
+                }
+                scope.ReturnVar = envObj;
+            }, null);
+            envLink.Getter = getter;
         }
 
         private static void SetupErrorPrototypeChain(ScriptEngine engine)

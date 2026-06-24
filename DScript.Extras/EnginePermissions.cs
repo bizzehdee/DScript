@@ -27,23 +27,61 @@ namespace DScript.Extras
 {
     /// <summary>
     /// Permission flags controlling which host capabilities a DScript engine may access.
+    /// Flags are composable; write permissions automatically include their read counterpart.
     /// </summary>
     [Flags]
     public enum EnginePermissions
     {
-        None                 = 0,
-        FileSystem           = 1 << 0,
-        Network              = 1 << 1,
-        ProcessSpawn         = 1 << 2,
-        ProcessExit          = 1 << 3,
-        EnvironmentVariables = 1 << 4,
-        /// <summary>All permissions granted (default for backwards compatibility).</summary>
-        All                  = ~0
+        None = 0,
+
+        // ── File-system ──────────────────────────────────────────────────────────
+        // Individual read/write bits (bit 0 = read, bit 5 = write-extra).
+        // FileSystemWrite includes FileSystemRead so that (granted & FileSystemRead)
+        // is always true when write is granted.
+        /// <summary>Allow read-only fs operations (readFileSync, existsSync, statSync, readdirSync).</summary>
+        FileSystemRead   = 1 << 0,                          // 1
+        /// <summary>Allow write fs operations (writeFileSync, mkdirSync, etc.). Implies <see cref="FileSystemRead"/>.</summary>
+        FileSystemWrite  = (1 << 5) | FileSystemRead,       // 33
+        /// <summary>
+        /// Allow fs operations that access paths outside the process working directory.
+        /// Off by default; must be granted explicitly for scripts that need absolute paths
+        /// or paths that escape the current working directory.
+        /// </summary>
+        FileSystemEscape = 1 << 6,                          // 64
+
+        /// <summary>Read + write file-system access, confined to the current working directory. Does not include <see cref="FileSystemEscape"/>.</summary>
+        FileSystem       = FileSystemRead | FileSystemWrite, // 33  (backwards-compat alias)
+        /// <summary>Unrestricted file-system access including paths outside the working directory.</summary>
+        FileSystemUnsafe = FileSystem | FileSystemEscape,    // 97
+
+        // ── Network ──────────────────────────────────────────────────────────────
+        /// <summary>Allow network operations (fetch, http, net).</summary>
+        Network = 1 << 1,                                    // 2
+
+        // ── Process ──────────────────────────────────────────────────────────────
+        /// <summary>Allow spawning child processes. Off by default.</summary>
+        ProcessSpawn = 1 << 2,                               // 4
+        /// <summary>Allow process.exit(). Off by default.</summary>
+        ProcessExit  = 1 << 3,                               // 8
+
+        // ── Environment variables ─────────────────────────────────────────────────
+        // Bit 4 = read, bit 7 = write-extra (write implies read).
+        /// <summary>Allow reading environment variables (process.getenv, process.env).</summary>
+        EnvironmentVariablesRead  = 1 << 4,                          // 16
+        /// <summary>Allow writing environment variables (process.setenv). Implies <see cref="EnvironmentVariablesRead"/>.</summary>
+        EnvironmentVariablesWrite = (1 << 7) | EnvironmentVariablesRead, // 144
+
+        /// <summary>Read-only environment variable access. Alias for <see cref="EnvironmentVariablesRead"/> (backwards-compat).</summary>
+        EnvironmentVariables = EnvironmentVariablesRead,             // 16
+
+        // ── Composites ───────────────────────────────────────────────────────────
+        /// <summary>All permissions granted.</summary>
+        All = ~0,
     }
 
     /// <summary>
     /// Thrown when a DScript operation is blocked by the permission model.
-    /// Catchable by the host but not by script code.
+    /// Not catchable by script-level <c>try/catch</c>.
     /// </summary>
     public sealed class PermissionException : Exception
     {

@@ -117,7 +117,7 @@ namespace DScript.Test
         private ScriptEngine MakeEngine()
         {
             var engine = new ScriptEngine();
-            new EngineFunctionLoader().RegisterFunctions(engine);
+            new EngineFunctionLoader().RegisterFunctions(engine, EnginePermissions.Network);
             return engine;
         }
 
