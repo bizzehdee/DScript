@@ -144,5 +144,37 @@ namespace DScript.Test
             ";
             Assert.That(RunInt(src), Is.EqualTo(1));
         }
+
+        // ── Promise.try ────────────────────────────────────────────────────────
+
+        [Test]
+        public void PromiseTry_FunctionReturnsValue_ResolvesWithIt()
+        {
+            var src = @"
+                var r = 0;
+                Promise.try(function() { return 42; }).then(function(v) { r = v; });
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void PromiseTry_FunctionThrows_RejectsWithError()
+        {
+            var src = @"
+                var r = 0;
+                Promise.try(function() { throw 'boom'; }).catch(function(e) { r = 1; });
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void PromiseTry_FunctionReturnsPromise_NotDoubleWrapped()
+        {
+            var src = @"
+                var r = 0;
+                Promise.try(function() { return Promise.resolve(7); }).then(function(v) { r = v; });
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(7));
+        }
     }
 }

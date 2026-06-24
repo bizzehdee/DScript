@@ -429,6 +429,29 @@ namespace DScript
             }, null);
             promiseVar.AddChild("any", anyFn);
 
+            // Promise.try(fn, ...args) — ES2025
+            var tryFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            tryFn.AddChild("fn", new ScriptVar(ScriptVar.Flags.Undefined));
+            tryFn.SetCallback((scope, _) =>
+            {
+                var fn = scope.FindChild("fn")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                var vm2 = new VirtualMachine(this);
+                Vm.PromiseObject result;
+                try
+                {
+                    var retVal = fn.IsFunction
+                        ? CallFunction(fn, null)
+                        : new ScriptVar(ScriptVar.Flags.Undefined);
+                    result = Vm.PromiseObject.Wrap(retVal);
+                }
+                catch (Exception ex)
+                {
+                    result = Vm.PromiseObject.Rejected(new ScriptVar(ex.Message));
+                }
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result.ToScriptVar(vm2));
+            }, null);
+            promiseVar.AddChild("try", tryFn);
+
             // Promise.withResolvers()
             var withResolversFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
             withResolversFn.SetCallback((scope, _) =>
