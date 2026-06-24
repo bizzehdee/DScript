@@ -332,7 +332,7 @@ namespace DScript.Compiler
 
         private void CompileTerm(bool canAssign)
         {
-            CompileUnary(canAssign);
+            CompileExponent(canAssign);
 
             while (lexer.TokenType is
                    (ScriptLex.LexTypes)'*' or
@@ -342,8 +342,36 @@ namespace DScript.Compiler
                 var op = lexer.TokenType;
                 lexer.Match(op);
                 var operandStart = chunk.Count;
-                CompileUnary(false);
+                CompileExponent(false);
                 EmitBinary((int)op, operandStart);
+            }
+        }
+
+        private void CompileExponent(bool canAssign)
+        {
+            // ES2016: unary operators may not appear immediately before ** without parens.
+            // Detect a prefix-unary token now, before consuming it via CompileUnary.
+            var hasUnaryPrefix = lexer.TokenType is
+                (ScriptLex.LexTypes)'!' or
+                (ScriptLex.LexTypes)'~' or
+                (ScriptLex.LexTypes)'-' or
+                (ScriptLex.LexTypes)'+' or
+                ScriptLex.LexTypes.RTypeOf or
+                ScriptLex.LexTypes.PlusPlus or
+                ScriptLex.LexTypes.MinusMinus or
+                ScriptLex.LexTypes.RDelete;
+
+            CompileUnary(canAssign);
+
+            if (lexer.TokenType == ScriptLex.LexTypes.Power)
+            {
+                if (hasUnaryPrefix)
+                    throw new ScriptException(
+                        "Unary operator used immediately before **. Wrap the left-hand side in parentheses.");
+                lexer.Match(ScriptLex.LexTypes.Power);
+                var operandStart = chunk.Count;
+                CompileExponent(false); // right-associative: recurse
+                EmitBinary((int)ScriptLex.LexTypes.Power, operandStart);
             }
         }
 

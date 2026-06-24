@@ -164,6 +164,8 @@ namespace DScript
             NullCoalesceEqual, // ??=
             PrivateName,    // #identifier (private class field/method name)
             BigIntLiteral,  // BigInt literal: 42n, 0xFFn, 0b101n, 0o77n
+            Power,          // **
+            PowerEqual,     // **=
         }
 
         public ScriptLex(string input)
@@ -781,6 +783,16 @@ namespace DScript
                 {
                     TokenType = LexTypes.PercentEqual;
                     GetNextChar();
+                }
+                else if (TokenType == (LexTypes)'*' && CurrentChar == '*') // ** or **=
+                {
+                    TokenType = LexTypes.Power;
+                    GetNextChar();
+                    if (CurrentChar == '=') // **=
+                    {
+                        TokenType = LexTypes.PowerEqual;
+                        GetNextChar();
+                    }
                 }
                 else if (TokenType == (LexTypes)'*' && CurrentChar == '=') // *=
                 {

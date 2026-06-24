@@ -996,6 +996,13 @@ namespace DScript
                             case '|': return new ScriptVar(da | db);
                             case '^': return new ScriptVar(da ^ db);
                             case '%': return db == 0 ? new ScriptVar(double.NaN) : new ScriptVar(da % db);
+                            case (char)ScriptLex.LexTypes.Power:
+                            {
+                                var r = Math.Pow(da, db);
+                                return r == (int)r && r is >= int.MinValue and <= int.MaxValue
+                                    ? new ScriptVar((int)r)
+                                    : new ScriptVar(r);
+                            }
                             case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(da == db);
                             case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(da != db);
                             case '<': return new ScriptVar(da < db);
@@ -1018,6 +1025,7 @@ namespace DScript
                             case '-': return new ScriptVar(da - db);
                             case '*': return new ScriptVar(da * db);
                             case '/': return new ScriptVar(da / db);
+                            case (char)ScriptLex.LexTypes.Power: return new ScriptVar(Math.Pow(da, db));
                             case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(Math.Abs(da - db) < 0.00001);
                             case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(Math.Abs(da - db) > 0.00001);
                             case '<': return new ScriptVar(da < db);
@@ -1081,6 +1089,12 @@ namespace DScript
                         case '%':
                             if (bb == BigInteger.Zero) throw new ScriptException("Division by zero");
                             return CreateBigInt(ba % bb);
+                        case (char)ScriptLex.LexTypes.Power:
+                            if (bb < BigInteger.Zero)
+                                throw new ScriptException("BigInt negative exponent");
+                            if (bb > int.MaxValue)
+                                throw new ScriptException("BigInt exponent too large");
+                            return CreateBigInt(BigInteger.Pow(ba, (int)bb));
                         case '&': return CreateBigInt(ba & bb);
                         case '|': return CreateBigInt(ba | bb);
                         case '^': return CreateBigInt(ba ^ bb);

@@ -124,7 +124,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 
 | Feature | Status | Notes |
 |---|---|---|
-| Exponentiation operator (`**`) | ❌ | Lexer and compiler do not implement `**`; use `Math.pow(a, b)` |
+| Exponentiation operator (`**`) | ✅ | Right-associative; `**=` compound assignment; unary-before-`**` is a SyntaxError per ES2016 |
 | `Array.prototype.includes` | ✅ | |
 
 ---

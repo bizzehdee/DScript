@@ -1273,6 +1273,7 @@ namespace DScript.Compiler
                 case ScriptLex.LexTypes.TimesEqual: baseOp = (ScriptLex.LexTypes)'*'; return true;
                 case ScriptLex.LexTypes.SlashEqual: baseOp = (ScriptLex.LexTypes)'/'; return true;
                 case ScriptLex.LexTypes.PercentEqual: baseOp = (ScriptLex.LexTypes)'%'; return true;
+                case ScriptLex.LexTypes.PowerEqual:   baseOp = ScriptLex.LexTypes.Power; return true;
                 case ScriptLex.LexTypes.AndEqual: baseOp = (ScriptLex.LexTypes)'&'; return true;
                 case ScriptLex.LexTypes.OrEqual: baseOp = (ScriptLex.LexTypes)'|'; return true;
                 case ScriptLex.LexTypes.XorEqual: baseOp = (ScriptLex.LexTypes)'^'; return true;
