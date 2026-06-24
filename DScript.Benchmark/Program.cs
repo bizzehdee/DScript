@@ -383,6 +383,13 @@ internal static class Program
             ($"property read (n={propN})",
                 $"function get(o){{return o.x + o.y;}} var o={{x:3,y:4}}; var s=0; " +
                 $"for(var i=0;i<{propN};i=i+1){{s=get(o);}} result=s;"),
+
+            // Control flow + monomorphic inlining: a JIT-compiled loop body calls a
+            // pure-parameter leaf (sq), which is inlined (no per-call frame allocation).
+            ($"inlined helper loop (n={propN})",
+                $"function sq(x){{return x*x;}} " +
+                $"function run(m){{ var s=0; var j=0; while(j<m){{ s=s+sq(j); j=j+1; }} return s; }} " +
+                $"var t=0; for(var i=0;i<{propN};i=i+1){{ t=run(20); }} result=t;"),
         };
 
         Console.WriteLine();
