@@ -470,5 +470,56 @@ namespace DScript.Extras.FunctionProviders
             }
             var.ReturnVar.String = sb.ToString();
         }
+
+        [ScriptMethod("isWellFormed")]
+        public static void StringIsWellFormedImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.Bool = IsWellFormed(var.GetParameter("this").String);
+        }
+
+        [ScriptMethod("toWellFormed")]
+        public static void StringToWellFormedImpl(ScriptVar var, object userData)
+        {
+            var.ReturnVar.String = ToWellFormed(var.GetParameter("this").String);
+        }
+
+        private static bool IsWellFormed(string s)
+        {
+            for (var i = 0; i < s.Length; i++)
+            {
+                if (char.IsHighSurrogate(s[i]))
+                {
+                    if (i + 1 >= s.Length || !char.IsLowSurrogate(s[i + 1])) return false;
+                    i++;
+                }
+                else if (char.IsLowSurrogate(s[i]))
+                    return false;
+            }
+            return true;
+        }
+
+        private static string ToWellFormed(string s)
+        {
+            var sb = new System.Text.StringBuilder(s.Length);
+            for (var i = 0; i < s.Length; i++)
+            {
+                if (char.IsHighSurrogate(s[i]))
+                {
+                    if (i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+                    {
+                        sb.Append(s[i]);
+                        sb.Append(s[i + 1]);
+                        i++;
+                    }
+                    else
+                        sb.Append('�');
+                }
+                else if (char.IsLowSurrogate(s[i]))
+                    sb.Append('�');
+                else
+                    sb.Append(s[i]);
+            }
+            return sb.ToString();
+        }
     }
 }

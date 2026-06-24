@@ -248,7 +248,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `ArrayBuffer.prototype.resize` | ❌ | Out of scope — requires typed array / ArrayBuffer support |
 | `Atomics.waitAsync` | ❌ | Out of scope — requires multi-threading infrastructure; see ES2017 notes |
 | RegExp `v` flag and set notation | ❌ | |
-| `String.prototype.isWellFormed` / `toWellFormed` | ❌ | |
+| `String.prototype.isWellFormed` / `toWellFormed` | ✅ | `isWellFormed()` returns bool; `toWellFormed()` replaces lone surrogates with U+FFFD |
 
 ---
 
