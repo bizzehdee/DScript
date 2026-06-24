@@ -315,6 +315,9 @@ namespace DScript.Vm
 
         private ScriptVar Execute(Chunk chunk, Environment env, GeneratorObject genObj = null, GeneratorState gsState = null)
         {
+            // Count every entry into this chunk (includes generator resumes, which
+            // are legitimate re-entries but are not fresh invocations).
+            chunk.InvocationCount++;
             var code = chunk.CodeBytes;
             // Hoist the inline-cache array once so each GetVar/SetVar avoids the
             // property's lazy null-check on every resolution.
@@ -815,8 +818,14 @@ namespace DScript.Vm
                     }
 
                     case OpCode.Jump:
-                        ip = ReadOperand(code, ref ip);
+                    {
+                        var target = ReadOperand(code, ref ip);
+                        // ip now equals the fallthrough offset (op + 5 bytes).
+                        // A target before that is a loop back-edge.
+                        if (target < ip) chunk.BackEdgeCount++;
+                        ip = target;
                         break;
+                    }
                     case OpCode.JumpIfFalse:
                     {
                         var target = ReadOperand(code, ref ip);

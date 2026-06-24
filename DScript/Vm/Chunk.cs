@@ -253,6 +253,32 @@ namespace DScript.Vm
             return result;
         }
 
+        // ── Invocation and back-edge counters ─────────────────────────────────
+        // These are the standard "tier-up" triggers in production JIT compilers:
+        // a function that has been called many times, or whose loop back-edges
+        // have been crossed many times, is a good JIT candidate.
+        //
+        // InvocationCount: incremented once at the top of Execute() for this chunk.
+        // BackEdgeCount:   incremented each time a backward Jump is taken
+        //                  (ip after the jump is less than ip before it).
+        //
+        // Both are plain int fields — they are hot-path data that must not involve
+        // allocation.  They are NOT reset by the bytecode-rebuild passes (offsets
+        // do not affect counts) and they do NOT need invalidation arrays.
+
+        /// <summary>
+        /// Number of times this function chunk has been entered.  Incremented once
+        /// per <see cref="VirtualMachine"/> Execute() call for this chunk.
+        /// </summary>
+        public int InvocationCount { get; set; }
+
+        /// <summary>
+        /// Cumulative number of backward jumps taken in this chunk.  A "backward
+        /// jump" is any <c>Jump</c> whose target is earlier in the bytecode than
+        /// the instruction that follows it (i.e. a loop back-edge).
+        /// </summary>
+        public int BackEdgeCount { get; set; }
+
         /// <summary>Literal value constants referenced by <see cref="OpCode.Constant"/>.</summary>
         public List<ConstantValue> Constants { get; } = [];
 
