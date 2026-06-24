@@ -260,5 +260,6 @@ matrix runs against both. Phases 4-6 were re-planned for maximum performance
 (unbox values, eliminate per-op allocation + MathsOp dispatch; deopt on type
 surprise; per-site property inline cache). OSR/loop compilation deferred.
 
-Outstanding follow-ups (not yet done): wiki `JIT.md` page; a JIT-enabled
-benchmark workload (the benchmark currently runs interpreter-only).
+Done beyond the task list: wiki `JIT.md` page (committed in the wiki submodule,
+local only); `DScript.Benchmark` JitSection comparing interpreter vs both
+back-ends. Remaining: OSR / loop compilation (deferred).
