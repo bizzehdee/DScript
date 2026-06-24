@@ -80,6 +80,28 @@ namespace DScript
 
         private readonly Dictionary<string, ScriptVar> _moduleCache = new();
 
+        // --- host event system -----------------------------------------------
+
+        /// <summary>
+        /// Set by <c>DScript.Extras.EngineFunctionLoader</c> when the host event
+        /// system is wired up. Invoke by calling <see cref="RaiseEvent"/>.
+        /// </summary>
+        public Action<string, ScriptVar[]> HostEventDispatch { get; set; }
+
+        /// <summary>
+        /// Fire a named event, invoking any script-side handlers registered with
+        /// the global <c>on()</c> / <c>once()</c> functions.
+        /// If <see cref="HostEventDispatch"/> is <c>null</c> (i.e.
+        /// <c>EngineFunctionLoader.RegisterFunctions</c> was not called) this is a no-op.
+        /// </summary>
+        /// <param name="name">Event name, e.g. <c>"playerDied"</c>.</param>
+        /// <param name="args">Arguments forwarded to every matching handler.</param>
+        public void RaiseEvent(string name, params ScriptVar[] args)
+        {
+            HostEventDispatch?.Invoke(name, args);
+            DrainMicroTasks();
+        }
+
         // --- resource limits ------------------------------------------------
         // 0 means no limit; positive values are enforced by the VM.
         private long _instructionLimit;

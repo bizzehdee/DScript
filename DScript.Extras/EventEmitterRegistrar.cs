@@ -180,6 +180,124 @@ namespace DScript.Extras
             engine.Root.AddChild("EventEmitter", emitterCtorVar);
         }
 
+        /// <summary>
+        /// Creates a global host-event emitter (<c>__hostEmitter__</c>) and wires
+        /// <see cref="ScriptEngine.HostEventDispatch"/> so that
+        /// <see cref="ScriptEngine.RaiseEvent"/> fires script-side handlers.
+        ///
+        /// Also registers global <c>on(event, fn)</c>, <c>once(event, fn)</c>,
+        /// <c>off(event, fn)</c>, and <c>removeAllListeners(event?)</c> so that
+        /// scripts can subscribe without referencing the emitter directly.
+        /// </summary>
+        internal static void RegisterHostEvents(ScriptEngine engine)
+        {
+            var emitterCtor = engine.Root.FindChild("EventEmitter")?.Var;
+            if (emitterCtor == null) return;
+
+            // Create the shared host-emitter instance (inherits EventEmitter methods).
+            var hostEmitter = new ScriptVar(ScriptVar.Flags.Object);
+            hostEmitter.AddChild(ScriptVar.PrototypeClassName, emitterCtor);
+            engine.Root.AddChild("__hostEmitter__", hostEmitter);
+
+            // ── global on(event, fn) ─────────────────────────────────────────
+            RegisterGlobal(engine, "on", new[] { "event", "fn" }, (scope, _) =>
+            {
+                var eventName = scope.FindChild("event")?.Var?.String ?? "";
+                var fn = scope.FindChild("fn")?.Var;
+                if (fn?.IsFunction != true) return;
+                var arr = GetOrCreateListenerArray(hostEmitter, ListenerPrefix + eventName);
+                arr.SetArrayIndex(arr.GetArrayLength(), fn.DeepCopy());
+                WarnIfExceedsMax(hostEmitter, eventName);
+            });
+
+            // ── global once(event, fn) ───────────────────────────────────────
+            RegisterGlobal(engine, "once", new[] { "event", "fn" }, (scope, _) =>
+            {
+                var eventName = scope.FindChild("event")?.Var?.String ?? "";
+                var fn = scope.FindChild("fn")?.Var;
+                if (fn?.IsFunction != true) return;
+                var arr = GetOrCreateListenerArray(hostEmitter, OncePrefix + eventName);
+                arr.SetArrayIndex(arr.GetArrayLength(), fn.DeepCopy());
+            });
+
+            // ── global off(event, fn) ────────────────────────────────────────
+            RegisterGlobal(engine, "off", new[] { "event", "fn" }, (scope, _) =>
+            {
+                var eventName = scope.FindChild("event")?.Var?.String ?? "";
+                var fn = scope.FindChild("fn")?.Var;
+                var arrLink = hostEmitter.FindChild(ListenerPrefix + eventName);
+                if (arrLink != null && fn != null) RemoveFirstMatch(arrLink.Var, fn);
+            });
+
+            // ── global removeAllListeners(event?) ────────────────────────────
+            RegisterGlobal(engine, "removeAllListeners", new[] { "event" }, (scope, _) =>
+            {
+                var eventVar = scope.FindChild("event")?.Var;
+                if (eventVar == null || eventVar.IsUndefined)
+                {
+                    var toRemove = new System.Collections.Generic.List<string>();
+                    var link = hostEmitter.FirstChild;
+                    while (link != null)
+                    {
+                        if (link.Name.StartsWith(ListenerPrefix) || link.Name.StartsWith(OncePrefix))
+                            toRemove.Add(link.Name);
+                        link = link.Next;
+                    }
+                    foreach (var n in toRemove)
+                    {
+                        var lnk = hostEmitter.FindChild(n);
+                        if (lnk != null) hostEmitter.RemoveLink(lnk);
+                    }
+                }
+                else
+                {
+                    var eventName = eventVar.String;
+                    var lnk1 = hostEmitter.FindChild(ListenerPrefix + eventName);
+                    if (lnk1 != null) hostEmitter.RemoveLink(lnk1);
+                    var lnk2 = hostEmitter.FindChild(OncePrefix + eventName);
+                    if (lnk2 != null) hostEmitter.RemoveLink(lnk2);
+                }
+            });
+
+            // ── wire engine.HostEventDispatch ────────────────────────────────
+            engine.HostEventDispatch = (name, args) =>
+            {
+                // Persistent listeners
+                var arrLink = hostEmitter.FindChild(ListenerPrefix + name);
+                if (arrLink != null)
+                {
+                    var len = arrLink.Var.GetArrayLength();
+                    for (var i = 0; i < len; i++)
+                    {
+                        var fn = arrLink.Var.GetArrayIndex(i);
+                        if (fn.IsFunction) engine.CallFunction(fn, hostEmitter, args);
+                    }
+                }
+                // Once listeners — snapshot, clear, then fire
+                var onceLink = hostEmitter.FindChild(OncePrefix + name);
+                if (onceLink != null)
+                {
+                    var onceLen = onceLink.Var.GetArrayLength();
+                    var snapshot = new ScriptVar[onceLen];
+                    for (var i = 0; i < onceLen; i++)
+                        snapshot[i] = onceLink.Var.GetArrayIndex(i);
+                    onceLink.Var.RemoveAllChildren();
+                    foreach (var fn in snapshot)
+                        if (fn.IsFunction) engine.CallFunction(fn, hostEmitter, args);
+                }
+            };
+        }
+
+        private static void RegisterGlobal(ScriptEngine engine, string name, string[] paramNames,
+            System.Action<ScriptVar, ScriptEngine> body)
+        {
+            var fn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            foreach (var p in paramNames)
+                fn.AddChild(p, new ScriptVar(ScriptVar.Flags.Undefined));
+            fn.SetCallback((scope, _) => body(scope, engine), null);
+            engine.Root.AddChild(name, fn);
+        }
+
         private static void AddMethod(ScriptVar ctorVar, ScriptEngine engine, string name, string[] paramNames,
             System.Action<ScriptVar, ScriptEngine> body)
         {

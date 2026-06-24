@@ -55,6 +55,7 @@ namespace DScript.Extras
             RegExpRegistrar.Register(engine);
             BufferRegistrar.Register(engine);
             EventEmitterRegistrar.Register(engine);
+            EventEmitterRegistrar.RegisterHostEvents(engine);
             GeneratedFunctionRegistrar.RegisterAll(engine, engine);
             SetupErrorPrototypeChain(engine);
         }
