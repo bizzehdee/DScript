@@ -224,5 +224,11 @@ namespace DScript.Vm
         GetPropCall0,    // [i nameIndex]   pop obj, call obj.name() → result
         GetPropMethodN,  // [b nameIndex]   narrow form of GetPropMethod    (2 bytes)
         GetPropCall0N,   // [b nameIndex]   narrow form of GetPropCall0     (2 bytes)
+
+        // --- Phase 12: O(n) array append ----------------------------------------
+        // Replaces the Dup+GetProp("length")+value+SetPropDynamic pattern emitted
+        // for post-spread static elements in array literals.  AppendArrayElement
+        // reads and maintains the cached array length so each append is O(1).
+        AppendElem,      //                 arr, value → arr  (appends value at arr.length)
     }
 }

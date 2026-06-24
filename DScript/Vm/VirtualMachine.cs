@@ -1129,9 +1129,14 @@ namespace DScript.Vm
                         var spreadArr = Pop();
                         var arr = Peek(); // the array being built stays on stack
                         var elems = ExtractArrayElements(spreadArr);
-                        var existingLen = arr.IsArray ? arr.GetArrayLength() : 0;
                         for (var si = 0; si < elems.Length; si++)
-                            arr.SetArrayIndex(existingLen + si, elems[si]);
+                            arr.AppendArrayElement(elems[si]); // O(1) per element
+                        break;
+                    }
+                    case OpCode.AppendElem:
+                    {
+                        var value = Pop();
+                        Peek().AppendArrayElement(value); // arr stays on stack
                         break;
                     }
                     case OpCode.MergeObject:

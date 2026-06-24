@@ -99,5 +99,45 @@ namespace DScript.Test
         {
             Assert.That(RunInt("var a = {x: 1, y: 2}; var b = {...a, z: 3}; var r = b.x + b.y + b.z;"), Is.EqualTo(6));
         }
+
+        // ── AppendElem / O(n) spread correctness ─────────────────────────────
+
+        [Test]
+        public void AppendElem_StaticElemAfterSpread_CorrectIndex()
+        {
+            // [...a, 99] — 99 must land at index a.length (AppendElem path)
+            Assert.That(RunInt("var a = [1, 2, 3]; var b = [...a, 99]; var r = b[3];"), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void AppendElem_MultipleStaticElemsAfterSpread_CorrectOrder()
+        {
+            // [...a, 10, 20] — each static elem appended in order
+            Assert.That(RunInt("var a = [1]; var b = [...a, 10, 20]; var r = b[1] * 100 + b[2];"), Is.EqualTo(1020));
+        }
+
+        [Test]
+        public void AppendElem_TwoSpreadsWithStaticBetween_CorrectLength()
+        {
+            // [...a, 5, ...b] — spread, static, spread must all chain correctly
+            Assert.That(RunInt("var a = [1, 2]; var b = [3, 4]; var c = [...a, 5, ...b]; var r = c.length;"), Is.EqualTo(5));
+        }
+
+        [Test]
+        public void AppendElem_TwoSpreadsWithStaticBetween_CorrectValues()
+        {
+            Assert.That(RunInt("var a = [1, 2]; var b = [4, 5]; var c = [...a, 3, ...b]; var r = c[0]+c[1]+c[2]+c[3]+c[4];"), Is.EqualTo(15));
+        }
+
+        [Test]
+        public void SpreadArray_LargeSpreadCorrectSum()
+        {
+            // Exercises the O(n) path with n=100 to catch any O(n²) regression
+            const string src =
+                "var a = []; for (var i = 0; i < 100; i = i + 1) { a[i] = 1; } " +
+                "var b = [...a, 1]; " +
+                "var r = b.length;";
+            Assert.That(RunInt(src), Is.EqualTo(101));
+        }
     }
 }

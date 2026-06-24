@@ -1214,10 +1214,8 @@ namespace DScript.Compiler
                 }
                 else
                 {
-                    chunk.Emit(OpCode.Dup);
-                    chunk.Emit(OpCode.GetProp, chunk.AddName("length"));
                     CompileBase();
-                    chunk.Emit(OpCode.SetPropDynamic);
+                    chunk.Emit(OpCode.AppendElem); // O(1) cached-length append
                 }
 
                 if (lexer.TokenType != (ScriptLex.LexTypes)']')

@@ -905,6 +905,16 @@ namespace DScript
             }
         }
 
+        // Appends value at the current end of the array in O(1).
+        // Unlike SetArrayIndex, this maintains the cached array length so that
+        // consecutive appends (e.g. spread operations) never trigger an O(n) walk.
+        internal void AppendArrayElement(ScriptVar value)
+        {
+            var len = GetArrayLength(); // O(1) when cache is valid (maintained below)
+            AddChild(IndexName(len), value); // AddChild invalidates cachedArrayLength
+            cachedArrayLength = len + 1;     // restore immediately
+        }
+
         public int GetArrayLength()
         {
             if (!IsArray) return 0;
