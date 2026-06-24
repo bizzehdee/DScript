@@ -179,6 +179,80 @@ namespace DScript.Vm
             return result;
         }
 
+        // ── Binary-op type profiles ───────────────────────────────────────────
+        // Records which value types flow into each Binary / BinaryConst /
+        // BinaryIntConst / GetVarGetVarBinary site.  A future JIT tier can use
+        // this to emit a specialised integer-only fast path when LeftTypes and
+        // RightTypes are both exclusively Int.
+        //
+        // Indexed by the OPERAND-START offset of the binary instruction (ip after
+        // the main loop's ip++ past the opcode byte), matching the InlineCache and
+        // CallProfiles conventions.
+
+        /// <summary>
+        /// Bitmask of value kinds observed on one operand of a binary operator.
+        /// Multiple bits may be set when different types were seen on different
+        /// executions.
+        /// </summary>
+        [System.Flags]
+        public enum BinaryTypeFlags : byte
+        {
+            /// <summary>No executions yet.</summary>
+            None   = 0,
+            /// <summary>An integer value was observed (booleans are also integers in DScript).</summary>
+            Int    = 1,
+            /// <summary>A floating-point (double) value was observed.</summary>
+            Double = 2,
+            /// <summary>A string value was observed.</summary>
+            String = 4,
+            /// <summary>Any other type (object, array, null, undefined, …) was observed.</summary>
+            Other  = 8,
+        }
+
+        /// <summary>Per-binary-operator-site type profiling record.</summary>
+        public struct BinaryOpProfile
+        {
+            /// <summary>Types observed on the left operand.</summary>
+            public BinaryTypeFlags LeftTypes { get; set; }
+            /// <summary>Types observed on the right operand.</summary>
+            public BinaryTypeFlags RightTypes { get; set; }
+        }
+
+        private BinaryOpProfile[] binaryOpProfiles;
+
+        /// <summary>
+        /// Lazily-allocated binary-op type-profile array, one slot per code byte
+        /// (indexed by the operand-start offset of each binary instruction).
+        /// </summary>
+        public BinaryOpProfile[] BinaryOpProfiles => binaryOpProfiles ??= new BinaryOpProfile[CodeBytes.Length];
+
+        /// <summary>
+        /// Returns the type-profile records for every Binary/BinaryConst/BinaryIntConst/
+        /// GetVarGetVarBinary instruction in this chunk.
+        /// Returns an empty list when no binary site has been reached yet.
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<(int SiteOffset, BinaryOpProfile Profile)> GetBinaryOpProfiles()
+        {
+            if (binaryOpProfiles == null)
+                return System.Array.Empty<(int, BinaryOpProfile)>();
+
+            var result = new System.Collections.Generic.List<(int, BinaryOpProfile)>();
+            var codeBytes = CodeBytes;
+            var ip = 0;
+            while (ip < codeBytes.Length)
+            {
+                var op = (OpCode)codeBytes[ip];
+                if (op is OpCode.Binary or OpCode.BinaryConst or OpCode.BinaryIntConst
+                       or OpCode.GetVarGetVarBinary or OpCode.GetVarGetVarBinaryN)
+                {
+                    var site = ip + 1;
+                    result.Add((site, binaryOpProfiles[site]));
+                }
+                ip += InstructionSize(op);
+            }
+            return result;
+        }
+
         /// <summary>Literal value constants referenced by <see cref="OpCode.Constant"/>.</summary>
         public List<ConstantValue> Constants { get; } = [];
 
@@ -870,6 +944,7 @@ namespace DScript.Vm
             codeArray = null;
             inlineCache = null; // offsets have shifted
             callProfiles = null;
+            binaryOpProfiles = null;
 
             foreach (var fn in Functions) fn.EliminateDeadCode();
         }
@@ -1120,6 +1195,7 @@ namespace DScript.Vm
             codeArray = null;
             inlineCache = null;
             callProfiles = null;
+            binaryOpProfiles = null;
 
             foreach (var fn in Functions) fn.FoldConstantBranches();
         }
@@ -1375,6 +1451,7 @@ namespace DScript.Vm
             codeArray = null;
             inlineCache = null; // offsets have shifted
             callProfiles = null;
+            binaryOpProfiles = null;
 
             foreach (var fn in Functions) fn.FuseSuperInstructions();
         }
@@ -1521,6 +1598,7 @@ namespace DScript.Vm
             codeArray = null;
             inlineCache = null; // offsets have shifted
             callProfiles = null;
+            binaryOpProfiles = null;
 
             foreach (var fn in Functions) fn.NarrowEncodePass();
         }

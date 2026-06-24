@@ -319,8 +319,9 @@ namespace DScript.Vm
             // Hoist the inline-cache array once so each GetVar/SetVar avoids the
             // property's lazy null-check on every resolution.
             var cache = chunk.InlineCache;
-            // Hoist the call-site profile array for the same reason.
-            var callProf = chunk.CallProfiles;
+            // Hoist the call-site and binary-op profile arrays for the same reason.
+            var callProf  = chunk.CallProfiles;
+            var binProf   = chunk.BinaryOpProfiles;
             var ip = gsState != null && gsState.Started ? gsState.SavedIp : 0;
 
             // Stackless generator resume: push the input value passed to .next(v).
@@ -656,9 +657,11 @@ namespace DScript.Vm
 
                     case OpCode.Binary:
                     {
+                        var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var b = Pop();
                         var a = Pop();
+                        RecordBinaryOpTypes(binProf, site, a, b);
                         // int-vs-int fast path (e.g. `s + i` between two variables):
                         // compute directly, skipping MathsOp's flag checks + dispatch.
                         if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
@@ -675,9 +678,20 @@ namespace DScript.Vm
                     {
                         // Fused Constant + Binary: the right operand is a literal,
                         // read from the constant pool instead of the stack.
+                        var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var constant = chunk.Constants[ReadOperand(code, ref ip)];
                         var a = Pop();
+                        var rightFlag = constant.Kind switch
+                        {
+                            ConstantKind.Int    => Chunk.BinaryTypeFlags.Int,
+                            ConstantKind.Double => Chunk.BinaryTypeFlags.Double,
+                            ConstantKind.String => Chunk.BinaryTypeFlags.String,
+                            _                   => Chunk.BinaryTypeFlags.Other,
+                        };
+                        ref var bcp = ref binProf[site];
+                        bcp.LeftTypes  |= TypeFlagOf(a);
+                        bcp.RightTypes |= rightFlag;
                         // Int-vs-int-literal fast path: compute directly, skipping
                         // both the constant ScriptVar materialization and MathsOp.
                         if (constant.Kind == ConstantKind.Int && a.IsInt &&
@@ -696,9 +710,13 @@ namespace DScript.Vm
                         // Like BinaryConst but the integer value is stored inline in
                         // the instruction stream, skipping the constant-pool lookup.
                         // Emitted when the right operand is a known integer literal.
+                        var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var intValue = ReadOperand(code, ref ip);
                         var a = Pop();
+                        ref var bip = ref binProf[site];
+                        bip.LeftTypes  |= TypeFlagOf(a);
+                        bip.RightTypes |= Chunk.BinaryTypeFlags.Int;
                         if (a.IsInt && IntBinary(a.Int, intValue, operatorCode, out var fast))
                             Push(fast);
                         else
@@ -1675,6 +1693,7 @@ namespace DScript.Vm
                     }
                     case OpCode.GetVarGetVarBinary:
                     {
+                        var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var var1Site = ip;
                         var var1Idx  = ReadOperand(code, ref ip);
@@ -1684,6 +1703,7 @@ namespace DScript.Vm
                         var link2 = ResolveCached(cache, chunk, var2Site, env, var2Idx);
                         var a = link1 != null ? link1.Var : SharedUndefined;
                         var b = link2 != null ? link2.Var : SharedUndefined;
+                        RecordBinaryOpTypes(binProf, site, a, b);
                         if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
                             Push(fast);
                         else
@@ -1692,6 +1712,7 @@ namespace DScript.Vm
                     }
                     case OpCode.GetVarGetVarBinaryN:
                     {
+                        var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)code[ip++];
                         var var1Site = ip;
                         var var1Idx  = code[ip++];
@@ -1701,6 +1722,7 @@ namespace DScript.Vm
                         var link2 = ResolveCached(cache, chunk, var2Site, env, var2Idx);
                         var a = link1 != null ? link1.Var : SharedUndefined;
                         var b = link2 != null ? link2.Var : SharedUndefined;
+                        RecordBinaryOpTypes(binProf, site, a, b);
                         if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
                             Push(fast);
                         else
@@ -2828,6 +2850,22 @@ namespace DScript.Vm
                     break;
                 // Megamorphic: no further transitions
             }
+        }
+
+        private static Chunk.BinaryTypeFlags TypeFlagOf(ScriptVar v)
+        {
+            if (v.IsInt)    return Chunk.BinaryTypeFlags.Int;
+            if (v.IsDouble) return Chunk.BinaryTypeFlags.Double;
+            if (v.IsString) return Chunk.BinaryTypeFlags.String;
+            return Chunk.BinaryTypeFlags.Other;
+        }
+
+        private static void RecordBinaryOpTypes(Chunk.BinaryOpProfile[] profiles, int site,
+            ScriptVar left, ScriptVar right)
+        {
+            ref var bp = ref profiles[site];
+            bp.LeftTypes  |= TypeFlagOf(left);
+            bp.RightTypes |= TypeFlagOf(right);
         }
 
         // Resolve a variable name through the inline cache. A site (identified by
