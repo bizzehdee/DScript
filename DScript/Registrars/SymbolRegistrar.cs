@@ -23,7 +23,7 @@ SOFTWARE.
 using System.Collections.Generic;
 using DScript.Vm;
 
-namespace DScript
+namespace DScript.Registrars
 {
     internal static class SymbolRegistrar
     {

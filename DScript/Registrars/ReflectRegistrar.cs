@@ -22,7 +22,7 @@ SOFTWARE.
 
 using DScript.Vm;
 
-namespace DScript
+namespace DScript.Registrars
 {
     internal static class ReflectRegistrar
     {

@@ -22,7 +22,7 @@ SOFTWARE.
 
 using System.Numerics;
 
-namespace DScript
+namespace DScript.Registrars
 {
     internal static class BigIntRegistrar
     {

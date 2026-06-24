@@ -23,7 +23,7 @@ SOFTWARE.
 using System;
 using System.Globalization;
 
-namespace DScript
+namespace DScript.Registrars
 {
     internal static class IntlRegistrar
     {

@@ -27,6 +27,7 @@ using System.Reflection;
 using DScript.Compiler;
 using DScript.Debugger;
 using DScript.Profiler;
+using DScript.Registrars;
 using DScript.Vm;
 using VmEnvironment = DScript.Vm.Environment;
 
