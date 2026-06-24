@@ -497,6 +497,39 @@ namespace DScript.Compiler
             }
         }
 
+        // Generic depth-tracking lookahead. Clones the lexer and scans forward,
+        // tracking bracket depth for all six pairs: (, [, { / ), ], }.
+        // Callbacks are evaluated BEFORE the depth update for the current token.
+        // Returns true when isMatch fires, false when isStop fires or EOF is reached.
+        private bool LookaheadScan(
+            Func<ScriptLex.LexTypes, int, bool> isMatch,
+            Func<ScriptLex.LexTypes, int, bool> isStop = null)
+        {
+            var clone = lexer.CloneToEnd(lexer.TokenStart);
+            var depth = 0;
+            while (clone.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                var t = clone.TokenType;
+                if (isStop?.Invoke(t, depth) == true) return false;
+                if (isMatch(t, depth)) return true;
+                if (t is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{') depth++;
+                else if (t is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}')
+                { if (depth > 0) depth--; }
+                clone.GetNextToken();
+            }
+            return false;
+        }
+
+        // Temporarily swap in a fresh lexer for `source`, call `body()`, then restore.
+        private void CompileInSubLexer(string source, Action body)
+        {
+            var saved = lexer;
+            using var sub = new ScriptLex(source);
+            lexer = sub;
+            body();
+            lexer = saved;
+        }
+
         // Scan for a top-level `await` token — one that appears outside any
         // function/class body. Tracks nesting by counting `function`/`class`
         // keywords to enter a nested scope and `}` tokens to exit.

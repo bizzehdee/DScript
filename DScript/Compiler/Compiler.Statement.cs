@@ -159,50 +159,18 @@ namespace DScript.Compiler
 
         // Lookahead: does the current block (starting just after '{') contain any
         // `let` or `const` declaration at depth 0 (not nested in inner braces)?
-        private bool PeekHasLetOrConst()
-        {
-            var clone = lexer.CloneToEnd(lexer.TokenStart);
-            var depth = 0;
-            while (clone.TokenType != ScriptLex.LexTypes.Eof)
-            {
-                var t = clone.TokenType;
-                if (t == (ScriptLex.LexTypes)'}' && depth == 0) break;
-                if (depth == 0 && (t == ScriptLex.LexTypes.RLet || t == ScriptLex.LexTypes.RConst))
-                    return true;
-                if (t == (ScriptLex.LexTypes)'{') depth++;
-                else if (t == (ScriptLex.LexTypes)'}') depth--;
-                clone.GetNextToken();
-            }
-            return false;
-        }
+        private bool PeekHasLetOrConst() =>
+            LookaheadScan(
+                isMatch: (t, d) => d == 0 && (t == ScriptLex.LexTypes.RLet || t == ScriptLex.LexTypes.RConst),
+                isStop:  (t, d) => d == 0 && t == (ScriptLex.LexTypes)'}');
 
         // Lookahead: does the current block contain a function declaration at depth 0?
         // Used in strict mode to decide whether nested blocks need a scope frame.
-        private bool PeekHasStrictFunctionDecl()
-        {
-            var clone = lexer.CloneToEnd(lexer.TokenStart);
-            var depth = 0;
-            while (clone.TokenType != ScriptLex.LexTypes.Eof)
-            {
-                var t = clone.TokenType;
-                if (t == (ScriptLex.LexTypes)'}' && depth == 0) break;
-                if (depth == 0)
-                {
-                    if (t == ScriptLex.LexTypes.RFunction) return true;
-                    // async function ...
-                    if (t == ScriptLex.LexTypes.RAsync)
-                    {
-                        var next = clone.CloneToEnd(clone.TokenStart);
-                        next.GetNextToken();
-                        if (next.TokenType == ScriptLex.LexTypes.RFunction) return true;
-                    }
-                }
-                if (t == (ScriptLex.LexTypes)'{') depth++;
-                else if (t == (ScriptLex.LexTypes)'}') depth--;
-                clone.GetNextToken();
-            }
-            return false;
-        }
+        // `function` at depth 0 covers both `function f(){}` and `async function f(){}`.
+        private bool PeekHasStrictFunctionDecl() =>
+            LookaheadScan(
+                isMatch: (t, d) => d == 0 && t == ScriptLex.LexTypes.RFunction,
+                isStop:  (t, d) => d == 0 && t == (ScriptLex.LexTypes)'}');
 
         private void CompileVarDeclaration()
         {
@@ -375,14 +343,9 @@ namespace DScript.Compiler
 
                     if (defaultSrc != null)
                     {
-                        // If the element was undefined, apply default (same pattern as EmitDefaultParamGuards)
                         chunk.Emit(OpCode.GetVar, nameIdx);
                         var skipDefault = chunk.EmitJump(OpCode.JumpIfDefined);
-                        var savedLexer = lexer;
-                        using var defLexer = new ScriptLex(defaultSrc);
-                        lexer = defLexer;
-                        CompileBase();
-                        lexer = savedLexer;
+                        CompileInSubLexer(defaultSrc, CompileBase);
                         chunk.Emit(OpCode.SetVar, nameIdx);
                         chunk.Emit(OpCode.Pop);
                         chunk.PatchJump(skipDefault);
@@ -449,14 +412,9 @@ namespace DScript.Compiler
 
                 if (defaultSrc != null)
                 {
-                    // If the property was undefined, apply default (same pattern as EmitDefaultParamGuards)
                     chunk.Emit(OpCode.GetVar, nameIdx);
                     var skipDefault = chunk.EmitJump(OpCode.JumpIfDefined);
-                    var savedLexer = lexer;
-                    using var defLexer = new ScriptLex(defaultSrc);
-                    lexer = defLexer;
-                    CompileBase();
-                    lexer = savedLexer;
+                    CompileInSubLexer(defaultSrc, CompileBase);
                     chunk.Emit(OpCode.SetVar, nameIdx);
                     chunk.Emit(OpCode.Pop);
                     chunk.PatchJump(skipDefault);
@@ -629,27 +587,10 @@ namespace DScript.Compiler
             PatchJumps(ctx.ContinueJumps, incrStart);
         }
 
-        private bool IsForIn()
-        {
-            var lookahead = lexer.CloneToEnd(lexer.TokenStart);
-            var depth = 0;
-            while (lookahead.TokenType != ScriptLex.LexTypes.Eof)
-            {
-                var t = lookahead.TokenType;
-                if (depth == 0)
-                {
-                    if (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')') return false;
-                    if (t == ScriptLex.LexTypes.RIn) return true;
-                }
-
-                if (t is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{') depth++;
-                else if (t is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}') depth--;
-
-                lookahead.GetNextToken();
-            }
-
-            return false;
-        }
+        private bool IsForIn() =>
+            LookaheadScan(
+                isMatch: (t, d) => d == 0 && t == ScriptLex.LexTypes.RIn,
+                isStop:  (t, d) => d == 0 && (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')'));
 
         private void CompileForIn()
         {
@@ -904,21 +845,8 @@ namespace DScript.Compiler
 
         // Quick lookahead to decide if the try has a finally clause (so we know
         // before compiling the try body whether to push a FinallyContext).
-        private bool PeekHasFinally()
-        {
-            var clone = lexer.CloneToEnd(lexer.TokenStart);
-            var depth = 0;
-            while (clone.TokenType != ScriptLex.LexTypes.Eof)
-            {
-                var t = clone.TokenType;
-                if (depth == 0 && t == ScriptLex.LexTypes.RFinally) return true;
-                if (depth == 0 && t == ScriptLex.LexTypes.RTry) depth++;
-                if (t is (ScriptLex.LexTypes)'{') depth++;
-                else if (t is (ScriptLex.LexTypes)'}') { if (depth > 0) depth--; }
-                clone.GetNextToken();
-            }
-            return false;
-        }
+        private bool PeekHasFinally() =>
+            LookaheadScan(isMatch: (t, d) => d == 0 && t == ScriptLex.LexTypes.RFinally);
 
         private void CompileFunctionDeclaration()
         {
@@ -961,27 +889,10 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.Pop);
         }
 
-        private bool IsForOf()
-        {
-            var lookahead = lexer.CloneToEnd(lexer.TokenStart);
-            var depth = 0;
-            while (lookahead.TokenType != ScriptLex.LexTypes.Eof)
-            {
-                var t = lookahead.TokenType;
-                if (depth == 0)
-                {
-                    if (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')') return false;
-                    if (t == ScriptLex.LexTypes.ROf) return true;
-                }
-
-                if (t is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{') depth++;
-                else if (t is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}') depth--;
-
-                lookahead.GetNextToken();
-            }
-
-            return false;
-        }
+        private bool IsForOf() =>
+            LookaheadScan(
+                isMatch: (t, d) => d == 0 && t == ScriptLex.LexTypes.ROf,
+                isStop:  (t, d) => d == 0 && (t == (ScriptLex.LexTypes)';' || t == (ScriptLex.LexTypes)')'));
 
         private void CompileForOf()
         {

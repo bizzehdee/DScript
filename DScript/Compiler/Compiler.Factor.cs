@@ -713,6 +713,41 @@ namespace DScript.Compiler
             }
         }
 
+        // Parse "(param, param = default, ...rest)" populating fnChunk.Parameters and
+        // fnChunk.RestParamIndex.  Returns per-parameter default-expression source
+        // strings (null entry = no default).
+        private List<(string ParamName, string DefaultSrc)> ParseParameterList(Chunk fnChunk)
+        {
+            var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
+            lexer.Match((ScriptLex.LexTypes)'(');
+            while (lexer.TokenType != (ScriptLex.LexTypes)')')
+            {
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    var restName = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    fnChunk.RestParamIndex = fnChunk.Parameters.Count;
+                    fnChunk.Parameters.Add(restName);
+                    paramDefaults.Add((restName, null));
+                    break; // rest must be last
+                }
+                var paramName = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
+                fnChunk.Parameters.Add(paramName);
+                string defaultSrc = null;
+                if (lexer.TokenType == (ScriptLex.LexTypes)'=')
+                {
+                    lexer.Match((ScriptLex.LexTypes)'=');
+                    defaultSrc = ReadDefaultExpression();
+                }
+                paramDefaults.Add((paramName, defaultSrc));
+                if (lexer.TokenType != (ScriptLex.LexTypes)')') lexer.Match((ScriptLex.LexTypes)',');
+            }
+            lexer.Match((ScriptLex.LexTypes)')');
+            return paramDefaults;
+        }
+
         // Compile a function's "(params) { body }" into a nested chunk and
         // register it; returns its index in the enclosing chunk's function table.
         private int CompileFunctionRest(string name, bool isGenerator = false, bool isAsync = false)
@@ -723,40 +758,7 @@ namespace DScript.Compiler
             // text by JSON.stringify / GetParsableString and re-parsed by eval
             var sourceStart = lexer.TokenStart;
 
-            // Parse parameter list, collecting default expressions as source strings.
-            var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
-
-            lexer.Match((ScriptLex.LexTypes)'(');
-            while (lexer.TokenType != (ScriptLex.LexTypes)')')
-            {
-                // Rest parameter: ...name (must be last)
-                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
-                {
-                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
-                    var restName = lexer.TokenString;
-                    lexer.Match(ScriptLex.LexTypes.Id);
-                    fnChunk.RestParamIndex = fnChunk.Parameters.Count;
-                    fnChunk.Parameters.Add(restName);
-                    paramDefaults.Add((restName, null));
-                    break; // rest param must be last
-                }
-
-                var paramName = lexer.TokenString;
-                lexer.Match(ScriptLex.LexTypes.Id);
-                fnChunk.Parameters.Add(paramName);
-
-                string defaultSrc = null;
-                if (lexer.TokenType == (ScriptLex.LexTypes)'=')
-                {
-                    lexer.Match((ScriptLex.LexTypes)'=');
-                    defaultSrc = ReadDefaultExpression();
-                }
-                paramDefaults.Add((paramName, defaultSrc));
-
-                if (lexer.TokenType != (ScriptLex.LexTypes)')')
-                    lexer.Match((ScriptLex.LexTypes)',');
-            }
-            lexer.Match((ScriptLex.LexTypes)')');
+            var paramDefaults = ParseParameterList(fnChunk);
 
             // Push a parameter-barrier scope so outer `const` propagation cannot
             // substitute a value for a name that this function shadows with a parameter.
@@ -819,11 +821,7 @@ namespace DScript.Compiler
                 chunk.Emit(OpCode.GetVar, nameIdx);
                 var jumpToSkip = chunk.EmitJump(OpCode.JumpIfDefined);
 
-                var savedLexer = lexer;
-                using var defaultLexer = new ScriptLex(defaultSrc);
-                lexer = defaultLexer;
-                CompileBase();
-                lexer = savedLexer;
+                CompileInSubLexer(defaultSrc, CompileBase);
 
                 chunk.Emit(OpCode.SetVar, nameIdx);
                 chunk.Emit(OpCode.Pop);
@@ -903,39 +901,7 @@ namespace DScript.Compiler
             else
             {
                 // Parenthesised param list: () => body  or  (x, y) => body
-                lexer.Match((ScriptLex.LexTypes)'(');
-                while (lexer.TokenType != (ScriptLex.LexTypes)')')
-                {
-                    // Rest parameter: ...name (must be last)
-                    if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
-                    {
-                        lexer.Match(ScriptLex.LexTypes.Ellipsis);
-                        var restName = lexer.TokenString;
-                        lexer.Match(ScriptLex.LexTypes.Id);
-                        fnChunk.RestParamIndex = fnChunk.Parameters.Count;
-                        fnChunk.Parameters.Add(restName);
-                        paramDefaults.Add((restName, null));
-                        if (lexer.TokenType != (ScriptLex.LexTypes)')')
-                            lexer.Match((ScriptLex.LexTypes)',');
-                        break;
-                    }
-
-                    var paramName = lexer.TokenString;
-                    lexer.Match(ScriptLex.LexTypes.Id);
-                    fnChunk.Parameters.Add(paramName);
-
-                    string defaultSrc = null;
-                    if (lexer.TokenType == (ScriptLex.LexTypes)'=')
-                    {
-                        lexer.Match((ScriptLex.LexTypes)'=');
-                        defaultSrc = ReadDefaultExpression();
-                    }
-                    paramDefaults.Add((paramName, defaultSrc));
-
-                    if (lexer.TokenType != (ScriptLex.LexTypes)')')
-                        lexer.Match((ScriptLex.LexTypes)',');
-                }
-                lexer.Match((ScriptLex.LexTypes)')');
+                paramDefaults = ParseParameterList(fnChunk);
             }
 
             lexer.Match(ScriptLex.LexTypes.Arrow);
@@ -1095,13 +1061,7 @@ namespace DScript.Compiler
 
             // Compile each expression
             foreach (var exprText in exprTexts)
-            {
-                var savedLexer = lexer;
-                using var subLexer = new ScriptLex(exprText);
-                lexer = subLexer;
-                CompileBase();
-                lexer = savedLexer;
-            }
+                CompileInSubLexer(exprText, CompileBase);
 
             chunk.Emit(OpCode.TaggedTemplate, literals.Count, exprTexts.Count);
         }
@@ -1122,11 +1082,7 @@ namespace DScript.Compiler
             {
                 if (isExpr)
                 {
-                    var savedLexer = lexer;
-                    using var subLexer = new ScriptLex(cooked);
-                    lexer = subLexer;
-                    CompileBase();
-                    lexer = savedLexer;
+                    CompileInSubLexer(cooked, CompileBase);
                 }
                 else if (emitted == 0 || cooked.Length > 0)
                 {

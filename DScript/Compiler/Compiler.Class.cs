@@ -215,12 +215,7 @@ namespace DScript.Compiler
                     // Static private field with initializer — set on class constructor
                     var nameIdx = chunk.AddName(name);
                     chunk.Emit(OpCode.GetVar, classNameIdx);
-                    // Compile the initializer inline using a sub-lexer
-                    var savedLexer2 = lexer;
-                    using var initLex = new ScriptLex(fieldInit);
-                    lexer = initLex;
-                    CompileBase();
-                    lexer = savedLexer2;
+                    CompileInSubLexer(fieldInit, CompileBase);
                     chunk.Emit(OpCode.SetProp, nameIdx);
                     chunk.Emit(OpCode.Pop);
                 }
@@ -249,43 +244,12 @@ namespace DScript.Compiler
         private int CompileMethodSource(string src, string name, string preamble = null)
         {
             var fnChunk = new Chunk { Name = name };
-            var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
 
             var savedLexer = lexer;
             using var methodLexer = new ScriptLex(src);
             lexer = methodLexer;
 
-            lexer.Match((ScriptLex.LexTypes)'(');
-            while (lexer.TokenType != (ScriptLex.LexTypes)')')
-            {
-                // Rest parameter: ...name (must be last)
-                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
-                {
-                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
-                    var restName = lexer.TokenString;
-                    lexer.Match(ScriptLex.LexTypes.Id);
-                    fnChunk.RestParamIndex = fnChunk.Parameters.Count;
-                    fnChunk.Parameters.Add(restName);
-                    paramDefaults.Add((restName, null));
-                    break; // rest param must be last
-                }
-
-                var paramName = lexer.TokenString;
-                lexer.Match(ScriptLex.LexTypes.Id);
-                fnChunk.Parameters.Add(paramName);
-
-                string defaultSrc = null;
-                if (lexer.TokenType == (ScriptLex.LexTypes)'=')
-                {
-                    lexer.Match((ScriptLex.LexTypes)'=');
-                    defaultSrc = ReadDefaultExpression();
-                }
-                paramDefaults.Add((paramName, defaultSrc));
-
-                if (lexer.TokenType != (ScriptLex.LexTypes)')')
-                    lexer.Match((ScriptLex.LexTypes)',');
-            }
-            lexer.Match((ScriptLex.LexTypes)')');
+            var paramDefaults = ParseParameterList(fnChunk);
 
             var saved = chunk;
             chunk = fnChunk;
