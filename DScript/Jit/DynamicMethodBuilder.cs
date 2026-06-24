@@ -306,6 +306,38 @@ namespace DScript.Jit
         }
 
         /// <summary>
+        /// Prologue guard for the speculative double tier: resolve <paramref name="name"/>,
+        /// branch to <paramref name="deopt"/> if it is not numeric (int or double),
+        /// otherwise cache its <c>.Float</c> value (int operands coerce to double) into
+        /// <paramref name="dblLocal"/>. Clean IL stack on the branch to <paramref name="deopt"/>.
+        /// </summary>
+        public void EmitResolveGuardedDouble(string name, LocalBuilder dblLocal, LocalBuilder svTemp, Label deopt)
+        {
+            EmitLoadEnv();
+            EmitLoadData(AddData(name), typeof(string));
+            IL.EmitCall(OpCodes.Call, JitGetVarMethod, null);
+            EmitStoreLocal(svTemp);                      // []
+
+            var numeric = IL.DefineLabel();
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IsIntGetter, null);
+            IL.Emit(OpCodes.Brtrue, numeric);            // int is numeric
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IsDoubleGetter, null);
+            IL.Emit(OpCodes.Brfalse, deopt);             // [] at deopt
+            IL.MarkLabel(numeric);
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, FloatGetter, null);
+            EmitStoreLocal(dblLocal);                    // []
+        }
+
+        /// <summary>Push a raw <c>double</c> constant.</summary>
+        public void EmitLdcR8(double value) => IL.Emit(OpCodes.Ldc_R8, value);
+
+        /// <summary>Convert the raw int on top of the stack to a raw <c>double</c>.</summary>
+        public void EmitConvR8() => IL.Emit(OpCodes.Conv_R8);
+
+        /// <summary>
         /// Emit the deopt block at <paramref name="deopt"/>: bail to
         /// <c>vm.Deoptimize(new DeoptFrame(chunk, args, env))</c> and return its result.
         /// Assumes a clean IL stack at the label.
