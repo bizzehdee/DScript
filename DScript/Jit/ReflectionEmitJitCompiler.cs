@@ -195,17 +195,21 @@ namespace DScript.Jit
             var fallback = il.DefineLabel();
             var done = il.DefineLabel();
 
-            // A double fast path exists only for the numeric arithmetic operators.
-            // When present, a failed int guard tries it before the MathsOp fallback.
+            // Specializations are tried in order — int, then double, then string —
+            // each falling through to the next on a guard miss, and finally to the
+            // generic MathsOp. Define entry labels only for the paths that apply.
             var dblOp = DoubleArithOp(op);
-            var tryDouble = il.DefineLabel();
-            var intGuardFail = dblOp.HasValue ? tryDouble : fallback;
+            var hasString = (char)op == '+';
+            var doubleLabel = dblOp.HasValue ? il.DefineLabel() : default;
+            var stringLabel = hasString ? il.DefineLabel() : default;
+
+            Label afterInt = dblOp.HasValue ? doubleLabel : (hasString ? stringLabel : fallback);
 
             // Int fast path guard: both operands must be integers.
             b.EmitIsInt(aSlot);
-            il.Emit(OpCodes.Brfalse, intGuardFail);
+            il.Emit(OpCodes.Brfalse, afterInt);
             b.EmitIsInt(bSlot);
-            il.Emit(OpCodes.Brfalse, intGuardFail);
+            il.Emit(OpCodes.Brfalse, afterInt);
 
             var inlineOp = InlineIntOp(op);
             if (inlineOp.HasValue)
@@ -223,18 +227,37 @@ namespace DScript.Jit
             }
             il.Emit(OpCodes.Br, done);
 
-            // Double fast path: at least one operand is a double and the other is
-            // numeric. result = ScriptVar.FromDouble(a.Float <op> b.Float). Mirrors
-            // MathsOp's numeric promotion for +, -, *, /.
+            // Double fast path: both operands numeric (and at least one a double).
+            // result = ScriptVar.FromDouble(a.Float <op> b.Float). Mirrors MathsOp's
+            // numeric promotion for +, -, *, /.
             if (dblOp.HasValue)
             {
-                il.MarkLabel(tryDouble);
-                EmitNumericGuard(b, aSlot, fallback);
-                EmitNumericGuard(b, bSlot, fallback);
+                var afterDouble = hasString ? stringLabel : fallback;
+                il.MarkLabel(doubleLabel);
+                EmitNumericGuard(b, aSlot, afterDouble);
+                EmitNumericGuard(b, bSlot, afterDouble);
                 b.EmitLoadFloat(aSlot);
                 b.EmitLoadFloat(bSlot);
                 il.Emit(dblOp.Value);
                 b.EmitFromDouble();
+                il.Emit(OpCodes.Br, done);
+            }
+
+            // String fast path for '+': both operands strings.
+            // result = ScriptVar.FromString(string.Concat(a.String, b.String)).
+            // Mixed string/number concatenation needs ToString coercion, so it is
+            // left to MathsOp.
+            if (hasString)
+            {
+                il.MarkLabel(stringLabel);
+                b.EmitIsString(aSlot);
+                il.Emit(OpCodes.Brfalse, fallback);
+                b.EmitIsString(bSlot);
+                il.Emit(OpCodes.Brfalse, fallback);
+                b.EmitLoadString(aSlot);
+                b.EmitLoadString(bSlot);
+                b.EmitStringConcat();
+                b.EmitFromString();
                 il.Emit(OpCodes.Br, done);
             }
 
