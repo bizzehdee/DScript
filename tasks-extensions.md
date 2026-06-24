@@ -234,3 +234,17 @@ Recommended order: **Phase 7 → 8 → 9** (Tier 1, the coverage + bottleneck wi
 then **Phase 10** (cheap, broad), then Tier 3 phases as desired, with **Phase 11**
 (Value overhaul) last and only after a successful spike. Phases 10, 15, 16, and the
 T47 spike are independent and can be picked up any time.
+
+---
+
+## Status
+
+**Tier 1 complete** (T30–T33, T36–T43): control flow (if/while/for), local
+variables & assignments, and monomorphic inlining of pure-parameter leaf callees.
+Loops and stateful functions now compile (conservative tier); the closure back-end
+declines control flow. Benchmark: an inlined helper loop runs ~2.37× the interpreter
+(ReflEmit). **OSR (T34/T35) deferred** — its ROI is narrow (only a long loop within
+a sub-threshold number of calls) and it needs live-frame transfer; revisit if a
+workload demands it.
+
+**Not yet started:** Tier 2 (T44–T49) and Tier 3 (T50–T56).
