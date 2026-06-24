@@ -593,211 +593,145 @@ namespace DScript
                     GetNextChar();
                 }
 
-                if (TokenType == (LexTypes)'=' && CurrentChar == '>') // =>
+                switch (TokenType)
                 {
-                    TokenType = LexTypes.Arrow;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'=' && CurrentChar == '=') // ==
-                {
-                    TokenType = LexTypes.Equal;
-                    GetNextChar();
-
-                    if (CurrentChar == '=') //===
-                    {
-                        TokenType = LexTypes.TypeEqual;
-                        GetNextChar();
-                    }
-                }
-                else if (TokenType == (LexTypes)'!' && CurrentChar == '=') // !=
-                {
-                    TokenType = LexTypes.NEqual;
-                    GetNextChar();
-                    if (CurrentChar == '=') // !==
-                    {
-                        TokenType = LexTypes.NTypeEqual;
-                        GetNextChar();
-                    }
-                }
-                else if (TokenType == (LexTypes)'<' && CurrentChar == '=') // <=
-                {
-                    TokenType = LexTypes.LEqual;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'<' && CurrentChar == '<') // <<
-                {
-                    TokenType = LexTypes.LShift;
-                    GetNextChar();
-                    if (CurrentChar == '=') //<<=
-                    {
-                        TokenType = LexTypes.LShiftEqual;
-                        GetNextChar();
-                    }
-                }
-                else if (TokenType == (LexTypes)'>' && CurrentChar == '=') // >=
-                {
-                    TokenType = LexTypes.GEqual;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'>' && CurrentChar == '>') // >>
-                {
-                    TokenType = LexTypes.RShift;
-                    GetNextChar();
-
-                    if (CurrentChar == '=') // >>=
-                    {
-                        TokenType = LexTypes.RShiftEqual;
-                        GetNextChar();
-                    }
-                    else if (CurrentChar == '>') // >>>
-                    {
-                        TokenType = LexTypes.RShiftUnsigned;
-                        GetNextChar();
-
-                        if (CurrentChar == '=') // >>>=
+                    case (LexTypes)'=':
+                        if (CurrentChar == '>') { TokenType = LexTypes.Arrow; GetNextChar(); }       // =>
+                        else if (CurrentChar == '=')
                         {
-                            TokenType = LexTypes.RShiftUnsignedEqual;
-                            GetNextChar();
+                            TokenType = LexTypes.Equal; GetNextChar();                               // ==
+                            if (CurrentChar == '=') { TokenType = LexTypes.TypeEqual; GetNextChar(); } // ===
                         }
-                    }
-                }
-                else if (TokenType == (LexTypes)'+' && CurrentChar == '=') // +=
-                {
-                    TokenType = LexTypes.PlusEqual;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'-' && CurrentChar == '=') // -=
-                {
-                    TokenType = LexTypes.MinusEqual;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'+' && CurrentChar == '+') // ++
-                {
-                    TokenType = LexTypes.PlusPlus;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'-' && CurrentChar == '-') // --
-                {
-                    TokenType = LexTypes.MinusMinus;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'&' && CurrentChar == '=') // &=
-                {
-                    TokenType = LexTypes.AndEqual;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'&' && CurrentChar == '&') // && or &&=
-                {
-                    TokenType = LexTypes.AndAnd;
-                    GetNextChar();
-                    if (CurrentChar == '=') { TokenType = LexTypes.AndAndEqual; GetNextChar(); }
-                }
-                else if (TokenType == (LexTypes)'|' && CurrentChar == '=') // |=
-                {
-                    TokenType = LexTypes.OrEqual;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'|' && CurrentChar == '|') // || or ||=
-                {
-                    TokenType = LexTypes.OrOr;
-                    GetNextChar();
-                    if (CurrentChar == '=') { TokenType = LexTypes.OrOrEqual; GetNextChar(); }
-                }
-                else if (TokenType == (LexTypes)'^' && CurrentChar == '=') // ^=
-                {
-                    TokenType = LexTypes.XorEqual;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'?' && CurrentChar == '?') // ?? or ??=
-                {
-                    TokenType = LexTypes.NullCoalesce;
-                    GetNextChar();
-                    if (CurrentChar == '=') { TokenType = LexTypes.NullCoalesceEqual; GetNextChar(); }
-                }
-                else if (TokenType == (LexTypes)'?' && CurrentChar == '.') // ?.
-                {
-                    TokenType = LexTypes.QuestionDot;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'.' && CurrentChar == '.' && NextChar == '.') // ...
-                {
-                    TokenType = LexTypes.Ellipsis;
-                    GetNextChar(); // consume second '.'
-                    GetNextChar(); // consume third '.'
-                }
-                else if (TokenType == (LexTypes)'/')
-                {
-                    //omit regex for now
-                    
-                    TokenType = NotAllowedBeforeRegex.Contains(PreviousTokenType)
-                        ? (LexTypes)'/'
-                        : LexTypes.RegExp;
-
-                    if (TokenType == LexTypes.RegExp)
-                    {
-                        tokenBuilder.Clear();
-                        tokenBuilder.Append('/');
-
-                        while(CurrentChar != 0 && CurrentChar != '/' && CurrentChar != '\n')
+                        break;
+                    case (LexTypes)'!':
+                        if (CurrentChar == '=')
                         {
-                            if(CurrentChar == '\\' && NextChar == '/')
+                            TokenType = LexTypes.NEqual; GetNextChar();                               // !=
+                            if (CurrentChar == '=') { TokenType = LexTypes.NTypeEqual; GetNextChar(); } // !==
+                        }
+                        break;
+                    case (LexTypes)'<':
+                        if (CurrentChar == '=') { TokenType = LexTypes.LEqual; GetNextChar(); }      // <=
+                        else if (CurrentChar == '<')
+                        {
+                            TokenType = LexTypes.LShift; GetNextChar();                              // <<
+                            if (CurrentChar == '=') { TokenType = LexTypes.LShiftEqual; GetNextChar(); } // <<=
+                        }
+                        break;
+                    case (LexTypes)'>':
+                        if (CurrentChar == '=') { TokenType = LexTypes.GEqual; GetNextChar(); }      // >=
+                        else if (CurrentChar == '>')
+                        {
+                            TokenType = LexTypes.RShift; GetNextChar();                              // >>
+                            if (CurrentChar == '=') { TokenType = LexTypes.RShiftEqual; GetNextChar(); } // >>=
+                            else if (CurrentChar == '>')
                             {
+                                TokenType = LexTypes.RShiftUnsigned; GetNextChar();                  // >>>
+                                if (CurrentChar == '=') { TokenType = LexTypes.RShiftUnsignedEqual; GetNextChar(); } // >>>=
+                            }
+                        }
+                        break;
+                    case (LexTypes)'+':
+                        if (CurrentChar == '=') { TokenType = LexTypes.PlusEqual; GetNextChar(); }   // +=
+                        else if (CurrentChar == '+') { TokenType = LexTypes.PlusPlus; GetNextChar(); } // ++
+                        break;
+                    case (LexTypes)'-':
+                        if (CurrentChar == '=') { TokenType = LexTypes.MinusEqual; GetNextChar(); }  // -=
+                        else if (CurrentChar == '-') { TokenType = LexTypes.MinusMinus; GetNextChar(); } // --
+                        break;
+                    case (LexTypes)'&':
+                        if (CurrentChar == '=') { TokenType = LexTypes.AndEqual; GetNextChar(); }    // &=
+                        else if (CurrentChar == '&')
+                        {
+                            TokenType = LexTypes.AndAnd; GetNextChar();                              // &&
+                            if (CurrentChar == '=') { TokenType = LexTypes.AndAndEqual; GetNextChar(); } // &&=
+                        }
+                        break;
+                    case (LexTypes)'|':
+                        if (CurrentChar == '=') { TokenType = LexTypes.OrEqual; GetNextChar(); }     // |=
+                        else if (CurrentChar == '|')
+                        {
+                            TokenType = LexTypes.OrOr; GetNextChar();                                // ||
+                            if (CurrentChar == '=') { TokenType = LexTypes.OrOrEqual; GetNextChar(); } // ||=
+                        }
+                        break;
+                    case (LexTypes)'^':
+                        if (CurrentChar == '=') { TokenType = LexTypes.XorEqual; GetNextChar(); }    // ^=
+                        break;
+                    case (LexTypes)'?':
+                        if (CurrentChar == '?')
+                        {
+                            TokenType = LexTypes.NullCoalesce; GetNextChar();                        // ??
+                            if (CurrentChar == '=') { TokenType = LexTypes.NullCoalesceEqual; GetNextChar(); } // ??=
+                        }
+                        else if (CurrentChar == '.') { TokenType = LexTypes.QuestionDot; GetNextChar(); } // ?.
+                        break;
+                    case (LexTypes)'.':
+                        if (CurrentChar == '.' && NextChar == '.')
+                        {
+                            TokenType = LexTypes.Ellipsis;
+                            GetNextChar(); // consume second '.'
+                            GetNextChar(); // consume third '.'
+                        }
+                        break;
+                    case (LexTypes)'/':
+                        TokenType = NotAllowedBeforeRegex.Contains(PreviousTokenType)
+                            ? (LexTypes)'/'
+                            : LexTypes.RegExp;
+
+                        if (TokenType == LexTypes.RegExp)
+                        {
+                            tokenBuilder.Clear();
+                            tokenBuilder.Append('/');
+
+                            while (CurrentChar != 0 && CurrentChar != '/' && CurrentChar != '\n')
+                            {
+                                if (CurrentChar == '\\' && NextChar == '/')
+                                {
+                                    tokenBuilder.Append(CurrentChar);
+                                    GetNextChar();
+                                }
+
                                 tokenBuilder.Append(CurrentChar);
                                 GetNextChar();
                             }
 
-                            tokenBuilder.Append(CurrentChar);
-                            GetNextChar();
-                        }
+                            if (CurrentChar == '/')
+                            {
+                                var regexStr = tokenBuilder.ToString().Substring(1);
+                                try
+                                {
+                                    _ = new Regex(regexStr, RegexOptions.ECMAScript);
+                                }
+                                catch (Exception ex)
+                                {
+                                    throw new ScriptException("Invalid RegEx", ex);
+                                }
 
-                        if(CurrentChar == '/')
-                        {
-                            var regexStr = tokenBuilder.ToString().Substring(1);
-                            try
-                            {
-                                _ = new Regex(regexStr, RegexOptions.ECMAScript);
+                                do
+                                {
+                                    tokenBuilder.Append(CurrentChar);
+                                    GetNextChar();
+                                } while (CurrentChar == 'd' || CurrentChar == 'g' || CurrentChar == 'i' ||
+                                         CurrentChar == 'm' || CurrentChar == 's' || CurrentChar == 'u' ||
+                                         CurrentChar == 'v' || CurrentChar == 'y');
+
+                                TokenString = tokenBuilder.ToString();
                             }
-                            catch(Exception ex)
-                            {
-                                throw new ScriptException("Invalid RegEx", ex);
-                            }
-                            
-                            do
-                            {
-                                tokenBuilder.Append(CurrentChar);
-                                GetNextChar();
-                            } while (CurrentChar == 'd' || CurrentChar == 'g' || CurrentChar == 'i' ||
-                                     CurrentChar == 'm' || CurrentChar == 's' || CurrentChar == 'u' ||
-                                     CurrentChar == 'v' || CurrentChar == 'y');
-                            
-                            TokenString = tokenBuilder.ToString();
                         }
-                    }
-                    else if (CurrentChar == '=') // /=
-                    {
-                        TokenType = LexTypes.SlashEqual;
-                        GetNextChar();
-                    }
-                }
-                else if (TokenType == (LexTypes)'%' && CurrentChar == '=') // %=
-                {
-                    TokenType = LexTypes.PercentEqual;
-                    GetNextChar();
-                }
-                else if (TokenType == (LexTypes)'*' && CurrentChar == '*') // ** or **=
-                {
-                    TokenType = LexTypes.Power;
-                    GetNextChar();
-                    if (CurrentChar == '=') // **=
-                    {
-                        TokenType = LexTypes.PowerEqual;
-                        GetNextChar();
-                    }
-                }
-                else if (TokenType == (LexTypes)'*' && CurrentChar == '=') // *=
-                {
-                    TokenType = LexTypes.TimesEqual;
-                    GetNextChar();
+                        else if (CurrentChar == '=') { TokenType = LexTypes.SlashEqual; GetNextChar(); } // /=
+                        break;
+                    case (LexTypes)'%':
+                        if (CurrentChar == '=') { TokenType = LexTypes.PercentEqual; GetNextChar(); } // %=
+                        break;
+                    case (LexTypes)'*':
+                        if (CurrentChar == '*')
+                        {
+                            TokenType = LexTypes.Power; GetNextChar();                               // **
+                            if (CurrentChar == '=') { TokenType = LexTypes.PowerEqual; GetNextChar(); } // **=
+                        }
+                        else if (CurrentChar == '=') { TokenType = LexTypes.TimesEqual; GetNextChar(); } // *=
+                        break;
                 }
             }
 
