@@ -1228,11 +1228,12 @@ namespace DScript.Compiler
                 lexer.Match(ScriptLex.LexTypes.RFrom);
                 var path = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Str);
+                var nsAttrs = ParseWithClause();
                 lexer.Match((ScriptLex.LexTypes)';');
 
                 var nsIdx = chunk.AddName(nsName);
                 chunk.Emit(OpCode.DeclareVar, nsIdx);
-                EmitRequireCall(path);
+                EmitRequireCall(path, nsAttrs);
                 chunk.Emit(OpCode.SetVar, nsIdx);
                 chunk.Emit(OpCode.Pop);
             }
@@ -1260,13 +1261,14 @@ namespace DScript.Compiler
                 lexer.Match(ScriptLex.LexTypes.RFrom);
                 var path = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Str);
+                var bindingAttrs = ParseWithClause();
                 lexer.Match((ScriptLex.LexTypes)';');
 
                 // var $mod = require("path");
                 var modTmpName = "$importMod" + _importCounter++;
                 var modTmpIdx = chunk.AddName(modTmpName);
                 chunk.Emit(OpCode.DeclareVar, modTmpIdx);
-                EmitRequireCall(path);
+                EmitRequireCall(path, bindingAttrs);
                 chunk.Emit(OpCode.SetVar, modTmpIdx);
                 chunk.Emit(OpCode.Pop);
 
@@ -1289,26 +1291,67 @@ namespace DScript.Compiler
                 lexer.Match(ScriptLex.LexTypes.RFrom);
                 var path = lexer.TokenString;
                 lexer.Match(ScriptLex.LexTypes.Str);
+                var defaultAttrs = ParseWithClause();
                 lexer.Match((ScriptLex.LexTypes)';');
 
                 var localIdx = chunk.AddName(localName);
                 var defaultIdx = chunk.AddName("default");
                 chunk.Emit(OpCode.DeclareVar, localIdx);
-                EmitRequireCall(path);
+                EmitRequireCall(path, defaultAttrs);
                 chunk.Emit(OpCode.GetProp, defaultIdx);
                 chunk.Emit(OpCode.SetVar, localIdx);
                 chunk.Emit(OpCode.Pop);
             }
         }
 
-        // Emit bytecode equivalent to: require("<path>")  (result left on stack)
-        private void EmitRequireCall(string path)
+        // Emit bytecode equivalent to: require("<path>") or require("<path>", {attrs})
+        private void EmitRequireCall(string path, Dictionary<string, string> attrs = null)
         {
             var requireIdx = chunk.AddName("require");
             var pathConstIdx = chunk.AddConstant(ConstantValue.String(path));
             chunk.Emit(OpCode.GetVar, requireIdx);
             chunk.Emit(OpCode.Constant, pathConstIdx);
-            chunk.Emit(OpCode.Call, 1);
+            if (attrs != null && attrs.Count > 0)
+            {
+                // Build a small attributes object on the stack using InitProp (keeps obj on stack).
+                chunk.Emit(OpCode.NewObject);
+                foreach (var kv in attrs)
+                {
+                    var keyIdx = chunk.AddName(kv.Key);
+                    var valIdx = chunk.AddConstant(ConstantValue.String(kv.Value));
+                    chunk.Emit(OpCode.Constant, valIdx);
+                    chunk.Emit(OpCode.InitProp, keyIdx);
+                }
+                chunk.Emit(OpCode.Call, 2);
+            }
+            else
+            {
+                chunk.Emit(OpCode.Call, 1);
+            }
+        }
+
+        // Parse an optional `with { key: "value", ... }` clause after `from "specifier"`.
+        // Returns an empty dict (not null) if no clause is present.
+        private Dictionary<string, string> ParseWithClause()
+        {
+            var attrs = new Dictionary<string, string>();
+            if (lexer.TokenType != ScriptLex.LexTypes.Id || lexer.TokenString != "with")
+                return attrs;
+            lexer.Match(ScriptLex.LexTypes.Id); // consume "with"
+            lexer.Match((ScriptLex.LexTypes)'{');
+            while (lexer.TokenType != (ScriptLex.LexTypes)'}')
+            {
+                var key = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
+                lexer.Match((ScriptLex.LexTypes)':');
+                var value = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Str);
+                attrs[key] = value;
+                if (lexer.TokenType != (ScriptLex.LexTypes)'}')
+                    lexer.Match((ScriptLex.LexTypes)',');
+            }
+            lexer.Match((ScriptLex.LexTypes)'}');
+            return attrs;
         }
     }
 }

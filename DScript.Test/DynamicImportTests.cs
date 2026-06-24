@@ -34,7 +34,7 @@ namespace DScript.Test
         private static ScriptEngine RunWithModules(string mainSource, Dictionary<string, string> modules)
         {
             var engine = new ScriptEngine();
-            engine.ModuleLoader = (path, _) => modules.TryGetValue(path, out var src) ? src : null;
+            engine.ModuleLoader = (path, _, __) => modules.TryGetValue(path, out var src) ? src : null;
             var chunk = new DScriptCompiler().CompileProgram(mainSource);
             new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             ScriptEngine.DrainMicroTasks();
@@ -104,7 +104,7 @@ import(name).then(function(m) { r = m.x; });
         {
             var callCount = 0;
             var engine = new ScriptEngine();
-            engine.ModuleLoader = (path, _) =>
+            engine.ModuleLoader = (path, _, __) =>
             {
                 callCount++;
                 return "export var n = 1;";
@@ -124,7 +124,7 @@ import('mod').then(function() {});
         public void DynamicImport_MissingModule_RejectsPromise()
         {
             var engine = new ScriptEngine();
-            engine.ModuleLoader = (_, __) => null;  // always missing
+            engine.ModuleLoader = (_, __, ___) => null;  // always missing
             var chunk = new DScriptCompiler().CompileProgram(@"
 var r = 0;
 import('missing').catch(function(e) { r = 99; });
@@ -142,7 +142,7 @@ import('missing').catch(function(e) { r = 99; });
         {
             var modules = new Dictionary<string, string> { ["m"] = "" };
             var engine = new ScriptEngine();
-            engine.ModuleLoader = (path, _) => modules.TryGetValue(path, out var src) ? src : null;
+            engine.ModuleLoader = (path, _, __) => modules.TryGetValue(path, out var src) ? src : null;
             var chunk = new DScriptCompiler().CompileProgram(@"
 var p = import('m');
 var r = (p !== null && p !== undefined) ? 1 : 0;

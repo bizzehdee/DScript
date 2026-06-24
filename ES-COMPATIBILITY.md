@@ -260,7 +260,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Set` methods (`union`, `intersection`, `difference`, etc.) | ✅ | `union`, `intersection`, `difference`, `isSubsetOf`, `isSupersetOf`, `isDisjointFrom`, `symmetricDifference` all implemented |
 | `RegExp.escape` | ✅ | Wraps `System.Text.RegularExpressions.Regex.Escape` |
 | `Promise.try` | ✅ | Catches synchronous throws; passes through returned promises without double-wrapping |
-| Import attributes (`import … with { type: 'json' }`) | ❌ | |
+| Import attributes (`import … with { type: 'json' }`) | ⚠️ | `with { }` clause parsed for all static import forms; attributes forwarded to `ModuleLoader` delegate; JSON parsing is host responsibility. `ModuleLoader` delegate signature extended to `Func<string, string, IReadOnlyDictionary<string, string>, string>` (minor breaking change for host embedders) |
 | `Float16Array` | ❌ | Out of scope |
 
 ---

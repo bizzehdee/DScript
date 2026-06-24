@@ -38,7 +38,7 @@ namespace DScript.Test
         {
             var engine = new ScriptEngine();
             if (modules != null)
-                engine.ModuleLoader = (path, _) => modules.TryGetValue(path, out var src) ? src : null;
+                engine.ModuleLoader = (path, _, __) => modules.TryGetValue(path, out var src) ? src : null;
             var chunk = ScriptEngine.Compile(mainSource);
             new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             return engine;
@@ -64,7 +64,7 @@ namespace DScript.Test
         {
             var callCount = 0;
             var engine = new ScriptEngine();
-            engine.ModuleLoader = (path, _) => { callCount++; return "__exports__.x = 1;"; };
+            engine.ModuleLoader = (path, _, __) => { callCount++; return "__exports__.x = 1;"; };
 
             var chunk = ScriptEngine.Compile("var a = require('m'); var b = require('m'); var r = (a === b) ? 1 : 0;");
             new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
@@ -77,7 +77,7 @@ namespace DScript.Test
         public void Require_MissingModule_ThrowsScriptException()
         {
             var engine = new ScriptEngine();
-            engine.ModuleLoader = (_, __) => null;
+            engine.ModuleLoader = (_, __, ___) => null;
             var chunk = ScriptEngine.Compile("require('missing');");
             Assert.Throws<ScriptException>(() =>
                 new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null)));
@@ -182,7 +182,7 @@ namespace DScript.Test
             Assert.DoesNotThrow(() =>
             {
                 var engine = new ScriptEngine();
-                engine.ModuleLoader = (path, _) => modules.TryGetValue(path, out var s) ? s : null;
+                engine.ModuleLoader = (path, _, __) => modules.TryGetValue(path, out var s) ? s : null;
                 var chunk = ScriptEngine.Compile("var r = require('circ_b').ok;");
                 new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
                 Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(1));

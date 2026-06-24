@@ -73,7 +73,7 @@ namespace DScript
         /// Called by require() to resolve a module. Given (importPath, currentModulePath),
         /// return the module source, or null if not found.
         /// </summary>
-        public Func<string, string, string> ModuleLoader { get; set; }
+        public Func<string, string, IReadOnlyDictionary<string, string>, string> ModuleLoader { get; set; }
 
         /// <summary>Path of the module currently being executed (used for relative imports).</summary>
         public string CurrentModulePath { get; set; } = string.Empty;
@@ -144,6 +144,7 @@ namespace DScript
         {
             var requireVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
             requireVar.AddChild("path", new ScriptVar(ScriptVar.Flags.Undefined));
+            requireVar.AddChild("attrs", new ScriptVar(ScriptVar.Flags.Undefined));
             requireVar.SetCallback((scope, _) =>
             {
                 var pathVar = scope.FindChild("path")?.Var;
@@ -156,10 +157,26 @@ namespace DScript
                     return;
                 }
 
+                // Build the import-attributes dictionary from the optional second argument.
+                IReadOnlyDictionary<string, string> importAttrs = new Dictionary<string, string>();
+                var attrsVar = scope.FindChild("attrs")?.Var;
+                if (attrsVar != null && !attrsVar.IsUndefined)
+                {
+                    var dict = new Dictionary<string, string>();
+                    var attrLink = attrsVar.FirstChild;
+                    while (attrLink != null)
+                    {
+                        if (attrLink.Name != ScriptVar.PrototypeClassName)
+                            dict[attrLink.Name] = attrLink.Var?.String ?? "";
+                        attrLink = attrLink.Next;
+                    }
+                    importAttrs = dict;
+                }
+
                 // Load source via the user-supplied loader.
                 string source = null;
                 if (ModuleLoader != null)
-                    source = ModuleLoader(path, CurrentModulePath);
+                    source = ModuleLoader(path, CurrentModulePath, importAttrs);
 
                 if (source == null)
                     throw new ScriptException($"Cannot find module '{path}'");

@@ -108,7 +108,7 @@ namespace DScript.Test
         public void ImportMeta_InsideModule_ReflectsModulePath()
         {
             var engine = new ScriptEngine();
-            engine.ModuleLoader = (path, _) =>
+            engine.ModuleLoader = (path, _, __) =>
             {
                 if (path == "mymod") return "export var url = import.meta.url;";
                 return null;
