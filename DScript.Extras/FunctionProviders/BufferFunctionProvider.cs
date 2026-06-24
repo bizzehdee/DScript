@@ -23,6 +23,7 @@ SOFTWARE.
 using System;
 using System.Text;
 
+using DScript.Extras.Registrars;
 namespace DScript.Extras.FunctionProviders
 {
     [ScriptClass("Buffer")]

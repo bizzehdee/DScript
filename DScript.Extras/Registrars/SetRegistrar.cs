@@ -22,23 +22,33 @@ SOFTWARE.
 
 using DScript.Extras.FunctionProviders;
 
-namespace DScript.Extras
+namespace DScript.Extras.Registrars
 {
-    internal static class WeakRefRegistrar
+    internal static class SetRegistrar
     {
         internal static void Register(ScriptEngine engine)
         {
-            var ctor = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
-            ctor.AddChild("target", new ScriptVar(ScriptVar.Flags.Undefined));
-            ctor.SetCallback((scope, _) =>
+            var setCtorVar = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            setCtorVar.AddChild("iterable", new ScriptVar(ScriptVar.Flags.Undefined));
+            setCtorVar.SetCallback((scope, _) =>
             {
+                var setObj = new SetObject();
+                var iterableArg = scope.FindChild("iterable")?.Var;
+                if (iterableArg != null && !iterableArg.IsUndefined && iterableArg.IsArray)
+                {
+                    var len = iterableArg.GetArrayLength();
+                    for (var i = 0; i < len; i++)
+                        setObj.TryAdd(iterableArg.GetArrayIndex(i));
+                }
+                // Store the SetObject onto `this` so that Set methods (add, has, …)
+                // can access it via thisVar.GetData().  Mutating `this` rather than
+                // replacing ReturnVar preserves the prototype link that allows
+                // method lookup on the returned instance.
                 var thisVar = scope.FindChild("this")?.Var;
-                var target = scope.FindChild("target")?.Var;
-                if (thisVar != null && target != null)
-                    thisVar.SetData(new WeakRefObject(target));
+                thisVar?.SetData(setObj);
             }, null);
 
-            engine.Root.AddChild("WeakRef", ctor);
+            engine.Root.AddChild("Set", setCtorVar);
         }
     }
 }

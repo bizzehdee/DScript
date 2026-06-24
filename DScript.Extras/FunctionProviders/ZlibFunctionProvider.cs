@@ -24,6 +24,7 @@ using System;
 using System.IO;
 using System.IO.Compression;
 
+using DScript.Extras.Registrars;
 namespace DScript.Extras.FunctionProviders
 {
     [ScriptClass("zlib")]

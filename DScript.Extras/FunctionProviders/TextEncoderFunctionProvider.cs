@@ -22,6 +22,7 @@ SOFTWARE.
 
 using System.Text;
 
+using DScript.Extras.Registrars;
 namespace DScript.Extras.FunctionProviders
 {
     [ScriptClass("__textcodec__")]

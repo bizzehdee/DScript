@@ -24,6 +24,7 @@ using System;
 using System.Net.Http;
 using System.Text;
 
+using DScript.Extras.Registrars;
 namespace DScript.Extras.FunctionProviders
 {
     [ScriptClass("__fetch__")]

@@ -24,6 +24,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
+using DScript.Extras.Registrars;
 
 namespace DScript.Extras
 {

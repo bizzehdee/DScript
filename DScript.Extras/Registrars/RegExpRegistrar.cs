@@ -22,7 +22,7 @@ SOFTWARE.
 
 using System.Text.RegularExpressions;
 
-namespace DScript.Extras
+namespace DScript.Extras.Registrars
 {
     internal static class RegExpRegistrar
     {

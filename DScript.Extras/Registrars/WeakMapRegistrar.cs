@@ -22,9 +22,9 @@ SOFTWARE.
 
 using DScript.Extras.FunctionProviders;
 
-namespace DScript.Extras
+namespace DScript.Extras.Registrars
 {
-    internal static class WeakSetRegistrar
+    internal static class WeakMapRegistrar
     {
         internal static void Register(ScriptEngine engine)
         {
@@ -32,10 +32,10 @@ namespace DScript.Extras
             ctor.SetCallback((scope, _) =>
             {
                 var thisVar = scope.FindChild("this")?.Var;
-                thisVar?.SetData(new WeakSetObject());
+                thisVar?.SetData(new WeakMapObject());
             }, null);
 
-            engine.Root.AddChild("WeakSet", ctor);
+            engine.Root.AddChild("WeakMap", ctor);
         }
     }
 }

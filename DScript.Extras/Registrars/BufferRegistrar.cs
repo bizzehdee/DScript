@@ -24,7 +24,7 @@ using System;
 using System.Text;
 using DScript.Extras.FunctionProviders;
 
-namespace DScript.Extras
+namespace DScript.Extras.Registrars
 {
     internal static class BufferRegistrar
     {

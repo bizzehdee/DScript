@@ -23,7 +23,7 @@ SOFTWARE.
 using System.Collections.Generic;
 using DScript.Extras.FunctionProviders;
 
-namespace DScript.Extras
+namespace DScript.Extras.Registrars
 {
     internal static class MapRegistrar
     {
