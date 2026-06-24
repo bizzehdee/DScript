@@ -48,6 +48,13 @@ namespace DScript.Jit
             if (instrs == null)
                 return null; // declined by the shared front-end
 
+            // The closure back-end models expressions, not arbitrary control flow;
+            // decline any chunk containing branches (handled by the Reflection.Emit
+            // back-end only).
+            foreach (var instr in instrs)
+                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                    return null;
+
             // Build a tree of value-producing nodes. Expression statements (Pop) are
             // collected as side-effecting nodes to run, in order, before the result.
             var stack = new Stack<JitDelegate>();

@@ -46,6 +46,12 @@ namespace DScript.Jit
         PushUndefined,
         /// <summary>Pop two operands, apply a binary operator, push the result.</summary>
         Binary,
+        /// <summary>Unconditional branch to a target instruction index.</summary>
+        Jump,
+        /// <summary>Pop a condition; branch if falsy.</summary>
+        JumpIfFalse,
+        /// <summary>Pop a condition; branch if truthy.</summary>
+        JumpIfTrue,
         /// <summary>Logical NOT of the top operand.</summary>
         Not,
         /// <summary>Pop callee + N args, dispatch, push the result.</summary>
@@ -62,7 +68,7 @@ namespace DScript.Jit
     {
         public readonly JitOpKind Kind;
         public readonly ConstantValue Constant;     // PushConst
-        public readonly int IntValue;               // PushIntLiteral, Call (argc)
+        public readonly int IntValue;               // PushIntLiteral, Call (argc), Jump* (target instruction index)
         public readonly string Name;                // PushVar
         public readonly ScriptLex.LexTypes Op;      // Binary
         public readonly ScriptVar MonoCallee;       // Call (the baked monomorphic target, or null)
@@ -92,6 +98,12 @@ namespace DScript.Jit
             new(JitOpKind.PushUndefined, null, 0, null, default, null);
         public static JitInstruction Binary(ScriptLex.LexTypes op) =>
             new(JitOpKind.Binary, null, 0, null, op, null);
+        public static JitInstruction Jump(int targetIndex) =>
+            new(JitOpKind.Jump, null, targetIndex, null, default, null);
+        public static JitInstruction JumpIfFalse(int targetIndex) =>
+            new(JitOpKind.JumpIfFalse, null, targetIndex, null, default, null);
+        public static JitInstruction JumpIfTrue(int targetIndex) =>
+            new(JitOpKind.JumpIfTrue, null, targetIndex, null, default, null);
         public static JitInstruction Not() =>
             new(JitOpKind.Not, null, 0, null, default, null);
         public static JitInstruction Call(int argc, ScriptVar monoCallee) =>

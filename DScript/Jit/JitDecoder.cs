@@ -46,15 +46,20 @@ namespace DScript.Jit
 
             var code = chunk.CodeBytes;
             var instrs = new List<JitInstruction>(code.Length);
-            var ip = 0;
-            var sawReturn = false;
 
+            // Parallel to instrs: the source bytecode offset of each instruction's
+            // opcode, used to resolve jump targets (which are bytecode offsets) to
+            // instruction indices once decoding is done.
+            var offsets = new List<int>(code.Length);
+            // Indices in instrs of jump instructions; their IntValue currently holds
+            // the raw target bytecode offset and is rewritten to an index below.
+            var jumpIndices = new List<int>();
+
+            var ip = 0;
             while (ip < code.Length)
             {
-                // A single return ends straight-line code; anything after it implies
-                // control flow we do not model.
-                if (sawReturn) return null;
-
+                var opOffset = ip;
+                var firstIndex = instrs.Count; // first instruction emitted this iteration
                 var op = (OpCode)code[ip];
                 ip++;
 
@@ -136,22 +141,64 @@ namespace DScript.Jit
                         break;
                     }
 
+                    // Structured branches (if/while/for). The conditional variants pop
+                    // their condition, so the operand stack is empty at every jump
+                    // point — which keeps the emitter's flat model valid. The
+                    // conditional-pop variants (&&/||/??/?., for..of) have non-empty
+                    // stack effects at the branch and are left declined for now.
+                    case OpCode.Jump:
+                        jumpIndices.Add(instrs.Count);
+                        instrs.Add(JitInstruction.Jump(chunk.ReadInt(ip)));   // raw byte target
+                        ip += 4;
+                        break;
+                    case OpCode.JumpIfFalse:
+                        jumpIndices.Add(instrs.Count);
+                        instrs.Add(JitInstruction.JumpIfFalse(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+                    case OpCode.JumpIfTrue:
+                        jumpIndices.Add(instrs.Count);
+                        instrs.Add(JitInstruction.JumpIfTrue(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+
                     case OpCode.Return:
                         instrs.Add(JitInstruction.Return());
-                        sawReturn = true;
                         break;
                     case OpCode.Halt:
                         // Implicit return undefined.
                         instrs.Add(JitInstruction.PushUndefined());
                         instrs.Add(JitInstruction.Return());
-                        sawReturn = true;
                         break;
 
                     default:
-                        // Jumps, assignments, object/array/property ops, try, tail and
-                        // method calls, etc. — not supported.
+                        // Conditional-pop jumps, for..of, assignments, object/array ops,
+                        // try, tail and method calls, etc. — not supported.
                         return null;
                 }
+
+                // Record the source offset for every instruction emitted this
+                // iteration so jump targets (bytecode offsets) can be mapped to indices.
+                for (var k = firstIndex; k < instrs.Count; k++)
+                    offsets.Add(opOffset);
+            }
+
+            // Resolve jump targets (bytecode offsets) to instruction indices.
+            var offsetToIndex = new Dictionary<int, int>(offsets.Count);
+            for (var i = 0; i < offsets.Count; i++)
+                if (!offsetToIndex.ContainsKey(offsets[i]))
+                    offsetToIndex[offsets[i]] = i;
+
+            foreach (var ji in jumpIndices)
+            {
+                if (!offsetToIndex.TryGetValue(instrs[ji].IntValue, out var targetIndex))
+                    return null; // target not at an instruction boundary we model
+                instrs[ji] = instrs[ji].Kind switch
+                {
+                    JitOpKind.Jump        => JitInstruction.Jump(targetIndex),
+                    JitOpKind.JumpIfFalse => JitInstruction.JumpIfFalse(targetIndex),
+                    _                     => JitInstruction.JumpIfTrue(targetIndex),
+                };
             }
 
             return instrs;

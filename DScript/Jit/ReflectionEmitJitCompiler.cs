@@ -45,6 +45,11 @@ namespace DScript.Jit
             if (instrs == null)
                 return null; // declined by the shared front-end
 
+            // Control-flow lowering is added in a later task; decline for now so the
+            // decoder's new jump support is a no-op until the emitter handles it.
+            if (HasControlFlow(instrs))
+                return null;
+
             // Speculative unboxed-int tier first (unless repeated deopts proved it
             // unprofitable), then the conservative boxed tier.
             if (!chunk.PreferConservativeTier)
@@ -124,7 +129,10 @@ namespace DScript.Jit
                     case JitOpKind.GetProp:
                     case JitOpKind.PushNull:
                     case JitOpKind.PushUndefined:
-                        return false; // not pure / not int-typed
+                    case JitOpKind.Jump:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                        return false; // not pure / not int-typed / control flow
                     case JitOpKind.PushConst:
                         if (instr.Constant.Kind != ConstantKind.Int) return false;
                         break;
@@ -233,7 +241,10 @@ namespace DScript.Jit
                     case JitOpKind.PushNull:
                     case JitOpKind.PushUndefined:
                     case JitOpKind.Not:
-                        return false; // not pure / would introduce a non-double value
+                    case JitOpKind.Jump:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                        return false; // not pure / non-double / control flow
                     case JitOpKind.PushConst:
                         if (instr.Constant.Kind != ConstantKind.Int && instr.Constant.Kind != ConstantKind.Double)
                             return false;
@@ -258,6 +269,15 @@ namespace DScript.Jit
                     sawDouble = true;
             }
             return sawDouble;
+        }
+
+        // True when the instruction stream contains any branch.
+        private static bool HasControlFlow(List<JitInstruction> instrs)
+        {
+            foreach (var instr in instrs)
+                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                    return true;
+            return false;
         }
 
         private static JitDelegate CompileConservative(Chunk chunk, List<JitInstruction> instrs)
