@@ -407,11 +407,12 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var nameIdx = ReadOperand(code, ref ip);
-                        // globalThis is a built-in that always refers to the root scope object
-                        // without creating a circular child reference in that object.
-                        if (chunk.Names[nameIdx] == "globalThis") { Push(env.Global().Vars); break; }
                         var link = ResolveCached(cache, chunk, site, env, nameIdx);
-                        Push(link != null ? link.Var : SharedUndefined);
+                        if (link != null) { Push(link.Var); break; }
+                        // globalThis is a virtual built-in — not a real scope binding.
+                        // Checked here (cache-miss path) so the hot path pays no cost.
+                        if (chunk.Names[nameIdx] == "globalThis") { Push(env.Global().Vars); break; }
+                        Push(SharedUndefined);
                         break;
                     }
                     case OpCode.SetVar:
@@ -471,13 +472,6 @@ namespace DScript.Vm
                         var name = chunk.Names[nameIdx];
                         var obj = Pop();
 
-                        // Proxy [[Get]] trap — bypass the property cache for proxy objects
-                        if (obj.IsProxy)
-                        {
-                            Push(GetMember(obj, name));
-                            break;
-                        }
-
                         // Inline property cache: 256-slot direct-mapped, hashed via
                         // Fibonacci/multiplicative hashing so that names whose indices
                         // share the same low byte are spread across distinct slots rather
@@ -495,7 +489,10 @@ namespace DScript.Vm
                             break;
                         }
 
-                        // Cache miss: full lookup via GetMember.
+                        // Cache miss: proxy [[Get]] trap first (proxies are never cached).
+                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
+
+                        // Full lookup.
                         var link = obj.FindChild(name);
                         if (link == null && engine != null)
                             link = engine.FindInParentClasses(obj, name);
@@ -1317,9 +1314,10 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var nameIdx = code[ip++];
-                        if (chunk.Names[nameIdx] == "globalThis") { Push(env.Global().Vars); break; }
                         var link = ResolveCached(cache, chunk, site, env, nameIdx);
-                        Push(link != null ? link.Var : SharedUndefined);
+                        if (link != null) { Push(link.Var); break; }
+                        if (chunk.Names[nameIdx] == "globalThis") { Push(env.Global().Vars); break; }
+                        Push(SharedUndefined);
                         break;
                     }
                     case OpCode.SetVarN:
@@ -1373,8 +1371,6 @@ namespace DScript.Vm
                         var name = chunk.Names[nameIdx];
                         var obj = Pop();
 
-                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
-
                         var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
                         if (ReferenceEquals(ce.Object, obj) &&
@@ -1387,6 +1383,8 @@ namespace DScript.Vm
                                 : ce.Link.Var);
                             break;
                         }
+
+                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
 
                         var link = obj.FindChild(name);
                         if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
@@ -1496,17 +1494,17 @@ namespace DScript.Vm
                         var propIdx = ReadOperand(code, ref ip);
 
                         ScriptVar obj;
-                        if (chunk.Names[varIdx] == "globalThis")
-                            obj = env.Global().Vars;
-                        else
                         {
                             var varLink = ResolveCached(cache, chunk, site, env, varIdx);
-                            obj = varLink != null ? varLink.Var : SharedUndefined;
+                            if (varLink != null)
+                                obj = varLink.Var;
+                            else if (chunk.Names[varIdx] == "globalThis")
+                                obj = env.Global().Vars;
+                            else
+                                obj = SharedUndefined;
                         }
 
                         var propName = chunk.Names[propIdx];
-                        if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
-
                         var cacheSlot = (int)((uint)propIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
                         if (ReferenceEquals(ce.Object, obj) &&
@@ -1519,6 +1517,8 @@ namespace DScript.Vm
                                 : ce.Link.Var);
                             break;
                         }
+
+                        if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
 
                         var propLink = obj.FindChild(propName);
                         if (propLink == null && engine != null) propLink = engine.FindInParentClasses(obj, propName);
@@ -1553,17 +1553,17 @@ namespace DScript.Vm
                         var propIdx = code[ip++];
 
                         ScriptVar obj;
-                        if (chunk.Names[varIdx] == "globalThis")
-                            obj = env.Global().Vars;
-                        else
                         {
                             var varLink = ResolveCached(cache, chunk, site, env, varIdx);
-                            obj = varLink != null ? varLink.Var : SharedUndefined;
+                            if (varLink != null)
+                                obj = varLink.Var;
+                            else if (chunk.Names[varIdx] == "globalThis")
+                                obj = env.Global().Vars;
+                            else
+                                obj = SharedUndefined;
                         }
 
                         var propName = chunk.Names[propIdx];
-                        if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
-
                         var cacheSlot = (int)((uint)propIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
                         if (ReferenceEquals(ce.Object, obj) &&
@@ -1576,6 +1576,8 @@ namespace DScript.Vm
                                 : ce.Link.Var);
                             break;
                         }
+
+                        if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
 
                         var propLink = obj.FindChild(propName);
                         if (propLink == null && engine != null) propLink = engine.FindInParentClasses(obj, propName);
@@ -1610,8 +1612,6 @@ namespace DScript.Vm
                         var name = chunk.Names[nameIdx];
                         var obj = Peek(); // keep receiver on stack for CallMethod
 
-                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
-
                         var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
                         if (ReferenceEquals(ce.Object, obj) &&
@@ -1624,6 +1624,8 @@ namespace DScript.Vm
                                 : ce.Link.Var);
                             break;
                         }
+
+                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
 
                         var link = obj.FindChild(name);
                         if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
@@ -1654,8 +1656,6 @@ namespace DScript.Vm
                         var name = chunk.Names[nameIdx];
                         var obj = Pop();
 
-                        if (obj.IsProxy) { Push(InvokeCallable(GetMember(obj, name), obj, System.Array.Empty<ScriptVar>())); break; }
-
                         var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
                         ScriptVar callTarget;
@@ -1670,6 +1670,7 @@ namespace DScript.Vm
                         }
                         else
                         {
+                            if (obj.IsProxy) { Push(InvokeCallable(GetMember(obj, name), obj, System.Array.Empty<ScriptVar>())); break; }
                             var link = obj.FindChild(name);
                             if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
                             if (link != null)
@@ -1698,8 +1699,6 @@ namespace DScript.Vm
                         var name = chunk.Names[nameIdx];
                         var obj = Peek();
 
-                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
-
                         var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
                         if (ReferenceEquals(ce.Object, obj) &&
@@ -1712,6 +1711,8 @@ namespace DScript.Vm
                                 : ce.Link.Var);
                             break;
                         }
+
+                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
 
                         var link = obj.FindChild(name);
                         if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
@@ -1742,8 +1743,6 @@ namespace DScript.Vm
                         var name = chunk.Names[nameIdx];
                         var obj = Pop();
 
-                        if (obj.IsProxy) { Push(InvokeCallable(GetMember(obj, name), obj, System.Array.Empty<ScriptVar>())); break; }
-
                         var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
                         ScriptVar callTarget;
@@ -1758,6 +1757,7 @@ namespace DScript.Vm
                         }
                         else
                         {
+                            if (obj.IsProxy) { Push(InvokeCallable(GetMember(obj, name), obj, System.Array.Empty<ScriptVar>())); break; }
                             var link = obj.FindChild(name);
                             if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
                             if (link != null)
