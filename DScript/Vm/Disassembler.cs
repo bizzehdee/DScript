@@ -75,6 +75,8 @@ namespace DScript.Vm
                 case OpCode.DefineSetter:
                 case OpCode.SetVarPop:
                 case OpCode.SetPropPop:
+                case OpCode.GetPropMethod:
+                case OpCode.GetPropCall0:
                     return 1;
 
                 default:
@@ -120,7 +122,8 @@ namespace DScript.Vm
             op is OpCode.GetVarN or OpCode.SetVarN or OpCode.ConstantN or
                   OpCode.GetPropN or OpCode.SetPropN or OpCode.DeclareVarN or
                   OpCode.DeclareConstN or OpCode.DeclareLocalN or OpCode.InitPropN or
-                  OpCode.SetVarPopN or OpCode.SetPropPopN;
+                  OpCode.SetVarPopN or OpCode.SetPropPopN or
+                  OpCode.GetPropMethodN or OpCode.GetPropCall0N;
 
         private static int DisassembleInstruction(Chunk chunk, int offset, StringBuilder sb, ref int lastLine)
         {
@@ -190,6 +193,8 @@ namespace DScript.Vm
                 case OpCode.InitPropN:
                 case OpCode.SetVarPopN:
                 case OpCode.SetPropPopN:
+                case OpCode.GetPropMethodN:
+                case OpCode.GetPropCall0N:
                     if (value >= 0 && value < chunk.Names.Count) return $" ({chunk.Names[value]})";
                     break;
             }
@@ -213,6 +218,8 @@ namespace DScript.Vm
                 case OpCode.InitProp:
                 case OpCode.SetVarPop:
                 case OpCode.SetPropPop:
+                case OpCode.GetPropMethod:
+                case OpCode.GetPropCall0:
                     if (value >= 0 && value < chunk.Names.Count) return $" ({chunk.Names[value]})";
                     break;
                 case OpCode.GetVarGetProp when operandIndex == 0:

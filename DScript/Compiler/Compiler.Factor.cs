@@ -397,11 +397,15 @@ namespace DScript.Compiler
 
                 if (lexer.TokenType == (ScriptLex.LexTypes)'(')
                 {
-                    chunk.Emit(OpCode.Dup);
-                    chunk.Emit(OpCode.GetProp, nameIndex);
+                    var getpropAt2 = chunk.Code.Count;
+                    chunk.Emit(OpCode.GetPropMethod, nameIndex);
                     var argc = CompileArguments();
-                    if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
-                    else chunk.Emit(OpCode.CallMethod, argc);
+                    if (argc == 0)
+                        chunk.Code[getpropAt2] = (byte)OpCode.GetPropCall0;
+                    else if (argc < 0)
+                        chunk.Emit(OpCode.CallMethodSpread);
+                    else
+                        chunk.Emit(OpCode.CallMethod, argc);
                 }
                 else
                 {
@@ -425,11 +429,15 @@ namespace DScript.Compiler
 
             if (lexer.TokenType == (ScriptLex.LexTypes)'(')
             {
-                chunk.Emit(OpCode.Dup);
-                chunk.Emit(OpCode.GetProp, nameIndex);
+                var getpropAt = chunk.Code.Count;
+                chunk.Emit(OpCode.GetPropMethod, nameIndex);
                 var argc = CompileArguments();
-                if (argc < 0) chunk.Emit(OpCode.CallMethodSpread);
-                else chunk.Emit(OpCode.CallMethod, argc);
+                if (argc == 0)
+                    chunk.Code[getpropAt] = (byte)OpCode.GetPropCall0; // inline 0-arg call
+                else if (argc < 0)
+                    chunk.Emit(OpCode.CallMethodSpread);
+                else
+                    chunk.Emit(OpCode.CallMethod, argc);
                 return false;
             }
 

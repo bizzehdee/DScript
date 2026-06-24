@@ -212,5 +212,17 @@ namespace DScript.Vm
         SetVarPopN,      // [b nameIndex]             narrow form of SetVarPop      (2 bytes)
         SetPropPopN,     // [b nameIndex]             narrow form of SetPropPop     (2 bytes)
         GetVarGetPropN,  // [b varIndex][b propIndex] narrow form of GetVarGetProp  (3 bytes)
+
+        // --- Phase 11: method call receiver optimisation -----------------------
+        // Named property method-call setup: replaces the Dup+GetProp pair that
+        // the compiler used to emit before every obj.method(args) call.
+        // GetPropMethod peeks the receiver (keeps it on stack) and pushes the
+        // method, ready for a subsequent CallMethod.
+        // GetPropCall0 additionally performs the zero-argument call inline,
+        // eliminating the separate CallMethod 0 opcode entirely.
+        GetPropMethod,   // [i nameIndex]   peek obj (keep), push obj.name  → [obj,fn]
+        GetPropCall0,    // [i nameIndex]   pop obj, call obj.name() → result
+        GetPropMethodN,  // [b nameIndex]   narrow form of GetPropMethod    (2 bytes)
+        GetPropCall0N,   // [b nameIndex]   narrow form of GetPropCall0     (2 bytes)
     }
 }

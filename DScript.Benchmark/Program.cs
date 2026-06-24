@@ -453,6 +453,7 @@ internal static class Program
         var litReps     = (int)(Math.Max(1, 30_000 * scale)); // §5 literal spread reps
         var genN        = (int)(Math.Max(10,  300 * scale));  // §6 generator range size
         var genReps     = (int)(Math.Max(1,    50 * scale));  // §6 generator reps
+        var methodN     = (int)(300_000 * scale);             // §7 named method calls
 
         var candidates = new (string label, string code)[]
         {
@@ -518,6 +519,17 @@ internal static class Program
                 $"  for(var v of range({genN})){{s+=v;}}" +
                 $"}}" +
                 $"result=s;"),
+
+            // §7 — Named method call: GetPropMethod/GetPropCall0 superinstruction
+            //      Previously emitted Dup+GetProp (2 opcodes) before every method
+            //      call; GetPropMethod folds the Dup into the property lookup.
+            //      GetPropCall0 further eliminates the CallMethod 0 opcode for
+            //      zero-argument calls, saving 5 bytes + 1 dispatch each.
+            ($"§7 named method calls (n={methodN})",
+                $"var v=0;" +
+                $"var o={{inc:function(){{v=v+1;}},get:function(){{return v;}}}};" +
+                $"for(var i=0;i<{methodN};i++){{o.inc();}}" +
+                $"result=o.get();"),
         };
 
         Console.WriteLine();

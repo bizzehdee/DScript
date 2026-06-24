@@ -195,5 +195,68 @@ namespace DScript.Test
             new VirtualMachine(engine).Run(chunk, new Vm.Environment(engine.Root, null));
             Assert.That(engine.Root.GetParameter("r").Int, Is.EqualTo(17));
         }
+
+        // ── GetPropMethod / GetPropCall0 ──────────────────────────────────────
+
+        [Test]
+        public void GetPropMethod_NamedMethodCallWithArgs_CorrectResult()
+        {
+            // obj.add(x) — compiler emits GetPropMethod + CallMethod 1
+            const string src =
+                "var o = { add: function(x) { return x + 10; } }; " +
+                "var r = o.add(5);";
+            Assert.That(RunInt(src), Is.EqualTo(15));
+        }
+
+        [Test]
+        public void GetPropCall0_ZeroArgMethodCall_CorrectResult()
+        {
+            // obj.get() — compiler emits GetPropCall0N (no separate CallMethod)
+            const string src =
+                "var v = 42; " +
+                "var o = { get: function() { return v; } }; " +
+                "var r = o.get();";
+            Assert.That(RunInt(src), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void GetPropCall0_ChainedZeroArgCalls_CorrectResult()
+        {
+            // o.first().second() — two consecutive 0-arg method calls
+            const string src =
+                "var o = { first: function() { return o; }, second: function() { return 99; } }; " +
+                "var r = o.first().second();";
+            Assert.That(RunInt(src), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void GetPropMethod_HotLoop_AccumulatesCorrectly()
+        {
+            // Exercises the path 1000 times to catch any caching or state-mutation issue.
+            const string src =
+                "var sum = 0; " +
+                "var o = { inc: function(n) { return n + 1; } }; " +
+                "for (var i = 0; i < 1000; i = i + 1) { sum = o.inc(sum); } " +
+                "var r = sum;";
+            Assert.That(RunInt(src), Is.EqualTo(1000));
+        }
+
+        [Test]
+        public void GetPropCall0_DisassemblyContainsFusedOpcodes()
+        {
+            // Verify that the narrow form GetPropCall0N and GetPropMethodN appear
+            // in the disassembly for the expected call patterns.
+            const string src =
+                "var o = { get: function() { return 1; }, add: function(x) { return x; } }; " +
+                "var a = o.get(); " +    // 0-arg → GetPropCall0N
+                "var r = o.add(1);";     // 1-arg → GetPropMethodN + CallMethod
+
+            var compiler = new DScriptCompiler { EnableOptimizer = true };
+            var chunk = compiler.CompileProgram(src);
+            var asm = Disassembler.Disassemble(chunk);
+
+            Assert.That(asm, Does.Contain("GetPropCall0N"),  "Expected GetPropCall0N in disassembly");
+            Assert.That(asm, Does.Contain("GetPropMethodN"), "Expected GetPropMethodN in disassembly");
+        }
     }
 }

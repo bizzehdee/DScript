@@ -496,6 +496,8 @@ namespace DScript.Vm
             OpCode.BinaryIntConst  =>  9, // 1 + 4*2
             OpCode.TaggedTemplate  =>  9, // 1 + 4*2
             OpCode.GetVarGetProp   =>  9, // 1 + 4*2  (superinstruction: varIdx + propIdx)
+            OpCode.GetPropMethod   =>  5, // 1 + 4*1
+            OpCode.GetPropCall0    =>  5, // 1 + 4*1
             OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
             OpCode.DeclareVar   or OpCode.DeclareConst or OpCode.DeclareLocal or
             OpCode.GetProp      or OpCode.SetProp      or OpCode.DeleteProp or
@@ -514,7 +516,8 @@ namespace DScript.Vm
             OpCode.GetVarN      or OpCode.SetVarN      or OpCode.ConstantN  or
             OpCode.GetPropN     or OpCode.SetPropN     or OpCode.DeclareVarN or
             OpCode.DeclareConstN or OpCode.DeclareLocalN or OpCode.InitPropN or
-            OpCode.SetVarPopN   or OpCode.SetPropPopN                       => 2, // 1 + 1
+            OpCode.SetVarPopN   or OpCode.SetPropPopN or
+            OpCode.GetPropMethodN or OpCode.GetPropCall0N                  => 2, // 1 + 1
             OpCode.GetVarGetPropN                                           => 3, // 1 + 1 + 1
             _                   =>  1, // no operands
         };
@@ -535,6 +538,8 @@ namespace DScript.Vm
             OpCode.SetVarPop     => OpCode.SetVarPopN,
             OpCode.SetPropPop    => OpCode.SetPropPopN,
             OpCode.GetVarGetProp => OpCode.GetVarGetPropN,
+            OpCode.GetPropMethod => OpCode.GetPropMethodN,
+            OpCode.GetPropCall0  => OpCode.GetPropCall0N,
             _                    => op,
         };
 

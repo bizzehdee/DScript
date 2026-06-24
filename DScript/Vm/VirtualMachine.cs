@@ -1599,6 +1599,183 @@ namespace DScript.Vm
                         break;
                     }
 
+                    case OpCode.GetPropMethod:
+                    {
+                        var nameIdx = ReadOperand(code, ref ip);
+                        var name = chunk.Names[nameIdx];
+                        var obj = Peek(); // keep receiver on stack for CallMethod
+
+                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
+
+                        var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
+                        ref var ce = ref _propCache[cacheSlot];
+                        if (ReferenceEquals(ce.Object, obj) &&
+                            ce.ShapeVersion == obj.ShapeVersion &&
+                            ReferenceEquals(ce.Name, name) &&
+                            ce.Link != null)
+                        {
+                            Push(ce.Link.Getter != null
+                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                : ce.Link.Var);
+                            break;
+                        }
+
+                        var link = obj.FindChild(name);
+                        if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
+
+                        ScriptVar methodResult;
+                        if (link != null)
+                        {
+                            if (link.Getter != null)
+                                methodResult = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
+                            else
+                                methodResult = link.Var;
+                            if (obj.IsObject || obj.IsArray)
+                            {
+                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
+                                ce.Name = name; ce.Link = link;
+                            }
+                        }
+                        else
+                        {
+                            methodResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        Push(methodResult);
+                        break;
+                    }
+                    case OpCode.GetPropCall0:
+                    {
+                        var nameIdx = ReadOperand(code, ref ip);
+                        var name = chunk.Names[nameIdx];
+                        var obj = Pop();
+
+                        if (obj.IsProxy) { Push(InvokeCallable(GetMember(obj, name), obj, System.Array.Empty<ScriptVar>())); break; }
+
+                        var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
+                        ref var ce = ref _propCache[cacheSlot];
+                        ScriptVar callTarget;
+                        if (ReferenceEquals(ce.Object, obj) &&
+                            ce.ShapeVersion == obj.ShapeVersion &&
+                            ReferenceEquals(ce.Name, name) &&
+                            ce.Link != null)
+                        {
+                            callTarget = ce.Link.Getter != null
+                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                : ce.Link.Var;
+                        }
+                        else
+                        {
+                            var link = obj.FindChild(name);
+                            if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
+                            if (link != null)
+                            {
+                                if (link.Getter != null)
+                                    callTarget = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
+                                else
+                                    callTarget = link.Var;
+                                if (obj.IsObject || obj.IsArray)
+                                {
+                                    ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
+                                    ce.Name = name; ce.Link = link;
+                                }
+                            }
+                            else
+                            {
+                                callTarget = new ScriptVar(ScriptVar.Flags.Undefined);
+                            }
+                        }
+                        Push(InvokeCallable(callTarget, obj, System.Array.Empty<ScriptVar>()));
+                        break;
+                    }
+                    case OpCode.GetPropMethodN:
+                    {
+                        var nameIdx = code[ip++];
+                        var name = chunk.Names[nameIdx];
+                        var obj = Peek();
+
+                        if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
+
+                        var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
+                        ref var ce = ref _propCache[cacheSlot];
+                        if (ReferenceEquals(ce.Object, obj) &&
+                            ce.ShapeVersion == obj.ShapeVersion &&
+                            ReferenceEquals(ce.Name, name) &&
+                            ce.Link != null)
+                        {
+                            Push(ce.Link.Getter != null
+                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                : ce.Link.Var);
+                            break;
+                        }
+
+                        var link = obj.FindChild(name);
+                        if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
+
+                        ScriptVar methodResult;
+                        if (link != null)
+                        {
+                            if (link.Getter != null)
+                                methodResult = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
+                            else
+                                methodResult = link.Var;
+                            if (obj.IsObject || obj.IsArray)
+                            {
+                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
+                                ce.Name = name; ce.Link = link;
+                            }
+                        }
+                        else
+                        {
+                            methodResult = new ScriptVar(ScriptVar.Flags.Undefined);
+                        }
+                        Push(methodResult);
+                        break;
+                    }
+                    case OpCode.GetPropCall0N:
+                    {
+                        var nameIdx = code[ip++];
+                        var name = chunk.Names[nameIdx];
+                        var obj = Pop();
+
+                        if (obj.IsProxy) { Push(InvokeCallable(GetMember(obj, name), obj, System.Array.Empty<ScriptVar>())); break; }
+
+                        var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
+                        ref var ce = ref _propCache[cacheSlot];
+                        ScriptVar callTarget;
+                        if (ReferenceEquals(ce.Object, obj) &&
+                            ce.ShapeVersion == obj.ShapeVersion &&
+                            ReferenceEquals(ce.Name, name) &&
+                            ce.Link != null)
+                        {
+                            callTarget = ce.Link.Getter != null
+                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                : ce.Link.Var;
+                        }
+                        else
+                        {
+                            var link = obj.FindChild(name);
+                            if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
+                            if (link != null)
+                            {
+                                if (link.Getter != null)
+                                    callTarget = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
+                                else
+                                    callTarget = link.Var;
+                                if (obj.IsObject || obj.IsArray)
+                                {
+                                    ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
+                                    ce.Name = name; ce.Link = link;
+                                }
+                            }
+                            else
+                            {
+                                callTarget = new ScriptVar(ScriptVar.Flags.Undefined);
+                            }
+                        }
+                        Push(InvokeCallable(callTarget, obj, System.Array.Empty<ScriptVar>()));
+                        break;
+                    }
+
                     default:
                         throw new ScriptException($"VM opcode not yet implemented: {op}");
                 }
