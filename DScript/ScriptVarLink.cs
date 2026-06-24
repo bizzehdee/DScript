@@ -37,7 +37,7 @@ namespace DScript
         private void Dispose(bool disposing)
         {
             if (disposed) return;
-            
+
             if (disposing)
             {
                 Var.UnRef();
@@ -47,6 +47,70 @@ namespace DScript
             disposed = true;
         }
         #endregion
+
+        // ── Thread-local link pool ────────────────────────────────────────────
+        // Links are small (~80 bytes) but created and discarded at ~3–5 per
+        // native call.  A ThreadStatic pool eliminates allocations on the hot
+        // path without any locking.
+        [System.ThreadStatic]
+        private static ScriptVarLink[] _pool;
+        [System.ThreadStatic]
+        private static int _poolCount;
+        private const int PoolMaxSize = 128;
+
+        // Private no-arg constructor used only by Rent() when the pool is cold.
+        private ScriptVarLink() { }
+
+        /// <summary>
+        /// Rents a ScriptVarLink from the thread-local pool (or allocates a new
+        /// one when the pool is empty) and initialises all fields for fresh use.
+        /// </summary>
+        internal static ScriptVarLink Rent(ScriptVar var, string name, bool readOnly = false)
+        {
+            ScriptVarLink link;
+            if (_poolCount > 0)
+            {
+                link = _pool[--_poolCount];
+                _pool[_poolCount] = null; // clear slot so the GC can collect the object if pool is not retained
+            }
+            else
+            {
+                link = new ScriptVarLink();
+            }
+            link.Name = name;
+            link.Var = var.Ref();
+            link.IsConst = readOnly;
+            link.Owned = false;
+            link.Next = null;
+            link.Prev = null;
+            link.Owner = null;
+            link.Enumerable = true;
+            link.Configurable = true;
+            link.Writable = true;
+            link._getter = null;
+            link._setter = null;
+            link.disposed = false;
+            return link;
+        }
+
+        /// <summary>
+        /// Returns a link to the thread-local pool.  The caller is responsible
+        /// for having already handled Var lifetime (Dispose() for the explicit
+        /// disposal path; nothing for the ResetForReuse detach-without-UnRef path).
+        /// This method nulls Var and the navigation fields to release GC references.
+        /// </summary>
+        internal static void Return(ScriptVarLink link)
+        {
+            _pool ??= new ScriptVarLink[PoolMaxSize];
+            if (_poolCount >= PoolMaxSize) return; // drop to GC rather than growing pool
+            link.Var = null;
+            link.Owner = null;
+            link.Next = null;
+            link.Prev = null;
+            link._getter = null;
+            link._setter = null;
+            _pool[_poolCount++] = link;
+        }
 
         public string Name { get; private set; }
         public ScriptVarLink Next { get; internal set; }

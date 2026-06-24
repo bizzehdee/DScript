@@ -737,11 +737,9 @@ namespace DScript
 
             var c = child ?? new ScriptVar();
 
-            var link = new ScriptVarLink(c, childName, readOnly)
-            {
-                Owned = true,
-                Owner = this
-            };
+            var link = ScriptVarLink.Rent(c, childName, readOnly);
+            link.Owned = true;
+            link.Owner = this;
 
             if (LastChild != null)
             {
@@ -846,6 +844,7 @@ namespace DScript
             {
                 var t = c.Next;
                 c.Dispose();
+                ScriptVarLink.Return(c);
                 c = t;
             }
 
@@ -868,8 +867,16 @@ namespace DScript
         // children: it mirrors how an abandoned call frame is reclaimed today (the
         // links are simply dropped for the GC), which keeps any value that escaped
         // the frame (e.g. a returned parameter) alive via its existing references.
+        // We traverse the list (O(n)) so that each link can be returned to the pool.
         internal void ResetForReuse()
         {
+            var c = FirstChild;
+            while (c != null)
+            {
+                var t = c.Next;
+                ScriptVarLink.Return(c); // no UnRef — see comment above
+                c = t;
+            }
             FirstChild = null;
             LastChild = null;
             childIndex?.Clear();
