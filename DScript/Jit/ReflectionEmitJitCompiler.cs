@@ -20,46 +20,31 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-using System;
 using System.Reflection.Emit;
 using DScript.Vm;
-using OpCode = DScript.Vm.OpCode;
 
 namespace DScript.Jit
 {
     /// <summary>
     /// A first-tier JIT back-end built on <see cref="System.Reflection.Emit"/>.
     ///
-    /// It compiles straight-line, branch-free leaf functions whose bodies are made
-    /// up of constant loads, variable reads (resolved through the full lexical scope
-    /// chain), and arithmetic — exactly the shape the binary-op type profiles target.
-    /// Any chunk containing control flow, calls,
-    /// assignments, or other unsupported opcodes is declined (Compile returns
-    /// <c>null</c>) and the VM keeps interpreting it. Because the compiled code
-    /// mirrors the interpreter's operand semantics (including its int fast path and
+    /// It consumes the normalised instruction stream from the shared
+    /// <see cref="JitDecoder"/> (which decides eligibility and declines control flow,
+    /// assignments, generators, etc.) and lowers each instruction to IL: constant
+    /// loads, variable reads (resolved through the full lexical scope chain),
+    /// arithmetic, and plain calls. Because the emitted code mirrors the interpreter's
+    /// operand semantics (its int fast path, double/string specialisations, and
     /// <c>MathsOp</c> fallback) the JIT output is value-identical to interpretation.
     /// </summary>
     public sealed class ReflectionEmitJitCompiler : IJitCompiler
     {
-        public JitDelegate Compile(Chunk chunk)
-        {
-            try
-            {
-                return CompileCore(chunk);
-            }
-            catch (NotSupportedException)
-            {
-                // An unsupported construct was hit mid-walk: decline this chunk.
-                return null;
-            }
-        }
+        public JitDelegate Compile(Chunk chunk) => CompileCore(chunk);
 
         private static JitDelegate CompileCore(Chunk chunk)
         {
-            // Generators and async functions have a suspend/resume execution model
-            // the linear compiler does not implement; leave them to the interpreter.
-            if (chunk.IsGenerator || chunk.IsAsync)
-                return null;
+            var instrs = JitDecoder.Decode(chunk);
+            if (instrs == null)
+                return null; // declined by the shared front-end
 
             var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
 
@@ -70,113 +55,25 @@ namespace DScript.Jit
             var rSlot = b.DeclareLocal(typeof(ScriptVar));
             var argArr = b.DeclareLocal(typeof(ScriptVar[]));
 
-            var code = chunk.CodeBytes;
-            var ip = 0;
             var emittedTerminalReturn = false;
 
-            while (ip < code.Length)
+            foreach (var instr in instrs)
             {
-                if (emittedTerminalReturn)
-                    // Straight-line code should have a single trailing return; anything
-                    // after it implies control flow we do not model.
-                    throw new NotSupportedException();
-
-                var op = (OpCode)code[ip];
-                ip++;
-
-                switch (op)
+                switch (instr.Kind)
                 {
-                    case OpCode.Constant:
-                        b.EmitMaterializeConstant(chunk.Constants[chunk.ReadInt(ip)]);
-                        ip += 4;
-                        break;
-                    case OpCode.ConstantN:
-                        b.EmitMaterializeConstant(chunk.Constants[code[ip]]);
-                        ip += 1;
-                        break;
-
-                    case OpCode.GetVar:
-                        b.EmitLoadNamedVar(chunk.Names[chunk.ReadInt(ip)]);
-                        ip += 4;
-                        break;
-                    case OpCode.GetVarN:
-                        b.EmitLoadNamedVar(chunk.Names[code[ip]]);
-                        ip += 1;
-                        break;
-
-                    case OpCode.PushUndefined: b.EmitPushUndefined(); break;
-                    case OpCode.PushNull:      b.EmitPushNull(); break;
-                    case OpCode.PushTrue:      b.EmitPushIntConst(1); break;
-                    case OpCode.PushFalse:     b.EmitPushIntConst(0); break;
-
-                    case OpCode.Pop:
-                        b.IL.Emit(OpCodes.Pop);
-                        break;
-
-                    case OpCode.Not:
-                        b.EmitLogicalNot();
-                        break;
-
-                    case OpCode.Binary:
-                        EmitBinary(b, (ScriptLex.LexTypes)chunk.ReadInt(ip), aSlot, bSlot, rSlot);
-                        ip += 4;
-                        break;
-                    case OpCode.BinaryConst:
-                    {
-                        var operatorCode = (ScriptLex.LexTypes)chunk.ReadInt(ip);
-                        var constant = chunk.Constants[chunk.ReadInt(ip + 4)];
-                        b.EmitMaterializeConstant(constant);     // push right operand
-                        EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
-                        ip += 8;
-                        break;
-                    }
-                    case OpCode.BinaryIntConst:
-                    {
-                        var operatorCode = (ScriptLex.LexTypes)chunk.ReadInt(ip);
-                        var intValue = chunk.ReadInt(ip + 4);
-                        b.EmitPushIntConst(intValue);            // push right operand
-                        EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
-                        ip += 8;
-                        break;
-                    }
-                    case OpCode.GetVarGetVarBinary:
-                    {
-                        var operatorCode = (ScriptLex.LexTypes)chunk.ReadInt(ip);
-                        b.EmitLoadNamedVar(chunk.Names[chunk.ReadInt(ip + 4)]);
-                        b.EmitLoadNamedVar(chunk.Names[chunk.ReadInt(ip + 8)]);
-                        EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
-                        ip += 12;
-                        break;
-                    }
-                    case OpCode.GetVarGetVarBinaryN:
-                    {
-                        var operatorCode = (ScriptLex.LexTypes)code[ip];
-                        b.EmitLoadNamedVar(chunk.Names[code[ip + 1]]);
-                        b.EmitLoadNamedVar(chunk.Names[code[ip + 2]]);
-                        EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
-                        ip += 3;
-                        break;
-                    }
-
-                    case OpCode.Call:
-                        EmitCall(b, chunk, ip /* site = operand-start */,
-                                 chunk.ReadInt(ip), aSlot, bSlot, argArr);
-                        ip += 4;
-                        break;
-
-                    case OpCode.Return:
-                        b.IL.Emit(OpCodes.Ret);  // returns the ScriptVar on top of stack
+                    case JitOpKind.PushConst:     b.EmitMaterializeConstant(instr.Constant); break;
+                    case JitOpKind.PushIntLiteral: b.EmitPushIntConst(instr.IntValue); break;
+                    case JitOpKind.PushVar:       b.EmitLoadNamedVar(instr.Name); break;
+                    case JitOpKind.PushUndefined: b.EmitPushUndefined(); break;
+                    case JitOpKind.PushNull:      b.EmitPushNull(); break;
+                    case JitOpKind.Pop:           b.IL.Emit(OpCodes.Pop); break;
+                    case JitOpKind.Not:           b.EmitLogicalNot(); break;
+                    case JitOpKind.Binary:        EmitBinary(b, instr.Op, aSlot, bSlot, rSlot); break;
+                    case JitOpKind.Call:          EmitCall(b, instr.MonoCallee, instr.IntValue, aSlot, bSlot, argArr); break;
+                    case JitOpKind.Return:
+                        b.IL.Emit(OpCodes.Ret);   // returns the ScriptVar on top of stack
                         emittedTerminalReturn = true;
                         break;
-                    case OpCode.Halt:
-                        b.EmitPushUndefined();
-                        b.IL.Emit(OpCodes.Ret);
-                        emittedTerminalReturn = true;
-                        break;
-
-                    default:
-                        // Jumps, calls, assignments, object/array ops, try, etc.
-                        throw new NotSupportedException();
                 }
             }
 
@@ -188,14 +85,14 @@ namespace DScript.Jit
 
         // Emit a plain (non-tail) call. The callee and its argc arguments are on the
         // IL stack as [callee, arg0, ..., arg{argc-1}] (top = last arg), matching the
-        // interpreter's Call layout. Tail and method calls are declined elsewhere.
+        // interpreter's Call layout. Tail and method calls are declined by the decoder.
         //
-        // Monomorphic sites (T14): bake the single observed callee, guard the runtime
-        // callee against it, and dispatch through vm.InvokeCallable. A guard miss
-        // falls through to the same general dispatch on the runtime callee.
-        // Bimorphic/megamorphic/unobserved sites (T15): dispatch on the runtime
-        // callee directly, with no baked guard.
-        private static void EmitCall(DynamicMethodBuilder b, Chunk chunk, int site, int argc,
+        // Monomorphic sites (T14): the decoder supplies the single observed callee;
+        // bake it, guard the runtime callee against it, and dispatch through
+        // vm.InvokeCallable. A guard miss falls through to the same general dispatch
+        // on the runtime callee. Bimorphic/megamorphic/unobserved sites (T15):
+        // monoCallee is null, so dispatch on the runtime callee with no baked guard.
+        private static void EmitCall(DynamicMethodBuilder b, ScriptVar monoCallee, int argc,
                                      LocalBuilder tmp, LocalBuilder calleeSlot, LocalBuilder argArr)
         {
             var il = b.IL;
@@ -213,8 +110,7 @@ namespace DScript.Jit
             }
             b.EmitStoreLocal(calleeSlot);              // pop callee
 
-            var profile = chunk.CallProfiles[site];
-            if (profile.State != Chunk.CallSiteMorphism.Monomorphic || profile.Callee0 == null)
+            if (monoCallee == null)
             {
                 // Megamorphic fallback (T15): bimorphic, megamorphic, and unobserved
                 // sites dispatch on the runtime callee with no baked guard.
@@ -222,7 +118,7 @@ namespace DScript.Jit
                 return;
             }
 
-            var bakedIndex = b.AddData(profile.Callee0);
+            var bakedIndex = b.AddData(monoCallee);
             var general = il.DefineLabel();
             var done = il.DefineLabel();
 

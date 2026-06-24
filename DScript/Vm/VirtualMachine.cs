@@ -2948,6 +2948,16 @@ namespace DScript.Vm
             return SharedUndefined;
         }
 
+        // Full binary-operator semantics for JIT back-ends that do not inline
+        // arithmetic (e.g. the closure-threaded compiler): identical to the Binary
+        // opcode handler — integer fast path, else MathsOp.
+        internal static ScriptVar JitBinary(ScriptVar a, ScriptVar b, ScriptLex.LexTypes op)
+        {
+            if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, op, out var fast))
+                return fast;
+            return a.MathsOp(b, op);
+        }
+
         // internal (not private) so the JIT emitter in DScript.Jit can call it
         // directly for the integer fast path it does not inline.
         internal static bool IntBinary(int a, int b, ScriptLex.LexTypes op, out ScriptVar result)
