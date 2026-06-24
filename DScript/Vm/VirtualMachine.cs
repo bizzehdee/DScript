@@ -87,6 +87,14 @@ namespace DScript.Vm
         private bool hasPendingReturn;
         private ScriptVar pendingReturnValue;
 
+        // Trampoline state for tail-call elimination.  TailCall / TailCallMethod
+        // handlers set these three fields and return null from Execute; the
+        // InvokeVmFunctionFromStack trampoline loop re-executes the callee without
+        // growing the C# call stack, enabling unbounded tail recursion.
+        private VmFunction _pendingTailCallFn;
+        private ScriptVar[] _pendingTailCallArgs;
+        private ScriptVar _pendingTailCallThis;
+
         // Pool of call-frame binding containers. A function whose frame cannot
         // escape (no closure captures it — see Chunk.RecyclableFrame) returns its
         // bindings var here on exit and the next such call reuses it, avoiding a
@@ -862,42 +870,68 @@ namespace DScript.Vm
                     }
                     case OpCode.TailCall:
                     {
-                        // Tail-position direct call: execute the callee and return
-                        // its result immediately, so no further opcodes run in this
-                        // frame. This keeps the bytecode clean (no dead Return after
-                        // the call) and limits C# frame depth by one level.
+                        // Tail-position direct call.  For synchronous VM functions we
+                        // signal the InvokeVmFunctionFromStack trampoline (set the
+                        // pending fields, return null) so the callee executes without
+                        // adding a C# frame — enabling unbounded tail recursion.
                         var argc = ReadOperand(code, ref ip);
                         var callee = stack[sp - argc - 1];
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
+                            var vmfn = (VmFunction)callee.GetData();
+                            if (!vmfn.Body.IsAsync && !vmfn.Body.IsGenerator)
+                            {
+                                var argBase = sp - argc;
+                                var tArgs = new ScriptVar[argc];
+                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j];
+                                sp = argBase - 1; // discard args + callee
+                                _pendingTailCallFn   = vmfn;
+                                _pendingTailCallArgs = tArgs;
+                                _pendingTailCallThis = null;
+                                return null; // trampoline signal
+                            }
+                            // Async/generator: normal path (they return iterator/promise immediately)
                             var result = InvokeVmFunctionFromStack(callee, null, argc);
-                            sp--; // discard the callee slot
-                            return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                            sp--;
+                            return result ?? SharedUndefined;
                         }
                         else
                         {
                             var args = PopArgs(argc);
-                            return InvokeCallable(Pop(), null, args) ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                            return InvokeCallable(Pop(), null, args) ?? SharedUndefined;
                         }
                     }
                     case OpCode.TailCallMethod:
                     {
-                        // Tail-position method call: same as TailCall but with a receiver.
+                        // Tail-position method call — same trampoline logic as TailCall.
                         var argc = ReadOperand(code, ref ip);
                         var callee = stack[sp - argc - 1];
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
+                            var vmfn = (VmFunction)callee.GetData();
+                            if (!vmfn.Body.IsAsync && !vmfn.Body.IsGenerator)
+                            {
+                                var argBase = sp - argc;
+                                var tArgs = new ScriptVar[argc];
+                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j];
+                                var tThis = stack[sp - argc - 2];
+                                sp = argBase - 2; // discard args + callee + receiver
+                                _pendingTailCallFn   = vmfn;
+                                _pendingTailCallArgs = tArgs;
+                                _pendingTailCallThis = tThis;
+                                return null; // trampoline signal
+                            }
                             var receiver = stack[sp - argc - 2];
                             var result = InvokeVmFunctionFromStack(callee, receiver, argc);
-                            sp -= 2; // discard callee and receiver slots
-                            return result ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                            sp -= 2;
+                            return result ?? SharedUndefined;
                         }
                         else
                         {
                             var args = PopArgs(argc);
                             var c = Pop();
                             var receiver = Pop();
-                            return InvokeCallable(c, receiver, args) ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                            return InvokeCallable(c, receiver, args) ?? SharedUndefined;
                         }
                     }
                     case OpCode.Yield:
@@ -2142,18 +2176,75 @@ namespace DScript.Vm
             sp = argBase;
 
             _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
-            if (recyclable)
+            try
             {
-                try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
-                finally
+                var result = Execute(vmfn.Body, callEnv);
+                // Trampoline: if a TailCall/TailCallMethod handler signalled a pending
+                // call, re-execute the callee here instead of on a new C# stack frame.
+                while (_pendingTailCallFn != null)
                 {
-                    ReturnFrameVars(vars);
-                    _profiler?.Leave();
-                }
-            }
+                    var nextFn   = _pendingTailCallFn;
+                    var nextArgs = _pendingTailCallArgs;
+                    var nextThis = _pendingTailCallThis;
+                    _pendingTailCallFn   = null;
+                    _pendingTailCallArgs = null;
+                    _pendingTailCallThis = null;
 
-            try { return Execute(vmfn.Body, callEnv) ?? new ScriptVar(ScriptVar.Flags.Undefined); }
-            finally { _profiler?.Leave(); }
+                    if (recyclable) ReturnFrameVars(vars);
+                    _profiler?.Leave();
+
+                    vmfn       = nextFn;
+                    recyclable = vmfn.Body.RecyclableFrame;
+                    vars       = recyclable ? BorrowFrameVars() : new ScriptVar(ScriptVar.Flags.Object);
+                    callEnv    = new Environment(vars, vmfn.Captured);
+                    BindArgsArrayToVars(vmfn, vars, nextArgs, nextThis);
+
+                    _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
+                    result = Execute(vmfn.Body, callEnv);
+                }
+                return result ?? SharedUndefined;
+            }
+            finally
+            {
+                if (recyclable) ReturnFrameVars(vars);
+                _profiler?.Leave();
+            }
+        }
+
+        // Bind a ScriptVar[] argument array into an already-allocated vars object.
+        // Used by the InvokeVmFunctionFromStack trampoline for tail-call iterations.
+        private static void BindArgsArrayToVars(VmFunction vmfn, ScriptVar vars, ScriptVar[] args, ScriptVar thisArg)
+        {
+            if (thisArg != null)
+                vars.AddChildNoDup("this", thisArg);
+            else if (vmfn.Body.IsStrict)
+                vars.AddChildNoDup("this", SharedUndefined);
+
+            var parameters = vmfn.Body.Parameters;
+            var restIdx    = vmfn.Body.RestParamIndex;
+            var argc       = args.Length;
+            var paramLimit = restIdx >= 0 ? restIdx : parameters.Count;
+            for (var j = 0; j < paramLimit; j++)
+            {
+                var arg = j < argc ? args[j] : null;
+                vars.AddChild(parameters[j], BindArgValue(arg));
+            }
+            if (restIdx >= 0)
+            {
+                var restArr = new ScriptVar(ScriptVar.Flags.Array);
+                var restLen = 0;
+                for (var j = restIdx; j < argc; j++)
+                    restArr.SetArrayIndex(restLen++, BindArgValue(args[j]));
+                vars.AddChild(parameters[restIdx], restArr);
+            }
+            if (!vmfn.Body.IsArrow)
+            {
+                var argObj = new ScriptVar(ScriptVar.Flags.Array);
+                for (var j = 0; j < argc; j++)
+                    argObj.SetArrayIndex(j, BindArgValue(args[j]));
+                if (vmfn.Body.IsStrict) AddStrictArgumentsPoisonPills(argObj);
+                vars.AddChild("arguments", argObj);
+            }
         }
 
         // Build a call environment for a VmFunction from a ScriptVar[] args array.
