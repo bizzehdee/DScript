@@ -333,7 +333,7 @@ namespace DScript.Extras.Registrars
                     arr.SetArrayIndex(len - 1, ScriptVar.CreateUndefined());
                     // Update length
                     var lenLink = arr.FindChild("length");
-                    if (lenLink != null) lenLink.Var.Int = len - 1;
+                    if (lenLink != null) lenLink.ReplaceWith(ScriptVar.FromInt(len - 1));
                     return;
                 }
             }

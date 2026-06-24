@@ -115,7 +115,7 @@ namespace DScript.Extras.FunctionProviders
             closeFn.SetCallback((scope, _) =>
             {
                 var closedLink = capturedRl.FindChild(ClosedKey);
-                if (closedLink != null) closedLink.Var.Int = 1;
+                if (closedLink != null) closedLink.ReplaceWith(ScriptVar.FromInt(1));
 
                 var closeArr = capturedRl.FindChild(CloseKey)?.Var;
                 if (closeArr == null || capturedEngine == null) return;

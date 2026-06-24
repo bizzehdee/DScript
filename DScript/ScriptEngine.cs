@@ -255,7 +255,7 @@ namespace DScript
 
                 // Mark module as loaded.
                 var loadedLink = moduleObj.FindChild("loaded");
-                if (loadedLink != null) loadedLink.Var.Bool = true;
+                if (loadedLink != null) loadedLink.ReplaceWith(ScriptVar.FromBool(true));
 
                 // Retrieve exports — prefer module.exports over __exports__ (script may
                 // have replaced module.exports with a different object, e.g. module.exports = fn)

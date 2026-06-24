@@ -144,8 +144,10 @@ namespace DScript
 
         private void Dispose(bool disposing)
         {
-            if (disposed) return;
-            
+            // Interned objects are permanent — they must never be disposed or have
+            // their children removed, as they are shared across the entire engine.
+            if (disposed || (flags & Flags.Interned) != 0) return;
+
             if (disposing)
             {
                 RemoveAllChildren();
@@ -254,6 +256,7 @@ namespace DScript
             Sealed = 8192,          // Object.seal
             Frozen = 16384,         // Object.freeze
             NativeArrayIterator = 32768, // Fast-path iterator for arrays (no per-iteration allocation)
+            Interned = 65536,           // Value is in the factory intern table — must not be disposed or mutated
             NumericMask = Null | Double | Integer,
             VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol | BigInt | Proxy
         }
@@ -583,6 +586,9 @@ namespace DScript
 
         private void SetInt(int num)
         {
+            if ((flags & Flags.Interned) != 0)
+                throw new InvalidOperationException(
+                    $"Cannot mutate interned ScriptVar (value={intData}): use ScriptVar.FromInt({num}) and assign the result via ScriptVarLink.ReplaceWith");
             flags = (flags & ~Flags.VarTypeMask) | Flags.Integer;
             intData = num;
             doubleData = 0;
@@ -591,6 +597,9 @@ namespace DScript
 
         private void SetDouble(double num)
         {
+            if ((flags & Flags.Interned) != 0)
+                throw new InvalidOperationException(
+                    $"Cannot mutate interned ScriptVar (value={intData}): use ScriptVar.FromDouble({num}) and assign the result via ScriptVarLink.ReplaceWith");
             flags = (flags & ~Flags.VarTypeMask) | Flags.Double;
             intData = 0;
             doubleData = num;
@@ -599,6 +608,9 @@ namespace DScript
 
         private void SetString(string str)
         {
+            if ((flags & Flags.Interned) != 0)
+                throw new InvalidOperationException(
+                    $"Cannot mutate interned ScriptVar (value={intData}): use ScriptVar.FromString and assign the result via ScriptVarLink.ReplaceWith");
             flags = (flags & ~Flags.VarTypeMask) | Flags.String;
             intData = 0;
             doubleData = 0;
@@ -607,6 +619,9 @@ namespace DScript
 
         public void SetUndefined()
         {
+            if ((flags & Flags.Interned) != 0)
+                throw new InvalidOperationException(
+                    $"Cannot mutate interned ScriptVar (value={intData}) via SetUndefined");
             flags = (flags & ~Flags.VarTypeMask) | Flags.Undefined;
             intData = 0;
             doubleData = 0;
@@ -616,6 +631,9 @@ namespace DScript
 
         public void SetArray()
         {
+            if ((flags & Flags.Interned) != 0)
+                throw new InvalidOperationException(
+                    $"Cannot mutate interned ScriptVar (value={intData}) via SetArray");
             flags = (flags & ~Flags.VarTypeMask) | Flags.Array;
             intData = 0;
             doubleData = 0;
@@ -1153,6 +1171,9 @@ namespace DScript
 
         private void CopySimpleData(ScriptVar val)
         {
+            if ((flags & Flags.Interned) != 0)
+                throw new InvalidOperationException(
+                    $"Cannot mutate interned ScriptVar (value={intData}) via CopySimpleData");
             scriptData = val.scriptData;
             intData = val.intData;
             doubleData = val.doubleData;

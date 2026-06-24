@@ -12,8 +12,9 @@ namespace DScript.Test
         {
             var parent = ScriptVar.CreateObject();
 
-            // Hold an external reference so the child survives for inspection.
-            var child = ScriptVar.FromInt(5).Ref();
+            // Use a value outside the intern range [-1, 255] so we get a fresh mutable
+            // ScriptVar with a predictable ref count of 0.
+            var child = ScriptVar.FromInt(1000).Ref();
             parent.AddChild("x", child);
 
             Assert.That(child.GetRefs(), Is.EqualTo(2), "AddChild should take a reference");
@@ -224,7 +225,8 @@ namespace DScript.Test
         [Test]
         public void BoolSetter_SetsIntTo0()
         {
-            var v = ScriptVar.FromInt(1);
+            // Use a value outside the intern range [-1, 255] so we get a fresh mutable ScriptVar.
+            var v = ScriptVar.FromInt(1000);
             v.Bool = false;
             Assert.That(v.Bool, Is.False);
         }
@@ -253,7 +255,8 @@ namespace DScript.Test
         [Test]
         public void CopyValue_NullSource_SetsUndefined()
         {
-            var v = ScriptVar.FromInt(42);
+            // Use a value outside the intern range [-1, 255] so we get a fresh mutable ScriptVar.
+            var v = ScriptVar.FromInt(1000);
             v.CopyValue(null);
             Assert.That(v.IsUndefined, Is.True);
         }

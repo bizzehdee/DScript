@@ -78,7 +78,7 @@ namespace DScript.Extras.FunctionProviders
                 var listenerVar = ScriptVar.CreateObject();
                 listenerVar.SetData(listener);
                 capturedServer.AddChildNoDup(ListenerKey, listenerVar);
-                capturedServer.FindChild(RunningKey).Var.Int = 1;
+                capturedServer.FindChild(RunningKey)?.ReplaceWith(ScriptVar.FromInt(1));
 
                 // Fire the listen callback
                 if (cbVar != null && cbVar.IsFunction && capturedEngine != null)
@@ -116,7 +116,7 @@ namespace DScript.Extras.FunctionProviders
             closeFn.AddChild("cb", ScriptVar.CreateUndefined());
             closeFn.SetCallback((scope, _) =>
             {
-                capturedServer.FindChild(RunningKey).Var.Int = 0;
+                capturedServer.FindChild(RunningKey)?.ReplaceWith(ScriptVar.FromInt(0));
                 // Fire the callback synchronously (before the listener actually stops).
                 var cb = scope.FindChild("cb")?.Var;
                 if (cb != null && cb.IsFunction && capturedEngine != null)

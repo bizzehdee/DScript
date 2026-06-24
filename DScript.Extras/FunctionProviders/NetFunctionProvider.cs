@@ -74,7 +74,7 @@ namespace DScript.Extras.FunctionProviders
                 var listenerVar = ScriptVar.CreateObject();
                 listenerVar.SetData(tcpListener);
                 capturedServer.AddChildNoDup("__netListener__", listenerVar);
-                capturedServer.FindChild("__netRunning__").Var.Int = 1;
+                capturedServer.FindChild("__netRunning__")?.ReplaceWith(ScriptVar.FromInt(1));
 
                 // Fire listen callback
                 if (cbVar != null && cbVar.IsFunction && capturedEngine != null)
@@ -146,7 +146,7 @@ namespace DScript.Extras.FunctionProviders
             closeFn.AddChild("cb", ScriptVar.CreateUndefined());
             closeFn.SetCallback((scope, _) =>
             {
-                capturedServer.FindChild("__netRunning__").Var.Int = 0;
+                capturedServer.FindChild("__netRunning__")?.ReplaceWith(ScriptVar.FromInt(0));
                 var listenerLink = capturedServer.FindChild("__netListener__")?.Var;
                 if (listenerLink?.GetData() is TcpListener tl)
                 {

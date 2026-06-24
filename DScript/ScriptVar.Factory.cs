@@ -25,6 +25,18 @@ using System.Runtime.CompilerServices;
 
 namespace DScript
 {
+    // Integer intern table — range and storage.
+    // Range -1..255 covers loop-index 0, boolean 0/1, common small constants,
+    // and all return values of recursive numeric functions whose results stay
+    // within that window (e.g. fib base cases, status codes, array indices).
+    // The table is built once at type-load time and never mutated.
+    file static class InternRange
+    {
+        internal const int Min   = -1;
+        internal const int Max   = 255;
+        internal const int Count = Max - Min + 1;   // 257
+    }
+
     /// <summary>
     /// Factory methods for creating <see cref="ScriptVar"/> instances.
     /// All code — including the VM core — must create ScriptVar values through
@@ -50,6 +62,23 @@ namespace DScript
     /// </summary>
     public sealed partial class ScriptVar
     {
+        // ── Integer intern table ──────────────────────────────────────────────────
+        // Pre-allocated ScriptVar instances for integers in [-1, 255].
+        // All entries are marked Flags.Interned so Dispose() is a no-op on them.
+        private static readonly ScriptVar[] _internedInts = BuildInternTable();
+
+        private static ScriptVar[] BuildInternTable()
+        {
+            var table = new ScriptVar[InternRange.Count];
+            for (var i = 0; i < InternRange.Count; i++)
+            {
+                var v = new ScriptVar(InternRange.Min + i);
+                v.flags |= Flags.Interned;
+                table[i] = v;
+            }
+            return table;
+        }
+
         // ── Allocation hook ───────────────────────────────────────────────────────
         // Set to a non-null delegate to observe every ScriptVar allocation.
         // When null (the default), Track() inlines to a single well-predicted branch
@@ -86,12 +115,24 @@ namespace DScript
 
         // ── Primitives ────────────────────────────────────────────────────────────
 
-        /// <summary>Returns a new Integer ScriptVar.</summary>
-        // Interning seam: for small values (e.g. -1 .. 255) return a pre-allocated
-        // table entry — eliminates most integer allocations in arithmetic-heavy scripts.
-        // Example: if (value is >= SmallIntMin and <= SmallIntMax) return _smallInts[value - SmallIntMin];
+        /// <summary>
+        /// Returns a ScriptVar for the given integer value.
+        /// For values in [-1, 255] a pre-allocated interned instance is returned;
+        /// no heap allocation occurs and the instance is never disposed.
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ScriptVar FromInt(int value) => Track(new ScriptVar(value));
+        public static ScriptVar FromInt(int value)
+        {
+            if ((uint)(value - InternRange.Min) <= (uint)(InternRange.Max - InternRange.Min))
+            {
+                // Use an unsigned comparison so the branch is one compare + one array
+                // bounds-check, with no branch for negative values.
+                var interned = _internedInts[value - InternRange.Min];
+                _allocationHook?.Invoke(interned);
+                return interned;
+            }
+            return Track(new ScriptVar(value));
+        }
 
         /// <summary>Returns a new Double ScriptVar.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -103,9 +144,13 @@ namespace DScript
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ScriptVar FromString(string value) => Track(new ScriptVar(value));
 
-        /// <summary>Returns a new Integer ScriptVar representing a Boolean (0 = false, 1 = true).</summary>
+        /// <summary>
+        /// Returns a ScriptVar for the given boolean value (0 = false, 1 = true).
+        /// Delegates to <see cref="FromInt"/> so that the interned 0 and 1 instances
+        /// are reused — every boolean result in a script is allocation-free.
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ScriptVar FromBool(bool value) => Track(new ScriptVar(value));
+        public static ScriptVar FromBool(bool value) => FromInt(value ? 1 : 0);
 
         // ── Objects / containers ──────────────────────────────────────────────────
 
