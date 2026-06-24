@@ -78,6 +78,15 @@ namespace DScript.Jit
                         ip += 1;
                         break;
 
+                    case OpCode.GetProp:
+                        instrs.Add(JitInstruction.GetProp(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.GetPropN:
+                        instrs.Add(JitInstruction.GetProp(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+
                     case OpCode.PushUndefined: instrs.Add(JitInstruction.PushUndefined()); break;
                     case OpCode.PushNull:      instrs.Add(JitInstruction.PushNull()); break;
                     case OpCode.PushTrue:      instrs.Add(JitInstruction.PushIntLiteral(1)); break;

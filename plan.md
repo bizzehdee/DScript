@@ -223,30 +223,44 @@ deopt), and `FromDouble` only at return.
 
 ---
 
-## Phase 6 — Inline Cache Promotion
+## Phase 6 — Property reads + inline cache (re-planned for DScript's object model)
 
-**Goal:** bake the offsets cached by the existing `InlineCache` array as IL
-constants in JIT output, eliminating the dictionary lookup on every property access.
+**Why re-planned:** the original Phase 6 assumed slot-based objects ("bake the
+resolved slot index") and shape-guard-failure → deopt. Neither fits DScript:
+objects are **linked lists of named `ScriptVarLink` children** (no numeric slots),
+and `ScriptVar.ShapeVersion` **already exists** and already increments on
+`AddChild`/`RemoveLink` — the interpreter's `GetProp` already uses a shape-keyed
+property cache. A property-cache miss is also *normal* (re-resolve), not a type
+surprise, so it must not deoptimize.
 
-### Approach
+**Goal:** let the conservative tier compile property reads at all (`GetProp`), and
+give each site a **monomorphic inline cache** keyed by object identity + shape that
+skips the `FindChild` + prototype walk on a repeat hit.
 
-The interpreter already stores the resolved slot index for `GetVar`/`SetVar` in
-`Chunk.InlineCache[offset]`. The JIT reads `InlineCache[site]` at compile time:
+### T26 — `ScriptVar.ShapeVersion`
+Already present (`ShapeVersion` getter; `BumpShapeVersion`; incremented in
+`AddChild`/`RemoveLink`). No code change — Phase 6 reuses it.
 
-- If the cache is warm (non-zero slot index), emit `ldc.i4 <slot>` followed by a
-  direct array-index load — no name lookup.
-- Emit a guard checking that the object's shape version matches the version
-  recorded when the cache was filled. On mismatch, **deoptimize** (Phase 4).
+### T27 — `GetProp` codegen (conservative tier)
+Add a runtime helper `VirtualMachine.JitGetProp(ScriptVar obj, string name)` that
+reproduces the interpreter's miss-path semantics exactly: proxy `[[Get]]`, own
+`FindChild`, `engine.FindInParentClasses` (prototype walk), getter invocation, and
+the built-in virtual properties (`length`/`size`). The decoder gains a `GetProp`
+instruction (normalising `GetProp`/`GetPropN`); the emitter lowers it to a call to
+`JitGetProp`. Property-reading functions now compile.
 
-Shape versioning requires a `ShapeVersion` counter on `ScriptVar` that increments on
-every property addition or deletion.
+### T28 — Per-site monomorphic inline cache
+Bake a small mutable cache cell per `GetProp` site. Guard
+`ReferenceEquals(obj, cell.Object) && obj.ShapeVersion == cell.Version`; on a hit,
+reuse `cell.Link` (skipping the lookup) — invoking its getter if present; on a miss,
+call `JitGetProp` and refresh the cell. A miss simply re-resolves inline (no deopt).
 
 **Deliverables:**
-- `ScriptVar.ShapeVersion`
-- IC-promotion path in `ReflectionEmitJitCompiler` (requires `GetProp` support)
-- Shape-guard failure triggers `Deoptimize` (Phase 4)
-- Tests: warm IC path returns the correct property value; a shape change deopts and
-  still returns the correct value.
+- `VirtualMachine.JitGetProp` + `GetProp` in the decoder/emitter
+- Per-site IC cell + shape/identity guard in the emitter
+- Tests: property reads (own, inherited, getter, built-in `length`) match the
+  interpreter; a shape change (added property) still returns the correct value via
+  inline re-resolve.
 
 ---
 

@@ -121,6 +121,7 @@ namespace DScript.Jit
                 switch (instr.Kind)
                 {
                     case JitOpKind.Call:
+                    case JitOpKind.GetProp:
                     case JitOpKind.PushNull:
                     case JitOpKind.PushUndefined:
                         return false; // not pure / not int-typed
@@ -228,6 +229,7 @@ namespace DScript.Jit
                 switch (instr.Kind)
                 {
                     case JitOpKind.Call:
+                    case JitOpKind.GetProp:
                     case JitOpKind.PushNull:
                     case JitOpKind.PushUndefined:
                     case JitOpKind.Not:
@@ -278,6 +280,7 @@ namespace DScript.Jit
                     case JitOpKind.PushConst:     b.EmitMaterializeConstant(instr.Constant); break;
                     case JitOpKind.PushIntLiteral: b.EmitPushIntConst(instr.IntValue); break;
                     case JitOpKind.PushVar:       b.EmitLoadNamedVar(instr.Name); break;
+                    case JitOpKind.GetProp:       b.EmitGetProp(instr.Name, aSlot); break;
                     case JitOpKind.PushUndefined: b.EmitPushUndefined(); break;
                     case JitOpKind.PushNull:      b.EmitPushNull(); break;
                     case JitOpKind.Pop:           b.IL.Emit(OpCodes.Pop); break;

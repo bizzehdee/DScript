@@ -38,6 +38,8 @@ namespace DScript.Jit
         PushIntLiteral,
         /// <summary>Resolve a variable by name and push it.</summary>
         PushVar,
+        /// <summary>Pop an object, read a named property, push it.</summary>
+        GetProp,
         /// <summary>Push a fresh null.</summary>
         PushNull,
         /// <summary>Push a fresh undefined.</summary>
@@ -82,6 +84,8 @@ namespace DScript.Jit
             new(JitOpKind.PushIntLiteral, null, v, null, default, null);
         public static JitInstruction PushVar(string name) =>
             new(JitOpKind.PushVar, null, 0, name, default, null);
+        public static JitInstruction GetProp(string name) =>
+            new(JitOpKind.GetProp, null, 0, name, default, null);
         public static JitInstruction PushNull() =>
             new(JitOpKind.PushNull, null, 0, null, default, null);
         public static JitInstruction PushUndefined() =>

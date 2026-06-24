@@ -2957,6 +2957,31 @@ namespace DScript.Vm
             return Execute(chunk, frame.Env, bypassJit: true) ?? ScriptVar.CreateUndefined();
         }
 
+        // Read a property for JIT-compiled code, mirroring the GetProp opcode's
+        // miss-path semantics exactly: proxy [[Get]], own child, prototype-chain walk,
+        // getter invocation, then the built-in virtual properties. internal so the JIT
+        // emitter / closure back-end can call it. The per-site inline cache lives in
+        // the compiled code; this is the resolve-from-scratch path.
+        internal ScriptVar JitGetProp(ScriptVar obj, string name)
+        {
+            if (obj.IsProxy) return GetMember(obj, name);
+
+            var link = obj.FindChild(name);
+            if (link == null && engine != null)
+                link = engine.FindInParentClasses(obj, name);
+
+            if (link != null)
+                return link.Getter != null
+                    ? InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>())
+                    : link.Var;
+
+            if (obj.IsArray && name == "length") return ScriptVar.FromInt(obj.GetArrayLength());
+            if (obj.IsString && name == "length") return ScriptVar.FromInt(obj.String.Length);
+            if (name == "size" && obj.GetData() is INativeContainer container)
+                return ScriptVar.FromInt(container.GetSize());
+            return ScriptVar.CreateUndefined();
+        }
+
         // Resolve a variable for JIT-compiled code, mirroring the GetVar opcode
         // handler exactly: walk the lexical scope chain, fall back to the virtual
         // globalThis binding, then to undefined. internal so the JIT emitter in

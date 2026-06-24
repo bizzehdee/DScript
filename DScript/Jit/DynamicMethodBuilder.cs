@@ -68,6 +68,8 @@ namespace DScript.Jit
         private static readonly MethodInfo MathsOpMethod    = typeof(ScriptVar).GetMethod("MathsOp", new[] { typeof(ScriptVar), typeof(ScriptLex.LexTypes) });
         private static readonly MethodInfo JitGetVarMethod  = typeof(VirtualMachine).GetMethod(
             "JitGetVar", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitGetPropMethod = typeof(VirtualMachine).GetMethod(
+            "JitGetProp", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo MaterializeMethod = typeof(ConstantValue).GetMethod("Materialize", Type.EmptyTypes);
         private static readonly MethodInfo IntBinaryMethod  = typeof(VirtualMachine).GetMethod(
             "IntBinary", BindingFlags.NonPublic | BindingFlags.Static);
@@ -150,6 +152,19 @@ namespace DScript.Jit
             EmitLoadEnv();
             EmitLoadData(AddData(name), typeof(string));
             IL.EmitCall(OpCodes.Call, JitGetVarMethod, null);
+        }
+
+        /// <summary>
+        /// Read a property of the object on top of the stack: <c>vm.JitGetProp(obj, name)</c>.
+        /// <paramref name="objTemp"/> is a scratch <see cref="ScriptVar"/> local.
+        /// </summary>
+        public void EmitGetProp(string name, LocalBuilder objTemp)
+        {
+            EmitStoreLocal(objTemp);          // pop obj
+            EmitLoadVm();
+            EmitLoadLocal(objTemp);
+            EmitLoadData(AddData(name), typeof(string));
+            IL.EmitCall(OpCodes.Callvirt, JitGetPropMethod, null);
         }
 
         /// <summary>Emit <c>a.IsInt</c> for the <see cref="ScriptVar"/> in <paramref name="local"/>.</summary>

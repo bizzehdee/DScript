@@ -61,6 +61,7 @@ namespace DScript.Jit
                     case JitOpKind.PushConst:      stack.Push(ConstNode(instr.Constant)); break;
                     case JitOpKind.PushIntLiteral: stack.Push(IntLitNode(instr.IntValue)); break;
                     case JitOpKind.PushVar:        stack.Push(VarNode(instr.Name)); break;
+                    case JitOpKind.GetProp:        stack.Push(GetPropNode(stack.Pop(), instr.Name)); break;
                     case JitOpKind.PushNull:       stack.Push(NullNode()); break;
                     case JitOpKind.PushUndefined:  stack.Push(UndefinedNode()); break;
                     case JitOpKind.Not:            stack.Push(NotNode(stack.Pop())); break;
@@ -96,6 +97,9 @@ namespace DScript.Jit
         private static JitDelegate IntLitNode(int v) => (vm, args, env) => ScriptVar.FromInt(v);
 
         private static JitDelegate VarNode(string name) => (vm, args, env) => VirtualMachine.JitGetVar(env, name);
+
+        private static JitDelegate GetPropNode(JitDelegate obj, string name) =>
+            (vm, args, env) => vm.JitGetProp(obj(vm, args, env), name);
 
         private static JitDelegate NullNode() => (vm, args, env) => ScriptVar.CreateNull();
 
