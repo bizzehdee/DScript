@@ -456,5 +456,120 @@ namespace DScript.Test
                 "__result__ = s.size;");
             Assert.That(result.Int, Is.EqualTo(3));
         }
+
+        // -----------------------------------------------------------------------
+        // isSupersetOf (ES2025)
+        // -----------------------------------------------------------------------
+
+        [Test]
+        public void IsSupersetOf_ContainsAllElements_ReturnsTrue()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2, 3]);" +
+                "var b = new Set([1, 2]);" +
+                "__result__ = a.isSupersetOf(b);");
+            Assert.That(result.Bool, Is.True);
+        }
+
+        [Test]
+        public void IsSupersetOf_MissingElement_ReturnsFalse()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2]);" +
+                "var b = new Set([1, 2, 3]);" +
+                "__result__ = a.isSupersetOf(b);");
+            Assert.That(result.Bool, Is.False);
+        }
+
+        [Test]
+        public void IsSupersetOf_EmptyOther_ReturnsTrue()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2]);" +
+                "var b = new Set();" +
+                "__result__ = a.isSupersetOf(b);");
+            Assert.That(result.Bool, Is.True);
+        }
+
+        // -----------------------------------------------------------------------
+        // isDisjointFrom (ES2025)
+        // -----------------------------------------------------------------------
+
+        [Test]
+        public void IsDisjointFrom_NoOverlap_ReturnsTrue()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2]);" +
+                "var b = new Set([3, 4]);" +
+                "__result__ = a.isDisjointFrom(b);");
+            Assert.That(result.Bool, Is.True);
+        }
+
+        [Test]
+        public void IsDisjointFrom_HasOverlap_ReturnsFalse()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2]);" +
+                "var b = new Set([2, 3]);" +
+                "__result__ = a.isDisjointFrom(b);");
+            Assert.That(result.Bool, Is.False);
+        }
+
+        [Test]
+        public void IsDisjointFrom_IdenticalSets_ReturnsFalse()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2]);" +
+                "var b = new Set([1, 2]);" +
+                "__result__ = a.isDisjointFrom(b);");
+            Assert.That(result.Bool, Is.False);
+        }
+
+        [Test]
+        public void IsDisjointFrom_EmptySets_ReturnsTrue()
+        {
+            var result = RunScript(
+                "var a = new Set();" +
+                "var b = new Set();" +
+                "__result__ = a.isDisjointFrom(b);");
+            Assert.That(result.Bool, Is.True);
+        }
+
+        // -----------------------------------------------------------------------
+        // symmetricDifference (ES2025)
+        // -----------------------------------------------------------------------
+
+        [Test]
+        public void SymmetricDifference_ReturnsElementsInEitherButNotBoth()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2, 3]);" +
+                "var b = new Set([2, 3, 4]);" +
+                "var s = a.symmetricDifference(b);" +
+                "__result__ = s.size;");
+            Assert.That(result.Int, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void SymmetricDifference_IdenticalSets_ReturnsEmptySet()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2]);" +
+                "var b = new Set([1, 2]);" +
+                "var s = a.symmetricDifference(b);" +
+                "__result__ = s.size;");
+            Assert.That(result.Int, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void SymmetricDifference_NoOverlap_ReturnsUnion()
+        {
+            var result = RunScript(
+                "var a = new Set([1, 2]);" +
+                "var b = new Set([3, 4]);" +
+                "var s = a.symmetricDifference(b);" +
+                "__result__ = s.size;");
+            Assert.That(result.Int, Is.EqualTo(4));
+        }
     }
 }

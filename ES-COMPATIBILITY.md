@@ -257,7 +257,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Feature | Status | Notes |
 |---|---|---|
 | Iterator helpers (`Iterator.prototype.map`, `filter`, `take`, etc.) | ❌ | |
-| `Set` methods (`union`, `intersection`, `difference`, etc.) | ❌ | |
+| `Set` methods (`union`, `intersection`, `difference`, etc.) | ✅ | `union`, `intersection`, `difference`, `isSubsetOf`, `isSupersetOf`, `isDisjointFrom`, `symmetricDifference` all implemented |
 | `RegExp.escape` | ❌ | |
 | `Promise.try` | ❌ | |
 | Import attributes (`import … with { type: 'json' }`) | ❌ | |

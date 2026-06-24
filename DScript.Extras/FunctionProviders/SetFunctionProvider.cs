@@ -171,5 +171,39 @@ namespace DScript.Extras.FunctionProviders
                 if (!b.Contains(item)) { var.ReturnVar.Int = 0; return; }
             var.ReturnVar.Int = 1;
         }
+
+        [ScriptMethod("isSupersetOf", "other")]
+        public static void SetIsSupersetOfImpl(ScriptVar var, object userData)
+        {
+            var a = GetSet(var.GetParameter("this"));
+            var b = GetSet(var.GetParameter("other"));
+            foreach (var item in b.Data)
+                if (!a.Contains(item)) { var.ReturnVar.Int = 0; return; }
+            var.ReturnVar.Int = 1;
+        }
+
+        [ScriptMethod("isDisjointFrom", "other")]
+        public static void SetIsDisjointFromImpl(ScriptVar var, object userData)
+        {
+            var a = GetSet(var.GetParameter("this"));
+            var b = GetSet(var.GetParameter("other"));
+            foreach (var item in a.Data)
+                if (b.Contains(item)) { var.ReturnVar.Int = 0; return; }
+            var.ReturnVar.Int = 1;
+        }
+
+        [ScriptMethod("symmetricDifference", "other")]
+        public static void SetSymmetricDifferenceImpl(ScriptVar var, object userData)
+        {
+            var thisVar = var.GetParameter("this");
+            var a = GetSet(thisVar);
+            var b = GetSet(var.GetParameter("other"));
+            var result = new SetObject();
+            foreach (var item in a.Data)
+                if (!b.Contains(item)) result.Data.Add(item);
+            foreach (var item in b.Data)
+                if (!a.Contains(item)) result.Data.Add(item);
+            var.ReturnVar = NewSetVarFrom(result, thisVar);
+        }
     }
 }
