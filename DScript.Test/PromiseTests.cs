@@ -93,5 +93,56 @@ namespace DScript.Test
             ";
             Assert.That(RunInt(src), Is.EqualTo(20));
         }
+
+        // ── Promise.withResolvers ──────────────────────────────────────────────
+
+        [Test]
+        public void WithResolvers_ReturnedObjectHasAllThreeKeys()
+        {
+            var engine = new ScriptEngine();
+            engine.Run(ScriptEngine.Compile("var wr = Promise.withResolvers();"));
+            ScriptEngine.DrainMicroTasks();
+            var wr = engine.Root.GetParameter("wr");
+            Assert.That(wr.FindChild("promise"), Is.Not.Null);
+            Assert.That(wr.FindChild("resolve"), Is.Not.Null);
+            Assert.That(wr.FindChild("reject"), Is.Not.Null);
+        }
+
+        [Test]
+        public void WithResolvers_CallingResolveFulfillsPromise()
+        {
+            var src = @"
+                var r = 0;
+                var wr = Promise.withResolvers();
+                wr.promise.then(function(v) { r = v; });
+                wr.resolve(42);
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(42));
+        }
+
+        [Test]
+        public void WithResolvers_CallingRejectRejectsPromise()
+        {
+            var src = @"
+                var r = 0;
+                var wr = Promise.withResolvers();
+                wr.promise.catch(function(v) { r = v; });
+                wr.reject(99);
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(99));
+        }
+
+        [Test]
+        public void WithResolvers_SecondResolveIsNoOp()
+        {
+            var src = @"
+                var r = 0;
+                var wr = Promise.withResolvers();
+                wr.promise.then(function(v) { r = v; });
+                wr.resolve(1);
+                wr.resolve(2);
+            ";
+            Assert.That(RunInt(src), Is.EqualTo(1));
+        }
     }
 }

@@ -243,7 +243,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 
 | Feature | Status | Notes |
 |---|---|---|
-| `Promise.withResolvers` | ❌ | |
+| `Promise.withResolvers` | ✅ | Returns `{ promise, resolve, reject }`; second resolve/reject is a no-op |
 | `Object.groupBy` / `Map.groupBy` | ✅ | |
 | `ArrayBuffer.prototype.resize` | ❌ | Out of scope — requires typed array / ArrayBuffer support |
 | `Atomics.waitAsync` | ❌ | Out of scope — requires multi-threading infrastructure; see ES2017 notes |

@@ -429,6 +429,37 @@ namespace DScript
             }, null);
             promiseVar.AddChild("any", anyFn);
 
+            // Promise.withResolvers()
+            var withResolversFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+            withResolversFn.SetCallback((scope, _) =>
+            {
+                var vm2 = new VirtualMachine(this);
+                var promiseObj = new Vm.PromiseObject();
+
+                var resolveFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                resolveFn.AddChild("value", new ScriptVar(ScriptVar.Flags.Undefined));
+                resolveFn.SetCallback((s, __) =>
+                {
+                    var v = s.FindChild("value")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                    promiseObj.Resolve(v);
+                }, null);
+
+                var rejectFn = new ScriptVar(ScriptVar.Flags.Function | ScriptVar.Flags.Native);
+                rejectFn.AddChild("reason", new ScriptVar(ScriptVar.Flags.Undefined));
+                rejectFn.SetCallback((s, __) =>
+                {
+                    var r = s.FindChild("reason")?.Var ?? new ScriptVar(ScriptVar.Flags.Undefined);
+                    promiseObj.Reject(r);
+                }, null);
+
+                var result = new ScriptVar(ScriptVar.Flags.Object);
+                result.AddChild("promise", promiseObj.ToScriptVar(vm2));
+                result.AddChild("resolve", resolveFn);
+                result.AddChild("reject", rejectFn);
+                scope.FindChildOrCreate(ScriptVar.ReturnVarName).ReplaceWith(result);
+            }, null);
+            promiseVar.AddChild("withResolvers", withResolversFn);
+
             Root.AddChild("Promise", promiseVar);
         }
 
