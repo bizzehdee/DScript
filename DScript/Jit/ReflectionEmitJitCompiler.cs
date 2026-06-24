@@ -45,11 +45,6 @@ namespace DScript.Jit
             if (instrs == null)
                 return null; // declined by the shared front-end
 
-            // Control-flow lowering is added in a later task; decline for now so the
-            // decoder's new jump support is a no-op until the emitter handles it.
-            if (HasControlFlow(instrs))
-                return null;
-
             // Speculative unboxed-int tier first (unless repeated deopts proved it
             // unprofitable), then the conservative boxed tier.
             if (!chunk.PreferConservativeTier)
@@ -271,17 +266,14 @@ namespace DScript.Jit
             return sawDouble;
         }
 
-        // True when the instruction stream contains any branch.
-        private static bool HasControlFlow(List<JitInstruction> instrs)
-        {
-            foreach (var instr in instrs)
-                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
-                    return true;
-            return false;
-        }
-
         private static JitDelegate CompileConservative(Chunk chunk, List<JitInstruction> instrs)
         {
+            // Verify operand-stack depth is consistent at every branch edge; decline
+            // if not (guards against emitting invalid IL). For the structured jumps we
+            // decode this always holds, but the check is cheap insurance.
+            if (!VerifyStackConsistency(instrs))
+                return null;
+
             var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
 
             // Two scratch slots for binary operands and one for IntBinary's out value.
@@ -291,10 +283,21 @@ namespace DScript.Jit
             var rSlot = b.DeclareLocal(typeof(ScriptVar));
             var argArr = b.DeclareLocal(typeof(ScriptVar[]));
 
-            var emittedTerminalReturn = false;
-
+            // One IL label per jump-target instruction index, marked before that
+            // instruction is emitted.
+            var labels = new Dictionary<int, Label>();
             foreach (var instr in instrs)
+                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                    labels[instr.IntValue] = b.IL.DefineLabel();
+
+            var lastWasReturn = false;
+            for (var i = 0; i < instrs.Count; i++)
             {
+                if (labels.TryGetValue(i, out var here))
+                    b.IL.MarkLabel(here);
+
+                var instr = instrs[i];
+                lastWasReturn = false;
                 switch (instr.Kind)
                 {
                     case JitOpKind.PushConst:     b.EmitMaterializeConstant(instr.Constant); break;
@@ -307,18 +310,86 @@ namespace DScript.Jit
                     case JitOpKind.Not:           b.EmitLogicalNot(); break;
                     case JitOpKind.Binary:        EmitBinary(b, instr.Op, aSlot, bSlot, rSlot); break;
                     case JitOpKind.Call:          EmitCall(b, instr.MonoCallee, instr.IntValue, aSlot, bSlot, argArr); break;
+                    case JitOpKind.Jump:
+                        b.IL.Emit(OpCodes.Br, labels[instr.IntValue]);
+                        break;
+                    case JitOpKind.JumpIfFalse:
+                        b.EmitToBool();                                  // pop condition -> bool
+                        b.IL.Emit(OpCodes.Brfalse, labels[instr.IntValue]);
+                        break;
+                    case JitOpKind.JumpIfTrue:
+                        b.EmitToBool();
+                        b.IL.Emit(OpCodes.Brtrue, labels[instr.IntValue]);
+                        break;
                     case JitOpKind.Return:
                         b.IL.Emit(OpCodes.Ret);   // returns the ScriptVar on top of stack
-                        emittedTerminalReturn = true;
+                        lastWasReturn = true;
                         break;
                 }
             }
 
-            if (!emittedTerminalReturn)
+            if (!lastWasReturn)
                 b.EmitPushUndefined(); // fall-through: function returns undefined
 
             return b.Finish();
         }
+
+        // Abstract-interpret the operand-stack depth across all branch edges; return
+        // false on any inconsistency or underflow (in which case the chunk is declined
+        // rather than risk invalid IL).
+        private static bool VerifyStackConsistency(List<JitInstruction> instrs)
+        {
+            var n = instrs.Count;
+            var depth = new int[n];
+            for (var i = 0; i < n; i++) depth[i] = -1;
+
+            var work = new Stack<(int index, int d)>();
+            work.Push((0, 0));
+            while (work.Count > 0)
+            {
+                var (i, d) = work.Pop();
+                if (i < 0 || i > n) return false;
+                if (i == n) { if (d != 0) return false; continue; } // fell off the end
+                if (depth[i] != -1) { if (depth[i] != d) return false; continue; }
+                depth[i] = d;
+
+                var instr = instrs[i];
+                var after = d + StackEffect(instr);
+                if (after < 0) return false;
+
+                switch (instr.Kind)
+                {
+                    case JitOpKind.Jump:
+                        work.Push((instr.IntValue, after));
+                        break;
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                        work.Push((instr.IntValue, after)); // branch taken
+                        work.Push((i + 1, after));          // fall through
+                        break;
+                    case JitOpKind.Return:
+                        break;                               // terminal
+                    default:
+                        work.Push((i + 1, after));
+                        break;
+                }
+            }
+            return true;
+        }
+
+        // Net operand-stack effect of an instruction.
+        private static int StackEffect(JitInstruction instr) => instr.Kind switch
+        {
+            JitOpKind.PushConst or JitOpKind.PushIntLiteral or JitOpKind.PushVar
+                or JitOpKind.PushNull or JitOpKind.PushUndefined => 1,
+            JitOpKind.GetProp or JitOpKind.Not => 0,
+            JitOpKind.Binary => -1,
+            JitOpKind.Call => -instr.IntValue,               // pop callee + argc, push result
+            JitOpKind.Pop or JitOpKind.Return
+                or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue => -1,
+            JitOpKind.Jump => 0,
+            _ => 0,
+        };
 
         // Emit a plain (non-tail) call. The callee and its argc arguments are on the
         // IL stack as [callee, arg0, ..., arg{argc-1}] (top = last arg), matching the

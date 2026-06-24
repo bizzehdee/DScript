@@ -234,6 +234,10 @@ namespace DScript.Jit
             EmitFromInt();
         }
 
+        /// <summary>Replace the <see cref="ScriptVar"/> on top of the stack with its
+        /// truthiness (<c>a.Bool</c>) as an int 0/1 — used for conditional branches.</summary>
+        public void EmitToBool() => IL.EmitCall(OpCodes.Callvirt, BoolGetter, null);
+
         /// <summary>Push a fresh undefined <see cref="ScriptVar"/>.</summary>
         public void EmitPushUndefined() => IL.EmitCall(OpCodes.Call, CreateUndefinedMethod, null);
 
