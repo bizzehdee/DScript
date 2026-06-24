@@ -40,19 +40,40 @@ loop — JIT result matches interpreter (Reflection.Emit back-end; closure back-
 asserted to decline). Edge cases: empty loop body, condition false on entry.
 **Depends on:** T32
 
-### T34 — OSR: trigger + entry prologues
+### T34 — Live-frame transfer mechanism (prerequisite for OSR)
 **File:** `DScript/Vm/OsrEntryFrame.cs`, `DScript/Vm/VirtualMachine.cs`, `DScript/Jit/ReflectionEmitJitCompiler.cs`
-**Work:** In the backward-`Jump` handler, when `BackEdgeCount` crosses the threshold
-and the chunk is `Cold` with a compiler registered, compile it, build an
-`OsrEntryFrame` from live interpreter state, and enter the compiled code at the loop
-header. Emit a per-loop-header entry prologue that loads locals/stack from the frame.
-**Depends on:** T32, T08 (tier gate)
+**Work:** Build the standalone capability to transfer a *running* frame between the
+interpreter and compiled code — independent of when it is triggered. Define
+`OsrEntryFrame` capturing a live frame's locals, operand stack, and instruction
+pointer; a VM routine to snapshot the current interpreter frame into one and to
+reconstruct interpreter state from one; and a compiled-code entry point that accepts
+a transferred frame (a per-loop-header IL prologue that loads locals/stack from it
+before falling through to the body). No trigger yet — exercised directly by tests.
+This is sequenced **before** OSR: OSR is just one consumer of it.
+**Depends on:** T32
 
-### T35 — Tests: OSR correctness
+### T35 — Tests: live-frame transfer
+**File:** `DScript.Test/JitFrameTransferTests.cs`
+**Work:** Round-trip a captured frame (snapshot → reconstruct) and resume both in the
+interpreter and in compiled code at a loop header, asserting the result matches a
+straight interpreter run. Edge cases: empty stack, frame captured at the first vs a
+later loop iteration.
+**Depends on:** T34
+
+### T35a — OSR: trigger using the transfer mechanism (after T34/T35)
+**File:** `DScript/Vm/VirtualMachine.cs`, `DScript/Jit/ReflectionEmitJitCompiler.cs`
+**Work:** In the backward-`Jump` handler, when `BackEdgeCount` crosses the threshold
+and the chunk is `Cold` with a compiler registered, compile it, snapshot the live
+frame via the T34 mechanism, and enter the compiled code at the current loop header.
+OSR is now purely the *policy* layer on top of the (already-built and tested)
+transfer mechanism.
+**Depends on:** T34, T35, T08 (tier gate)
+
+### T35b — Tests: OSR correctness
 **File:** `DScript.Test/JitOsrTests.cs`
 **Work:** A long `while` loop tiers up mid-run and returns the correct accumulated
 result; nested loops; OSR combined with a deopt inside the loop falls back correctly.
-**Depends on:** T34
+**Depends on:** T35a
 
 ---
 
@@ -216,7 +237,8 @@ regress. Append any new opcodes to the end of the enum.
 
 ```
 Phase 7 (control flow):  T16 → T30 → T31 → T32 → T33
-                                       T32 + T08 → T34 → T35
+                         T32 → T34 (live-frame transfer) → T35
+                         T34 + T35 + T08 → T35a (OSR) → T35b
 Phase 8 (locals):        T20 → T36 ┐
                          T28 → T37 ┤
                          T31 ──────┴→ T38 → T39 → T40(opt)
@@ -243,8 +265,11 @@ T47 spike are independent and can be picked up any time.
 variables & assignments, and monomorphic inlining of pure-parameter leaf callees.
 Loops and stateful functions now compile (conservative tier); the closure back-end
 declines control flow. Benchmark: an inlined helper loop runs ~2.37× the interpreter
-(ReflEmit). **OSR (T34/T35) deferred** — its ROI is narrow (only a long loop within
-a sub-threshold number of calls) and it needs live-frame transfer; revisit if a
-workload demands it.
+(ReflEmit).
+
+**OSR is sequenced behind the live-frame-transfer mechanism**: build and test
+T34 (live-frame transfer) + T35 first, then T35a/T35b (OSR) as a thin policy layer
+on top. All four are deferred — narrow ROI (only a long loop within a sub-threshold
+number of calls) — and picked up only if a workload demands it.
 
 **Not yet started:** Tier 2 (T44–T49) and Tier 3 (T50–T56).

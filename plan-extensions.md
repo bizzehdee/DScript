@@ -70,21 +70,33 @@ Arbitrary jumps don't fit the closure backend's expression-tree model. It either
 or (b) gains a *structured* subset (compile `if`/`while` whose shape is recognisable
 into nested closures). Start with (a); (b) is optional.
 
-### OSR (revived from the old Phase 5)
+### Live-frame transfer, then OSR (revived from the old Phase 5)
 
-Once loops compile, long-running loops that never return can tier up mid-execution.
-Add the `Jump`-handler trigger: when `BackEdgeCount` crosses the threshold and the
-chunk is `Cold` with a compiler registered, compile it and transfer the live
-interpreter frame into the compiled code at the loop header (an `OsrEntryFrame`
-carrying the current locals/stack, with a per-loop-header IL entry prologue).
+OSR depends on a more fundamental capability: **transferring a running frame between
+the interpreter and compiled code**. That mechanism is built and tested *first*, on
+its own — `OsrEntryFrame` captures a live frame's locals, operand stack, and
+instruction pointer; the VM can snapshot the current interpreter frame into one and
+reconstruct interpreter state from one; and the compiler emits a per-loop-header
+entry prologue that loads state from a transferred frame before falling through to
+the body.
+
+**OSR is then a thin policy layer on top.** Only once live-frame transfer is done
+does the `Jump`-handler trigger get added: when `BackEdgeCount` crosses the threshold
+and the chunk is `Cold` with a compiler registered, compile it, snapshot the live
+frame, and enter the compiled code at the current loop header. Sequencing OSR after
+the transfer mechanism keeps the hard, correctness-critical part (state transfer)
+isolated and independently testable, separate from the triggering policy.
 
 **Deliverables:**
 - `JitDecoder` jump decoding + offset→index resolution
 - Slot-locals value model in `ReflectionEmitJitCompiler` (used when branches present)
 - Branch/label emission; conditional-jump lowering
-- OSR trigger + entry prologues (`OsrEntryFrame`)
+- Live-frame transfer mechanism (`OsrEntryFrame` + snapshot/reconstruct + entry
+  prologue), built and tested on its own
+- OSR trigger layered on top of it (sequenced after the transfer mechanism is done)
 - Tests: `if`/loop/ternary/short-circuit functions match the interpreter; nested
-  loops; an accumulating loop; OSR fires on a long loop and produces the right result
+  loops; an accumulating loop; live-frame round-trip; OSR fires on a long loop and
+  produces the right result
 
 ---
 
