@@ -104,6 +104,15 @@ namespace DScript.Vm
         private const int FramePoolMaxSize = 64;
         private readonly Stack<ScriptVar> frameVarsPool = new();
 
+        // Pool of native-call scope containers. Every native function invocation
+        // creates a temporary Function ScriptVar for its parameter bindings; all such
+        // scopes are safe to recycle because native scopes never escape into closures.
+        // Reuse detaches (does not dispose) old bindings, matching GC lifetime semantics.
+        // Array-based to keep rent/return to a compare + array read/write per call.
+        private const int NativeScopePoolMaxSize = 32;
+        private int _nativeScopeCount;
+        private readonly ScriptVar[] _nativeScopeArr = new ScriptVar[NativeScopePoolMaxSize];
+
         private ScriptVar BorrowFrameVars()
         {
             return frameVarsPool.Count > 0 ? frameVarsPool.Pop() : ScriptVar.CreateObject();
@@ -115,6 +124,21 @@ namespace DScript.Vm
             vars.ResetForReuse();
             frameVarsPool.Push(vars);
         }
+
+        private ScriptVar BorrowNativeScope()
+        {
+            if (_nativeScopeCount > 0)
+                return _nativeScopeArr[--_nativeScopeCount];
+            return ScriptVar.CreateFunction();
+        }
+
+        private void ReturnNativeScope(ScriptVar scope)
+        {
+            if (_nativeScopeCount >= NativeScopePoolMaxSize) return;
+            scope.ResetForReuse();
+            _nativeScopeArr[_nativeScopeCount++] = scope;
+        }
+
 
         // Per-VM inline property cache: a direct-mapped array of 256 slots, indexed
         // by Fibonacci hash ((uint)nameIndex * 2654435761u >> 24). Each slot stores the last object seen at that site,
@@ -1986,7 +2010,7 @@ namespace DScript.Vm
 
             if (callee.IsNative)
             {
-                var scope = ScriptVar.CreateFunction();
+                var scope = BorrowNativeScope();
                 if (thisArg != null) scope.AddChildNoDup("this", thisArg);
 
                 var p = callee.FirstChild;
@@ -2007,7 +2031,9 @@ namespace DScript.Vm
                 _profiler?.Enter(string.IsNullOrEmpty(nativeName) ? "(native)" : nativeName, "(native)", 0, 0);
                 try { callee.GetCallback()?.Invoke(scope, callee.GetCallbackUserData()); }
                 finally { _profiler?.Leave(); }
-                return returnLink.Var;
+                var nativeResult = returnLink.Var;
+                ReturnNativeScope(scope);
+                return nativeResult;
             }
 
             var vmfn = (VmFunction)callee.GetData();
