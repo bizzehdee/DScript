@@ -40,6 +40,20 @@ namespace DScript.Jit
         PushVar,
         /// <summary>Pop an object, read a named property, push it.</summary>
         GetProp,
+        /// <summary>Assign a variable (expression form): pop value, set, push value.</summary>
+        SetVar,
+        /// <summary>Assign a variable (statement form): pop value, set.</summary>
+        SetVarPop,
+        /// <summary>Set a property (expression): pop value + object, set, push value.</summary>
+        SetProp,
+        /// <summary>Set a property (statement): pop value + object, set.</summary>
+        SetPropPop,
+        /// <summary>Declare a function-scoped variable (no stack effect).</summary>
+        DeclareVar,
+        /// <summary>Declare a block-scoped variable (no stack effect).</summary>
+        DeclareLocal,
+        /// <summary>Declare a block-scoped const (no stack effect).</summary>
+        DeclareConst,
         /// <summary>Push a fresh null.</summary>
         PushNull,
         /// <summary>Push a fresh undefined.</summary>
@@ -61,6 +75,9 @@ namespace DScript.Jit
         /// <summary>Return the top operand.</summary>
         Return,
     }
+
+    /// <summary>Which kind of variable declaration to emit.</summary>
+    internal enum JitDeclareKind { Var, Local, Const }
 
     /// <summary>One normalised JIT instruction. Only the fields relevant to
     /// <see cref="Kind"/> are populated.</summary>
@@ -92,6 +109,20 @@ namespace DScript.Jit
             new(JitOpKind.PushVar, null, 0, name, default, null);
         public static JitInstruction GetProp(string name) =>
             new(JitOpKind.GetProp, null, 0, name, default, null);
+        public static JitInstruction SetVar(string name) =>
+            new(JitOpKind.SetVar, null, 0, name, default, null);
+        public static JitInstruction SetVarPop(string name) =>
+            new(JitOpKind.SetVarPop, null, 0, name, default, null);
+        public static JitInstruction SetProp(string name) =>
+            new(JitOpKind.SetProp, null, 0, name, default, null);
+        public static JitInstruction SetPropPop(string name) =>
+            new(JitOpKind.SetPropPop, null, 0, name, default, null);
+        public static JitInstruction DeclareVar(string name) =>
+            new(JitOpKind.DeclareVar, null, 0, name, default, null);
+        public static JitInstruction DeclareLocal(string name) =>
+            new(JitOpKind.DeclareLocal, null, 0, name, default, null);
+        public static JitInstruction DeclareConst(string name) =>
+            new(JitOpKind.DeclareConst, null, 0, name, default, null);
         public static JitInstruction PushNull() =>
             new(JitOpKind.PushNull, null, 0, null, default, null);
         public static JitInstruction PushUndefined() =>

@@ -70,6 +70,16 @@ namespace DScript.Jit
             "JitGetVar", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitGetPropCachedMethod = typeof(VirtualMachine).GetMethod(
             "JitGetPropCached", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitSetVarMethod = typeof(VirtualMachine).GetMethod(
+            "JitSetVar", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitSetPropMethod = typeof(VirtualMachine).GetMethod(
+            "JitSetProp", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitDeclareVarMethod = typeof(VirtualMachine).GetMethod(
+            "JitDeclareVar", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitDeclareLocalMethod = typeof(VirtualMachine).GetMethod(
+            "JitDeclareLocal", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitDeclareConstMethod = typeof(VirtualMachine).GetMethod(
+            "JitDeclareConst", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo MaterializeMethod = typeof(ConstantValue).GetMethod("Materialize", Type.EmptyTypes);
         private static readonly MethodInfo IntBinaryMethod  = typeof(VirtualMachine).GetMethod(
             "IntBinary", BindingFlags.NonPublic | BindingFlags.Static);
@@ -168,6 +178,55 @@ namespace DScript.Jit
             EmitLoadData(AddData(name), typeof(string));
             EmitLoadData(AddData(new PropCacheCell()), typeof(PropCacheCell));
             IL.EmitCall(OpCodes.Callvirt, JitGetPropCachedMethod, null);
+        }
+
+        /// <summary>
+        /// Assign a variable: <c>JitSetVar(env, name, value, strict)</c> where the value
+        /// is on top of the stack. When <paramref name="leaveValue"/> is true (expression
+        /// form) the value is left on the stack. <paramref name="valTemp"/> is scratch.
+        /// </summary>
+        public void EmitSetVar(string name, bool strict, bool leaveValue, LocalBuilder valTemp)
+        {
+            EmitStoreLocal(valTemp);                 // pop value
+            EmitLoadEnv();
+            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadLocal(valTemp);
+            IL.Emit(strict ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+            IL.EmitCall(OpCodes.Call, JitSetVarMethod, null);
+            if (leaveValue) EmitLoadLocal(valTemp);
+        }
+
+        /// <summary>
+        /// Set a property: <c>vm.JitSetProp(obj, name, value, strict)</c> with the
+        /// object below the value on the stack. Leaves the value when
+        /// <paramref name="leaveValue"/> is true. <paramref name="valTemp"/>/<paramref name="objTemp"/>
+        /// are scratch.
+        /// </summary>
+        public void EmitSetProp(string name, bool strict, bool leaveValue, LocalBuilder valTemp, LocalBuilder objTemp)
+        {
+            EmitStoreLocal(valTemp);                 // pop value
+            EmitStoreLocal(objTemp);                 // pop object
+            EmitLoadVm();
+            EmitLoadLocal(objTemp);
+            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadLocal(valTemp);
+            IL.Emit(strict ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+            IL.EmitCall(OpCodes.Callvirt, JitSetPropMethod, null);
+            if (leaveValue) EmitLoadLocal(valTemp);
+        }
+
+        /// <summary>Declare a variable (<c>var</c>/<c>let</c>/<c>const</c>); no stack effect.</summary>
+        public void EmitDeclare(string name, JitDeclareKind kind)
+        {
+            EmitLoadEnv();
+            EmitLoadData(AddData(name), typeof(string));
+            var m = kind switch
+            {
+                JitDeclareKind.Var   => JitDeclareVarMethod,
+                JitDeclareKind.Local => JitDeclareLocalMethod,
+                _                    => JitDeclareConstMethod,
+            };
+            IL.EmitCall(OpCodes.Call, m, null);
         }
 
         /// <summary>Emit <c>a.IsInt</c> for the <see cref="ScriptVar"/> in <paramref name="local"/>.</summary>

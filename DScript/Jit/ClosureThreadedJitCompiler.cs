@@ -57,6 +57,7 @@ namespace DScript.Jit
 
             // Build a tree of value-producing nodes. Expression statements (Pop) are
             // collected as side-effecting nodes to run, in order, before the result.
+            var strict = chunk.IsStrict;
             var stack = new Stack<JitDelegate>();
             var effects = new List<JitDelegate>();
             JitDelegate result = null;
@@ -88,6 +89,25 @@ namespace DScript.Jit
                         stack.Push(CallNode(callee, argNodes));
                         break;
                     }
+                    case JitOpKind.SetVar:        stack.Push(SetVarNode(instr.Name, stack.Pop(), strict)); break;
+                    case JitOpKind.SetVarPop:     effects.Add(SetVarNode(instr.Name, stack.Pop(), strict)); break;
+                    case JitOpKind.SetProp:
+                    {
+                        var value = stack.Pop();
+                        var obj = stack.Pop();
+                        stack.Push(SetPropNode(obj, instr.Name, value, strict));
+                        break;
+                    }
+                    case JitOpKind.SetPropPop:
+                    {
+                        var value = stack.Pop();
+                        var obj = stack.Pop();
+                        effects.Add(SetPropNode(obj, instr.Name, value, strict));
+                        break;
+                    }
+                    case JitOpKind.DeclareVar:    effects.Add(DeclareNode(instr.Name, JitDeclareKind.Var)); break;
+                    case JitOpKind.DeclareLocal:  effects.Add(DeclareNode(instr.Name, JitDeclareKind.Local)); break;
+                    case JitOpKind.DeclareConst:  effects.Add(DeclareNode(instr.Name, JitDeclareKind.Const)); break;
                     case JitOpKind.Pop:     effects.Add(stack.Pop()); break;
                     case JitOpKind.Return:  result = stack.Pop(); break;
                 }
@@ -110,6 +130,35 @@ namespace DScript.Jit
             var cell = new PropCacheCell(); // one inline-cache cell per site
             return (vm, args, env) => vm.JitGetPropCached(obj(vm, args, env), name, cell);
         }
+
+        private static JitDelegate SetVarNode(string name, JitDelegate value, bool strict) =>
+            (vm, args, env) =>
+            {
+                var v = value(vm, args, env);
+                VirtualMachine.JitSetVar(env, name, v, strict);
+                return v;
+            };
+
+        private static JitDelegate SetPropNode(JitDelegate obj, string name, JitDelegate value, bool strict) =>
+            (vm, args, env) =>
+            {
+                var o = obj(vm, args, env);     // object evaluated before value (push order)
+                var v = value(vm, args, env);
+                vm.JitSetProp(o, name, v, strict);
+                return v;
+            };
+
+        private static JitDelegate DeclareNode(string name, JitDeclareKind kind) =>
+            (vm, args, env) =>
+            {
+                switch (kind)
+                {
+                    case JitDeclareKind.Var:   VirtualMachine.JitDeclareVar(env, name); break;
+                    case JitDeclareKind.Local: VirtualMachine.JitDeclareLocal(env, name); break;
+                    default:                   VirtualMachine.JitDeclareConst(env, name); break;
+                }
+                return ScriptVar.CreateUndefined(); // discarded by the effects runner
+            };
 
         private static JitDelegate NullNode() => (vm, args, env) => ScriptVar.CreateNull();
 

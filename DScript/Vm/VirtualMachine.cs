@@ -2957,6 +2957,46 @@ namespace DScript.Vm
             return Execute(chunk, frame.Env, bypassJit: true) ?? ScriptVar.CreateUndefined();
         }
 
+        // Assign a variable for JIT-compiled code, mirroring the SetVar(Pop) opcode:
+        // resolve through the scope chain and ReplaceWith; in non-strict mode a missing
+        // binding creates a global. internal static (no VM state needed).
+        internal static void JitSetVar(Environment env, string name, ScriptVar value, bool strict)
+        {
+            var link = env.Resolve(name);
+            if (link != null) { link.ReplaceWith(value); return; }
+            if (strict) throw new ScriptException($"ReferenceError: '{name}' is not defined");
+            var global = env.Global();
+            global.Vars.AddChildNoDup(name, value);
+            global.Version++;
+        }
+
+        // Set a property for JIT-compiled code, mirroring SetProp(Pop) (delegates to
+        // SetMember; getters/setters/proxies/shape bumps handled there).
+        internal void JitSetProp(ScriptVar obj, string name, ScriptVar value, bool strict)
+            => SetMember(obj, name, value, strict);
+
+        // Variable declarations for JIT-compiled code, mirroring the Declare* opcodes.
+        internal static void JitDeclareVar(Environment env, string name)
+        {
+            var declEnv = env;
+            while (declEnv.IsBlockScope && declEnv.Parent != null)
+                declEnv = declEnv.Parent;
+            declEnv.Vars.FindChildOrCreate(name);
+            declEnv.Version++;
+        }
+
+        internal static void JitDeclareLocal(Environment env, string name)
+        {
+            env.Vars.FindChildOrCreate(name);
+            env.Version++;
+        }
+
+        internal static void JitDeclareConst(Environment env, string name)
+        {
+            env.Vars.FindChildOrCreate(name, ScriptVar.Flags.Undefined, readOnly: true);
+            env.Version++;
+        }
+
         // Read a property for JIT-compiled code through a per-site inline cache,
         // mirroring the GetProp opcode (cache + miss path) exactly: a hit reuses the
         // cached link (invoking its getter if any); a miss does the full resolve —

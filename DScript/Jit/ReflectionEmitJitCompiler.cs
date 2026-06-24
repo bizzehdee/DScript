@@ -127,7 +127,14 @@ namespace DScript.Jit
                     case JitOpKind.Jump:
                     case JitOpKind.JumpIfFalse:
                     case JitOpKind.JumpIfTrue:
-                        return false; // not pure / not int-typed / control flow
+                    case JitOpKind.SetVar:
+                    case JitOpKind.SetVarPop:
+                    case JitOpKind.SetProp:
+                    case JitOpKind.SetPropPop:
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:
+                        return false; // not pure / not int-typed / control flow / mutation
                     case JitOpKind.PushConst:
                         if (instr.Constant.Kind != ConstantKind.Int) return false;
                         break;
@@ -239,7 +246,14 @@ namespace DScript.Jit
                     case JitOpKind.Jump:
                     case JitOpKind.JumpIfFalse:
                     case JitOpKind.JumpIfTrue:
-                        return false; // not pure / non-double / control flow
+                    case JitOpKind.SetVar:
+                    case JitOpKind.SetVarPop:
+                    case JitOpKind.SetProp:
+                    case JitOpKind.SetPropPop:
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:
+                        return false; // not pure / non-double / control flow / mutation
                     case JitOpKind.PushConst:
                         if (instr.Constant.Kind != ConstantKind.Int && instr.Constant.Kind != ConstantKind.Double)
                             return false;
@@ -304,6 +318,13 @@ namespace DScript.Jit
                     case JitOpKind.PushIntLiteral: b.EmitPushIntConst(instr.IntValue); break;
                     case JitOpKind.PushVar:       b.EmitLoadNamedVar(instr.Name); break;
                     case JitOpKind.GetProp:       b.EmitGetProp(instr.Name, aSlot); break;
+                    case JitOpKind.SetVar:        b.EmitSetVar(instr.Name, chunk.IsStrict, leaveValue: true,  valTemp: aSlot); break;
+                    case JitOpKind.SetVarPop:     b.EmitSetVar(instr.Name, chunk.IsStrict, leaveValue: false, valTemp: aSlot); break;
+                    case JitOpKind.SetProp:       b.EmitSetProp(instr.Name, chunk.IsStrict, leaveValue: true,  valTemp: aSlot, objTemp: bSlot); break;
+                    case JitOpKind.SetPropPop:    b.EmitSetProp(instr.Name, chunk.IsStrict, leaveValue: false, valTemp: aSlot, objTemp: bSlot); break;
+                    case JitOpKind.DeclareVar:    b.EmitDeclare(instr.Name, JitDeclareKind.Var); break;
+                    case JitOpKind.DeclareLocal:  b.EmitDeclare(instr.Name, JitDeclareKind.Local); break;
+                    case JitOpKind.DeclareConst:  b.EmitDeclare(instr.Name, JitDeclareKind.Const); break;
                     case JitOpKind.PushUndefined: b.EmitPushUndefined(); break;
                     case JitOpKind.PushNull:      b.EmitPushNull(); break;
                     case JitOpKind.Pop:           b.IL.Emit(OpCodes.Pop); break;
@@ -382,12 +403,13 @@ namespace DScript.Jit
         {
             JitOpKind.PushConst or JitOpKind.PushIntLiteral or JitOpKind.PushVar
                 or JitOpKind.PushNull or JitOpKind.PushUndefined => 1,
-            JitOpKind.GetProp or JitOpKind.Not => 0,
-            JitOpKind.Binary => -1,
+            JitOpKind.GetProp or JitOpKind.Not or JitOpKind.SetVar => 0,
+            JitOpKind.Binary or JitOpKind.SetProp => -1,
             JitOpKind.Call => -instr.IntValue,               // pop callee + argc, push result
-            JitOpKind.Pop or JitOpKind.Return
+            JitOpKind.Pop or JitOpKind.Return or JitOpKind.SetVarPop
                 or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue => -1,
-            JitOpKind.Jump => 0,
+            JitOpKind.SetPropPop => -2,
+            JitOpKind.Jump or JitOpKind.DeclareVar or JitOpKind.DeclareLocal or JitOpKind.DeclareConst => 0,
             _ => 0,
         };
 

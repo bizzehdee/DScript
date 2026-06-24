@@ -92,6 +92,64 @@ namespace DScript.Jit
                         ip += 1;
                         break;
 
+                    case OpCode.SetVar:
+                        instrs.Add(JitInstruction.SetVar(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.SetVarN:
+                        instrs.Add(JitInstruction.SetVar(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+                    case OpCode.SetVarPop:
+                        instrs.Add(JitInstruction.SetVarPop(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.SetVarPopN:
+                        instrs.Add(JitInstruction.SetVarPop(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+                    case OpCode.SetProp:
+                        instrs.Add(JitInstruction.SetProp(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.SetPropN:
+                        instrs.Add(JitInstruction.SetProp(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+                    case OpCode.SetPropPop:
+                        instrs.Add(JitInstruction.SetPropPop(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.SetPropPopN:
+                        instrs.Add(JitInstruction.SetPropPop(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+
+                    case OpCode.DeclareVar:
+                        instrs.Add(JitInstruction.DeclareVar(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.DeclareVarN:
+                        instrs.Add(JitInstruction.DeclareVar(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+                    case OpCode.DeclareLocal:
+                        instrs.Add(JitInstruction.DeclareLocal(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.DeclareLocalN:
+                        instrs.Add(JitInstruction.DeclareLocal(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+                    case OpCode.DeclareConst:
+                        instrs.Add(JitInstruction.DeclareConst(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.DeclareConstN:
+                        instrs.Add(JitInstruction.DeclareConst(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+
                     case OpCode.PushUndefined: instrs.Add(JitInstruction.PushUndefined()); break;
                     case OpCode.PushNull:      instrs.Add(JitInstruction.PushNull()); break;
                     case OpCode.PushTrue:      instrs.Add(JitInstruction.PushIntLiteral(1)); break;
