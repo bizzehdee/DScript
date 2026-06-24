@@ -2936,7 +2936,9 @@ namespace DScript.Vm
         // Direct int-op-int result for the BinaryConst fast path. Mirrors the int
         // branch of ScriptVar.MathsOp exactly. Returns false for operators handled
         // only by the general path (e.g. ===), so the caller falls back.
-        private static bool IntBinary(int a, int b, ScriptLex.LexTypes op, out ScriptVar result)
+        // internal (not private) so the JIT emitter in DScript.Jit can call it
+        // directly for the integer fast path it does not inline.
+        internal static bool IntBinary(int a, int b, ScriptLex.LexTypes op, out ScriptVar result)
         {
             switch ((char)op)
             {
