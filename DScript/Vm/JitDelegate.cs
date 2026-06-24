@@ -32,12 +32,13 @@ namespace DScript.Vm
     /// deoptimization, OSR re-entry, and inline-cache misses.
     /// </param>
     /// <param name="args">The positional arguments for this invocation.</param>
-    /// <param name="scope">
-    /// The scope object the body executes against. Parameters and locals already
-    /// bound by the caller are reachable as children of this object.
+    /// <param name="env">
+    /// The lexical environment the body executes against. Carries the full scope
+    /// chain, so the compiled code resolves variables — parameters, locals, outer
+    /// captures, and globals — exactly as the interpreter does.
     /// </param>
     /// <returns>The function's return value.</returns>
-    public delegate ScriptVar JitDelegate(VirtualMachine vm, ScriptVar[] args, ScriptVar scope);
+    public delegate ScriptVar JitDelegate(VirtualMachine vm, ScriptVar[] args, Environment env);
 
     /// <summary>
     /// Contract between the VM and a pluggable JIT back-end. Implementations turn a

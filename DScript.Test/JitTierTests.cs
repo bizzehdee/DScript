@@ -22,7 +22,7 @@ namespace DScript.Test
             public JitDelegate Compile(Chunk chunk)
             {
                 CompileCount++;
-                return (vm, args, scope) => { InvokeCount++; return ScriptVar.CreateUndefined(); };
+                return (vm, args, env) => { InvokeCount++; return ScriptVar.CreateUndefined(); };
             }
         }
 

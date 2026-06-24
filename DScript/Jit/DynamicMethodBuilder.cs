@@ -26,6 +26,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Emit;
 using DScript.Vm;
+using Environment = DScript.Vm.Environment;
 
 namespace DScript.Jit
 {
@@ -36,7 +37,7 @@ namespace DScript.Jit
     /// emitted code calls.
     ///
     /// The underlying <see cref="DynamicMethod"/> has signature
-    /// <c>ScriptVar M(object[] data, VirtualMachine vm, ScriptVar[] args, ScriptVar scope)</c>.
+    /// <c>ScriptVar M(object[] data, VirtualMachine vm, ScriptVar[] args, Environment env)</c>.
     /// The leading <c>data</c> array carries compile-time-baked references (constant
     /// pool entries, name strings); it is bound away with
     /// <see cref="DynamicMethod.CreateDelegate(Type, object)"/> so the finished
@@ -45,10 +46,10 @@ namespace DScript.Jit
     internal sealed class DynamicMethodBuilder
     {
         // Argument slots of the underlying DynamicMethod.
-        private const int ArgData  = 0;
-        private const int ArgVm    = 1;
-        private const int ArgArgs  = 2;
-        private const int ArgScope = 3;
+        private const int ArgData = 0;
+        private const int ArgVm   = 1;
+        private const int ArgArgs = 2;
+        private const int ArgEnv  = 3;
 
         // Reflection handles for the operations emitted code calls.
         private static readonly MethodInfo IsIntGetter      = Prop(typeof(ScriptVar), "IsInt");
@@ -64,8 +65,8 @@ namespace DScript.Jit
         private static readonly MethodInfo StringGetter     = Prop(typeof(ScriptVar), "String");
         private static readonly MethodInfo ConcatMethod     = typeof(string).GetMethod("Concat", new[] { typeof(string), typeof(string) });
         private static readonly MethodInfo MathsOpMethod    = typeof(ScriptVar).GetMethod("MathsOp", new[] { typeof(ScriptVar), typeof(ScriptLex.LexTypes) });
-        private static readonly MethodInfo FindChildMethod  = typeof(ScriptVar).GetMethod("FindChild", new[] { typeof(string) });
-        private static readonly MethodInfo LinkVarGetter    = Prop(typeof(ScriptVarLink), "Var");
+        private static readonly MethodInfo JitGetVarMethod  = typeof(VirtualMachine).GetMethod(
+            "JitGetVar", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo MaterializeMethod = typeof(ConstantValue).GetMethod("Materialize", Type.EmptyTypes);
         private static readonly MethodInfo IntBinaryMethod  = typeof(VirtualMachine).GetMethod(
             "IntBinary", BindingFlags.NonPublic | BindingFlags.Static);
@@ -84,7 +85,7 @@ namespace DScript.Jit
             method = new DynamicMethod(
                 "jit_" + name,
                 typeof(ScriptVar),
-                new[] { typeof(object[]), typeof(VirtualMachine), typeof(ScriptVar[]), typeof(ScriptVar) },
+                new[] { typeof(object[]), typeof(VirtualMachine), typeof(ScriptVar[]), typeof(Environment) },
                 typeof(DynamicMethodBuilder).Module,
                 skipVisibility: true);
             IL = method.GetILGenerator();
@@ -111,8 +112,8 @@ namespace DScript.Jit
             IL.Emit(OpCodes.Castclass, asType);
         }
 
-        /// <summary>Push the <c>scope</c> argument (a <see cref="ScriptVar"/>).</summary>
-        public void EmitLoadScope() => IL.Emit(OpCodes.Ldarg, ArgScope);
+        /// <summary>Push the <c>env</c> argument (an <see cref="Environment"/>).</summary>
+        public void EmitLoadEnv() => IL.Emit(OpCodes.Ldarg, ArgEnv);
 
         /// <summary>Push the <c>vm</c> argument (a <see cref="VirtualMachine"/>).</summary>
         public void EmitLoadVm() => IL.Emit(OpCodes.Ldarg, ArgVm);
@@ -133,16 +134,15 @@ namespace DScript.Jit
         }
 
         /// <summary>
-        /// Resolve a parameter/local by name from <c>scope</c> and push its value.
-        /// Assumes the binding exists (the JIT only compiles chunks whose variable
-        /// reads are guaranteed bound — see the eligibility check in the compiler).
+        /// Resolve a variable by name through the lexical environment chain and push
+        /// its value, exactly as the interpreter's GetVar opcode does (including the
+        /// globalThis and undefined fall-throughs).
         /// </summary>
         public void EmitLoadNamedVar(string name)
         {
-            EmitLoadScope();
+            EmitLoadEnv();
             EmitLoadData(AddData(name), typeof(string));
-            IL.EmitCall(OpCodes.Callvirt, FindChildMethod, null);
-            IL.EmitCall(OpCodes.Callvirt, LinkVarGetter, null);
+            IL.EmitCall(OpCodes.Call, JitGetVarMethod, null);
         }
 
         /// <summary>Emit <c>a.IsInt</c> for the <see cref="ScriptVar"/> in <paramref name="local"/>.</summary>

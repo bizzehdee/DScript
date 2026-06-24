@@ -31,8 +31,9 @@ namespace DScript.Jit
     /// A first-tier JIT back-end built on <see cref="System.Reflection.Emit"/>.
     ///
     /// It compiles straight-line, branch-free leaf functions whose bodies are made
-    /// up of constant loads, parameter reads, and arithmetic — exactly the shape the
-    /// binary-op type profiles target. Any chunk containing control flow, calls,
+    /// up of constant loads, variable reads (resolved through the full lexical scope
+    /// chain), and arithmetic — exactly the shape the binary-op type profiles target.
+    /// Any chunk containing control flow, calls,
     /// assignments, or other unsupported opcodes is declined (Compile returns
     /// <c>null</c>) and the VM keeps interpreting it. Because the compiled code
     /// mirrors the interpreter's operand semantics (including its int fast path and
@@ -89,11 +90,11 @@ namespace DScript.Jit
                         break;
 
                     case OpCode.GetVar:
-                        b.EmitLoadNamedVar(RequireParam(chunk, chunk.ReadInt(ip)));
+                        b.EmitLoadNamedVar(chunk.Names[chunk.ReadInt(ip)]);
                         ip += 4;
                         break;
                     case OpCode.GetVarN:
-                        b.EmitLoadNamedVar(RequireParam(chunk, code[ip]));
+                        b.EmitLoadNamedVar(chunk.Names[code[ip]]);
                         ip += 1;
                         break;
 
@@ -131,8 +132,8 @@ namespace DScript.Jit
                     case OpCode.GetVarGetVarBinary:
                     {
                         var operatorCode = (ScriptLex.LexTypes)chunk.ReadInt(ip);
-                        b.EmitLoadNamedVar(RequireParam(chunk, chunk.ReadInt(ip + 4)));
-                        b.EmitLoadNamedVar(RequireParam(chunk, chunk.ReadInt(ip + 8)));
+                        b.EmitLoadNamedVar(chunk.Names[chunk.ReadInt(ip + 4)]);
+                        b.EmitLoadNamedVar(chunk.Names[chunk.ReadInt(ip + 8)]);
                         EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
                         ip += 12;
                         break;
@@ -140,8 +141,8 @@ namespace DScript.Jit
                     case OpCode.GetVarGetVarBinaryN:
                     {
                         var operatorCode = (ScriptLex.LexTypes)code[ip];
-                        b.EmitLoadNamedVar(RequireParam(chunk, code[ip + 1]));
-                        b.EmitLoadNamedVar(RequireParam(chunk, code[ip + 2]));
+                        b.EmitLoadNamedVar(chunk.Names[code[ip + 1]]);
+                        b.EmitLoadNamedVar(chunk.Names[code[ip + 2]]);
                         EmitBinary(b, operatorCode, aSlot, bSlot, rSlot);
                         ip += 3;
                         break;
@@ -167,17 +168,6 @@ namespace DScript.Jit
                 b.EmitPushUndefined(); // fall-through: function returns undefined
 
             return b.Finish();
-        }
-
-        // The JIT only has the function's own scope, not the enclosing environment
-        // chain, so it can resolve a name only when it is a parameter (always bound
-        // as a direct child of scope by the caller). Anything else is declined.
-        private static string RequireParam(Chunk chunk, int nameIdx)
-        {
-            var name = chunk.Names[nameIdx];
-            if (!chunk.Parameters.Contains(name))
-                throw new NotSupportedException();
-            return name;
         }
 
         // Emit a binary operator over two operands already on the IL stack

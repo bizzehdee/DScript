@@ -326,7 +326,7 @@ namespace DScript.Vm
             if (genObj == null && gsState == null)
             {
                 if (chunk.CompiledDelegate != null)
-                    return chunk.CompiledDelegate(this, System.Array.Empty<ScriptVar>(), env.Vars);
+                    return chunk.CompiledDelegate(this, System.Array.Empty<ScriptVar>(), env);
 
                 if (chunk.IsHot() && JitRegistry.Current != null)
                 {
@@ -338,7 +338,7 @@ namespace DScript.Vm
                         {
                             chunk.CompiledDelegate = compiled;
                             chunk.JitState = Chunk.JitStatus.Compiled;
-                            return compiled(this, System.Array.Empty<ScriptVar>(), env.Vars);
+                            return compiled(this, System.Array.Empty<ScriptVar>(), env);
                         }
                         // Compiler declined this chunk: don't retry it.
                         chunk.JitState = Chunk.JitStatus.Failed;
@@ -2936,6 +2936,18 @@ namespace DScript.Vm
         // Direct int-op-int result for the BinaryConst fast path. Mirrors the int
         // branch of ScriptVar.MathsOp exactly. Returns false for operators handled
         // only by the general path (e.g. ===), so the caller falls back.
+        // Resolve a variable for JIT-compiled code, mirroring the GetVar opcode
+        // handler exactly: walk the lexical scope chain, fall back to the virtual
+        // globalThis binding, then to undefined. internal so the JIT emitter in
+        // DScript.Jit can call it directly.
+        internal static ScriptVar JitGetVar(Environment env, string name)
+        {
+            var link = env.Resolve(name);
+            if (link != null) return link.Var;
+            if (name == "globalThis") return env.Global().Vars;
+            return SharedUndefined;
+        }
+
         // internal (not private) so the JIT emitter in DScript.Jit can call it
         // directly for the integer fast path it does not inline.
         internal static bool IntBinary(int a, int b, ScriptLex.LexTypes op, out ScriptVar result)

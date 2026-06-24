@@ -39,10 +39,11 @@ true, already `Compiled` returns false, `Failed` returns false.
 ### T05 — `JitDelegate` and `IJitCompiler`
 **File:** `DScript/Vm/JitDelegate.cs`  
 **Work:** Define
-`delegate ScriptVar JitDelegate(VirtualMachine vm, ScriptVar[] args, ScriptVar scope)`
+`delegate ScriptVar JitDelegate(VirtualMachine vm, ScriptVar[] args, Environment env)`
 and `interface IJitCompiler { JitDelegate? Compile(Chunk chunk); }`. The `vm`
 parameter is the runtime handle the compiled code uses for call dispatch, deopt,
-OSR, and inline-cache misses.  
+OSR, and inline-cache misses; the `env` parameter is the full lexical environment
+so compiled code resolves variables exactly as the interpreter does.  
 **Depends on:** nothing (can be done in parallel with Phase 1)
 
 ### T06 — `JitRegistry` singleton

@@ -37,7 +37,7 @@ No VM changes are required yet — the predicate is purely read-side.
 **Goal:** define the contract between the VM and any JIT back-end without coupling them.
 
 ```csharp
-public delegate ScriptVar JitDelegate(VirtualMachine vm, ScriptVar[] args, ScriptVar scope);
+public delegate ScriptVar JitDelegate(VirtualMachine vm, ScriptVar[] args, Environment env);
 
 public interface IJitCompiler
 {
@@ -47,8 +47,11 @@ public interface IJitCompiler
 
 The `vm` parameter is the runtime handle the compiled code uses for anything it
 does not emit inline: call dispatch (Phase 3c), deoptimization (Phase 4), OSR
-re-entry (Phase 5), and inline-cache misses (Phase 6). Without it a standalone
-delegate could only ever handle pure, branch-free, call-free arithmetic.
+re-entry (Phase 5), and inline-cache misses (Phase 6). The `env` parameter is the
+full lexical environment, so compiled code resolves variables — parameters,
+locals, outer captures, and globals — exactly as the interpreter does (via
+`VirtualMachine.JitGetVar`). Without these a standalone delegate could only ever
+handle pure, branch-free, call-free arithmetic over its own parameters.
 
 `Chunk` gains a nullable `CompiledDelegate` property (type `JitDelegate?`) set by the
 compiler after a successful compilation.
