@@ -313,7 +313,7 @@ namespace DScript.Vm
             return result ?? ScriptVar.CreateUndefined();
         }
 
-        private ScriptVar Execute(Chunk chunk, Environment env, GeneratorObject genObj = null, GeneratorState gsState = null)
+        private ScriptVar Execute(Chunk chunk, Environment env, GeneratorObject genObj = null, GeneratorState gsState = null, bool bypassJit = false)
         {
             // Count every entry into this chunk (includes generator resumes, which
             // are legitimate re-entries but are not fresh invocations).
@@ -323,7 +323,9 @@ namespace DScript.Vm
             // async resumes (genObj/gsState != null) keep using the interpreter so
             // their suspended-state machinery is preserved. When no compiler is
             // registered this whole block is skipped and behaviour is unchanged.
-            if (genObj == null && gsState == null)
+            // bypassJit is set by Deoptimize so a bailed speculative run re-executes
+            // on the interpreter without re-entering the compiled code.
+            if (!bypassJit && genObj == null && gsState == null)
             {
                 if (chunk.CompiledDelegate != null)
                     return chunk.CompiledDelegate(this, System.Array.Empty<ScriptVar>(), env);
@@ -2936,6 +2938,25 @@ namespace DScript.Vm
         // Direct int-op-int result for the BinaryConst fast path. Mirrors the int
         // branch of ScriptVar.MathsOp exactly. Returns false for operators handled
         // only by the general path (e.g. ===), so the caller falls back.
+        // Abandon a bailed speculative JIT run and re-execute the chunk on the
+        // interpreter, returning its result. Safe because the speculative tier only
+        // compiles pure (call-free) functions, so no side effect occurred before the
+        // failing guard. After DeoptThreshold deopts the speculation is given up: the
+        // compiled delegate is cleared and the chunk is marked to recompile with the
+        // conservative tier. internal so JIT-compiled code can call it.
+        internal ScriptVar Deoptimize(DeoptFrame frame)
+        {
+            var chunk = frame.Chunk;
+            chunk.DeoptCount++;
+            if (chunk.DeoptCount >= JitThresholds.DeoptThreshold)
+            {
+                chunk.PreferConservativeTier = true;
+                chunk.CompiledDelegate = null;
+                chunk.JitState = Chunk.JitStatus.Cold;
+            }
+            return Execute(chunk, frame.Env, bypassJit: true) ?? ScriptVar.CreateUndefined();
+        }
+
         // Resolve a variable for JIT-compiled code, mirroring the GetVar opcode
         // handler exactly: walk the lexical scope chain, fall back to the virtual
         // globalThis binding, then to undefined. internal so the JIT emitter in
