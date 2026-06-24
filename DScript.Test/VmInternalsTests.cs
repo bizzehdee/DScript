@@ -241,6 +241,50 @@ namespace DScript.Test
             Assert.That(RunInt(src), Is.EqualTo(1000));
         }
 
+        // ── GetVarGetVarBinary ────────────────────────────────────────────────
+
+        [Test]
+        public void GetVarGetVarBinary_Addition_CorrectResult()
+        {
+            const string src = "var a = 3; var b = 4; var r = a + b;";
+            Assert.That(RunInt(src), Is.EqualTo(7));
+        }
+
+        [Test]
+        public void GetVarGetVarBinary_Subtraction_CorrectResult()
+        {
+            const string src = "var a = 10; var b = 3; var r = a - b;";
+            Assert.That(RunInt(src), Is.EqualTo(7));
+        }
+
+        [Test]
+        public void GetVarGetVarBinary_LessThan_CorrectResult()
+        {
+            const string src = "var a = 3; var b = 5; var r = (a < b) ? 1 : 0;";
+            Assert.That(RunInt(src), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void GetVarGetVarBinary_HotLoop_Accumulates()
+        {
+            // sum += i triggers GetVarGetVarBinaryN in the hot path
+            const string src =
+                "var sum = 0; " +
+                "for (var i = 0; i < 1000; i = i + 1) { sum = sum + i; } " +
+                "var r = sum;";
+            Assert.That(RunInt(src), Is.EqualTo(499500));
+        }
+
+        [Test]
+        public void GetVarGetVarBinary_DisassemblyContainsFusedOpcode()
+        {
+            const string src = "var a = 1; var b = 2; var r = a + b;";
+            var compiler = new DScriptCompiler { EnableOptimizer = true };
+            var chunk = compiler.CompileProgram(src);
+            var asm = Disassembler.Disassemble(chunk);
+            Assert.That(asm, Does.Contain("GetVarGetVarBinaryN"), "Expected GetVarGetVarBinaryN in disassembly");
+        }
+
         [Test]
         public void GetPropCall0_DisassemblyContainsFusedOpcodes()
         {

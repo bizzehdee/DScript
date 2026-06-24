@@ -495,7 +495,8 @@ namespace DScript.Vm
             OpCode.BinaryConst     =>  9, // 1 + 4*2
             OpCode.BinaryIntConst  =>  9, // 1 + 4*2
             OpCode.TaggedTemplate  =>  9, // 1 + 4*2
-            OpCode.GetVarGetProp   =>  9, // 1 + 4*2  (superinstruction: varIdx + propIdx)
+            OpCode.GetVarGetProp         =>  9, // 1 + 4*2  (superinstruction: varIdx + propIdx)
+            OpCode.GetVarGetVarBinary    => 13, // 1 + 4*3  (superinstruction: op + var1 + var2)
             OpCode.GetPropMethod   =>  5, // 1 + 4*1
             OpCode.GetPropCall0    =>  5, // 1 + 4*1
             OpCode.Constant     or OpCode.GetVar      or OpCode.SetVar    or
@@ -519,6 +520,7 @@ namespace DScript.Vm
             OpCode.SetVarPopN   or OpCode.SetPropPopN or
             OpCode.GetPropMethodN or OpCode.GetPropCall0N                  => 2, // 1 + 1
             OpCode.GetVarGetPropN                                           => 3, // 1 + 1 + 1
+            OpCode.GetVarGetVarBinaryN                                      => 4, // 1 + 1 + 1 + 1
             _                   =>  1, // no operands
         };
 
@@ -537,7 +539,8 @@ namespace DScript.Vm
             OpCode.InitProp      => OpCode.InitPropN,
             OpCode.SetVarPop     => OpCode.SetVarPopN,
             OpCode.SetPropPop    => OpCode.SetPropPopN,
-            OpCode.GetVarGetProp => OpCode.GetVarGetPropN,
+            OpCode.GetVarGetProp       => OpCode.GetVarGetPropN,
+            OpCode.GetVarGetVarBinary  => OpCode.GetVarGetVarBinaryN,
             OpCode.GetPropMethod => OpCode.GetPropMethodN,
             OpCode.GetPropCall0  => OpCode.GetPropCall0N,
             _                    => op,
@@ -1101,9 +1104,10 @@ namespace DScript.Vm
                 }
             }
 
-            // Pass 1: mark fusable pairs and count total byte savings (1 per fusion).
+            // Pass 1: mark fusable pairs/triplets and count total byte savings.
             var fusedAt    = new bool[Code.Count];
             var fusedOpAt  = new OpCode[Code.Count];
+            var fusedSaves = new int[Code.Count];    // bytes saved per fusion site
             var totalSavings = 0;
             {
                 var ip = 0;
@@ -1114,21 +1118,34 @@ namespace DScript.Vm
                     var next  = ip + size1;
                     if (next < Code.Count && !jumpTargets.Contains(next))
                     {
-                        var op2 = (OpCode)Code[next];
+                        var op2   = (OpCode)Code[next];
+                        var size2 = InstructionSize(op2);
+                        // Triplet: GetVar + GetVar + Binary → GetVarGetVarBinary (saves 2 bytes)
+                        if (op1 is OpCode.GetVar && op2 is OpCode.GetVar)
+                        {
+                            var next2 = next + size2;
+                            if (next2 < Code.Count && !jumpTargets.Contains(next2) &&
+                                (OpCode)Code[next2] is OpCode.Binary)
+                            {
+                                fusedAt[ip] = true; fusedOpAt[ip] = OpCode.GetVarGetVarBinary;
+                                fusedSaves[ip] = 2; totalSavings += 2;
+                                ip += size1 + size2 + InstructionSize(OpCode.Binary); continue;
+                            }
+                        }
                         if (op1 is OpCode.SetVar && op2 is OpCode.Pop)
                         {
                             fusedAt[ip] = true; fusedOpAt[ip] = OpCode.SetVarPop;
-                            totalSavings++; ip += size1 + 1; continue;
+                            fusedSaves[ip] = 1; totalSavings++; ip += size1 + 1; continue;
                         }
                         if (op1 is OpCode.SetProp && op2 is OpCode.Pop)
                         {
                             fusedAt[ip] = true; fusedOpAt[ip] = OpCode.SetPropPop;
-                            totalSavings++; ip += size1 + 1; continue;
+                            fusedSaves[ip] = 1; totalSavings++; ip += size1 + 1; continue;
                         }
                         if (op1 is OpCode.GetVar && op2 is OpCode.GetProp)
                         {
                             fusedAt[ip] = true; fusedOpAt[ip] = OpCode.GetVarGetProp;
-                            totalSavings++; ip += size1 + 5; continue;
+                            fusedSaves[ip] = 1; totalSavings++; ip += size1 + 5; continue;
                         }
                     }
                     ip += size1;
@@ -1155,12 +1172,20 @@ namespace DScript.Vm
                         savings[ip + k] = cumSavings;
                     if (fusedAt[ip])
                     {
-                        cumSavings++;
+                        var saves = fusedSaves[ip];
+                        cumSavings += saves;
                         ip += size;
                         var size2 = InstructionSize((OpCode)Code[ip]);
                         for (var k = 0; k < size2; k++)
                             savings[ip + k] = cumSavings;
                         ip += size2;
+                        if (saves > 1) // triplet: also cover the third instruction
+                        {
+                            var size3 = InstructionSize((OpCode)Code[ip]);
+                            for (var k = 0; k < size3; k++)
+                                savings[ip + k] = cumSavings;
+                            ip += size3;
+                        }
                         continue;
                     }
                     ip += size;
@@ -1185,29 +1210,47 @@ namespace DScript.Vm
                         newCode.Add((byte)fusedOpAt[ip]);
                         newLines.Add(Lines[ip]);
                         newCols.Add(ip < Cols.Count ? Cols[ip] : 0);
-                        // Copy operand bytes from the first instruction
-                        for (var k = 1; k < size; k++)
-                        {
-                            newCode.Add(Code[ip + k]);
-                            newLines.Add(Lines[ip + k]);
-                            newCols.Add((ip + k) < Cols.Count ? Cols[ip + k] : 0);
-                        }
-                        ip += size;
 
-                        var op2   = (OpCode)Code[ip];
-                        var size2 = InstructionSize(op2);
-                        if (op is OpCode.GetVar)
+                        if (fusedOpAt[ip] == OpCode.GetVarGetVarBinary)
                         {
-                            // GetVar + GetProp: append GetProp's operand bytes (skip its opcode byte)
-                            for (var k = 1; k < size2; k++)
+                            // Triplet: GetVar + GetVar + Binary
+                            // Fused layout: [opcode][4-byte binaryOp][4-byte var1][4-byte var2]
+                            var size2  = InstructionSize((OpCode)Code[ip + size]);
+                            var binAt  = ip + size + size2; // position of Binary instruction
+
+                            void EmitSrc(int src) { newCode.Add(Code[src]); newLines.Add(Lines[src]); newCols.Add(src < Cols.Count ? Cols[src] : 0); }
+
+                            for (var k = 1; k < 5; k++) EmitSrc(binAt  + k); // binaryOp (from Binary)
+                            for (var k = 1; k < size;  k++) EmitSrc(ip   + k); // var1 (from GetVar1)
+                            for (var k = 1; k < size2; k++) EmitSrc(ip + size + k); // var2 (from GetVar2)
+                            ip += size + size2 + InstructionSize(OpCode.Binary);
+                        }
+                        else
+                        {
+                            // Copy operand bytes from the first instruction
+                            for (var k = 1; k < size; k++)
                             {
                                 newCode.Add(Code[ip + k]);
                                 newLines.Add(Lines[ip + k]);
                                 newCols.Add((ip + k) < Cols.Count ? Cols[ip + k] : 0);
                             }
+                            ip += size;
+
+                            var op2   = (OpCode)Code[ip];
+                            var size2 = InstructionSize(op2);
+                            if (op is OpCode.GetVar)
+                            {
+                                // GetVar + GetProp: append GetProp's operand bytes (skip its opcode byte)
+                                for (var k = 1; k < size2; k++)
+                                {
+                                    newCode.Add(Code[ip + k]);
+                                    newLines.Add(Lines[ip + k]);
+                                    newCols.Add((ip + k) < Cols.Count ? Cols[ip + k] : 0);
+                                }
+                            }
+                            // SetVar/SetProp + Pop: Pop is a single opcode byte — discard entirely
+                            ip += size2;
                         }
-                        // SetVar/SetProp + Pop: Pop is a single opcode byte — discard entirely
-                        ip += size2;
                         continue;
                     }
 

@@ -1605,6 +1605,40 @@ namespace DScript.Vm
                         Push(propResult);
                         break;
                     }
+                    case OpCode.GetVarGetVarBinary:
+                    {
+                        var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
+                        var var1Site = ip;
+                        var var1Idx  = ReadOperand(code, ref ip);
+                        var var2Site = ip;
+                        var var2Idx  = ReadOperand(code, ref ip);
+                        var link1 = ResolveCached(cache, chunk, var1Site, env, var1Idx);
+                        var link2 = ResolveCached(cache, chunk, var2Site, env, var2Idx);
+                        var a = link1 != null ? link1.Var : SharedUndefined;
+                        var b = link2 != null ? link2.Var : SharedUndefined;
+                        if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
+                            Push(fast);
+                        else
+                            Push(a.MathsOp(b, operatorCode));
+                        break;
+                    }
+                    case OpCode.GetVarGetVarBinaryN:
+                    {
+                        var operatorCode = (ScriptLex.LexTypes)code[ip++];
+                        var var1Site = ip;
+                        var var1Idx  = code[ip++];
+                        var var2Site = ip;
+                        var var2Idx  = code[ip++];
+                        var link1 = ResolveCached(cache, chunk, var1Site, env, var1Idx);
+                        var link2 = ResolveCached(cache, chunk, var2Site, env, var2Idx);
+                        var a = link1 != null ? link1.Var : SharedUndefined;
+                        var b = link2 != null ? link2.Var : SharedUndefined;
+                        if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
+                            Push(fast);
+                        else
+                            Push(a.MathsOp(b, operatorCode));
+                        break;
+                    }
 
                     case OpCode.GetPropMethod:
                     {

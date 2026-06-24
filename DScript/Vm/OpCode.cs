@@ -230,5 +230,14 @@ namespace DScript.Vm
         // for post-spread static elements in array literals.  AppendArrayElement
         // reads and maintains the cached array length so each append is O(1).
         AppendElem,      //                 arr, value → arr  (appends value at arr.length)
+
+        // --- Superinstruction: GetVar + GetVar + Binary -------------------------
+        // Fuses the two GetVar dispatches and the Binary dispatch into a single
+        // handler. The binary operator and both variable indices are inline so the
+        // handler reads all three operands, resolves both variables via the scope
+        // cache, and executes the operation without any intermediate Push/Pop.
+        // Layout: [i op][i var1Index][i var2Index]  (13 bytes wide, 4 bytes narrow)
+        GetVarGetVarBinary,  // [i op][i var1][i var2]   (a op b) where a,b are named vars
+        GetVarGetVarBinaryN, // [b op][b var1][b var2]   narrow form (4 bytes)
     }
 }

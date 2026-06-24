@@ -79,6 +79,9 @@ namespace DScript.Vm
                 case OpCode.GetPropCall0:
                     return 1;
 
+                case OpCode.GetVarGetVarBinary:
+                    return 3;
+
                 default:
                     return 0;
             }
@@ -153,6 +156,18 @@ namespace DScript.Vm
                 sb.Append(' ').Append(propIdx);
                 if (propIdx < chunk.Names.Count) sb.Append($".{chunk.Names[propIdx]}");
             }
+            else if (op == OpCode.GetVarGetVarBinaryN)
+            {
+                // Three 1-byte operands: op, var1, var2
+                var opCode = chunk.Code[next++];
+                var var1   = chunk.Code[next++];
+                var var2   = chunk.Code[next++];
+                sb.Append($" op={opCode}");
+                sb.Append(' ').Append(var1);
+                if (var1 < chunk.Names.Count) sb.Append($" ({chunk.Names[var1]})");
+                sb.Append(' ').Append(var2);
+                if (var2 < chunk.Names.Count) sb.Append($" ({chunk.Names[var2]})");
+            }
             else if (IsNarrow(op))
             {
                 // Narrow form: single 1-byte operand
@@ -224,6 +239,12 @@ namespace DScript.Vm
                     break;
                 case OpCode.GetVarGetProp when operandIndex == 0:
                 case OpCode.GetVarGetProp when operandIndex == 1:
+                    if (value >= 0 && value < chunk.Names.Count) return $" ({chunk.Names[value]})";
+                    break;
+                case OpCode.GetVarGetVarBinary when operandIndex == 0:
+                    return $" ({ScriptLex.LexTypesToString((ScriptLex.LexTypes)value)})";
+                case OpCode.GetVarGetVarBinary when operandIndex == 1:
+                case OpCode.GetVarGetVarBinary when operandIndex == 2:
                     if (value >= 0 && value < chunk.Names.Count) return $" ({chunk.Names[value]})";
                     break;
                 case OpCode.Binary:
