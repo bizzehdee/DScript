@@ -49,8 +49,10 @@ namespace DScript.Jit
             // unprofitable), then the conservative boxed tier.
             if (!chunk.PreferConservativeTier)
             {
-                var speculative = TryCompileSpeculativeInt(chunk, instrs);
-                if (speculative != null) return speculative;
+                var asInt = TryCompileSpeculativeInt(chunk, instrs);
+                if (asInt != null) return asInt;
+                var asDouble = TryCompileSpeculativeDouble(chunk, instrs);
+                if (asDouble != null) return asDouble;
             }
 
             return CompileConservative(chunk, instrs);
@@ -166,6 +168,95 @@ namespace DScript.Jit
             (char)op == '<' || (char)op == '>' ||
             op == ScriptLex.LexTypes.LEqual || op == ScriptLex.LexTypes.GEqual ||
             op == ScriptLex.LexTypes.Equal || op == ScriptLex.LexTypes.NEqual;
+
+        // ── speculative unboxed-double tier ──────────────────────────────────────
+        // For a pure, straight-line function whose binary sites are numeric with at
+        // least one double, compile a body where values flow as raw double through IL
+        // (+,-,*,/ only; division-by-zero yields Infinity/NaN, matching MathsOp, so no
+        // deopt is needed for it). Variables are guarded numeric once in the prologue
+        // and cached as double. Returns null if not eligible.
+        private static JitDelegate TryCompileSpeculativeDouble(Chunk chunk, List<JitInstruction> instrs)
+        {
+            if (!IsDoubleSpeculable(chunk, instrs))
+                return null;
+
+            var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
+            var svTemp = b.DeclareLocal(typeof(ScriptVar));
+            var deopt = b.IL.DefineLabel();
+            var chunkIndex = b.AddData(chunk);
+
+            var varLocals = new Dictionary<string, LocalBuilder>();
+            foreach (var instr in instrs)
+            {
+                if (instr.Kind != JitOpKind.PushVar || varLocals.ContainsKey(instr.Name)) continue;
+                var local = b.DeclareLocal(typeof(double));
+                varLocals[instr.Name] = local;
+                b.EmitResolveGuardedDouble(instr.Name, local, svTemp, deopt);
+            }
+
+            foreach (var instr in instrs)
+            {
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:
+                        if (instr.Constant.Kind == ConstantKind.Double)
+                            b.EmitLdcR8(instr.Constant.DoubleValue);
+                        else { b.EmitLdcI4(instr.Constant.IntValue); b.EmitConvR8(); }
+                        break;
+                    case JitOpKind.PushIntLiteral: b.EmitLdcI4(instr.IntValue); b.EmitConvR8(); break;
+                    case JitOpKind.PushVar:        b.EmitLoadLocal(varLocals[instr.Name]); break;
+                    case JitOpKind.Binary:         b.IL.Emit(DoubleArithOp(instr.Op).Value); break;
+                    case JitOpKind.Pop:            b.IL.Emit(OpCodes.Pop); break;
+                    case JitOpKind.Return:
+                        b.EmitFromDouble();         // box raw double at the boundary
+                        b.IL.Emit(OpCodes.Ret);
+                        break;
+                }
+            }
+
+            b.EmitDeoptReturn(deopt, chunkIndex);
+            return b.Finish(appendRet: false);
+        }
+
+        private static bool IsDoubleSpeculable(Chunk chunk, List<JitInstruction> instrs)
+        {
+            if (instrs.Count == 0 || instrs[instrs.Count - 1].Kind != JitOpKind.Return)
+                return false;
+
+            foreach (var instr in instrs)
+            {
+                switch (instr.Kind)
+                {
+                    case JitOpKind.Call:
+                    case JitOpKind.PushNull:
+                    case JitOpKind.PushUndefined:
+                    case JitOpKind.Not:
+                        return false; // not pure / would introduce a non-double value
+                    case JitOpKind.PushConst:
+                        if (instr.Constant.Kind != ConstantKind.Int && instr.Constant.Kind != ConstantKind.Double)
+                            return false;
+                        break;
+                    case JitOpKind.Binary:
+                        if (DoubleArithOp(instr.Op) == null) return false; // only +,-,*,/
+                        break;
+                }
+            }
+
+            // All numeric sites (no string/other), with at least one double observed —
+            // pure-int functions are already handled by the int tier (tried first).
+            var profiles = chunk.GetBinaryOpProfiles();
+            if (profiles.Count == 0) return false;
+            var sawDouble = false;
+            foreach (var (_, p) in profiles)
+            {
+                const Chunk.BinaryTypeFlags numeric = Chunk.BinaryTypeFlags.Int | Chunk.BinaryTypeFlags.Double;
+                if ((p.LeftTypes & ~numeric) != 0 || (p.RightTypes & ~numeric) != 0) return false;
+                if (p.LeftTypes == Chunk.BinaryTypeFlags.None || p.RightTypes == Chunk.BinaryTypeFlags.None) return false;
+                if ((p.LeftTypes & Chunk.BinaryTypeFlags.Double) != 0 || (p.RightTypes & Chunk.BinaryTypeFlags.Double) != 0)
+                    sawDouble = true;
+            }
+            return sawDouble;
+        }
 
         private static JitDelegate CompileConservative(Chunk chunk, List<JitInstruction> instrs)
         {
