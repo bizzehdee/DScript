@@ -326,7 +326,7 @@ namespace DScript.Vm
             if (genObj == null && gsState == null)
             {
                 if (chunk.CompiledDelegate != null)
-                    return chunk.CompiledDelegate(System.Array.Empty<ScriptVar>(), env.Vars);
+                    return chunk.CompiledDelegate(this, System.Array.Empty<ScriptVar>(), env.Vars);
 
                 if (chunk.IsHot() && JitRegistry.Current != null)
                 {
@@ -338,7 +338,7 @@ namespace DScript.Vm
                         {
                             chunk.CompiledDelegate = compiled;
                             chunk.JitState = Chunk.JitStatus.Compiled;
-                            return compiled(System.Array.Empty<ScriptVar>(), env.Vars);
+                            return compiled(this, System.Array.Empty<ScriptVar>(), env.Vars);
                         }
                         // Compiler declined this chunk: don't retry it.
                         chunk.JitState = Chunk.JitStatus.Failed;

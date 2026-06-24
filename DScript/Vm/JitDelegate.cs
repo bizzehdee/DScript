@@ -26,10 +26,18 @@ namespace DScript.Vm
     /// A compiled entry point for a hot <see cref="Chunk"/>. Invoked by the VM in
     /// place of the interpreter loop once a chunk has been JIT-compiled.
     /// </summary>
+    /// <param name="vm">
+    /// The runtime the compiled code runs against. Gives the JIT a handle back into
+    /// the interpreter for operations it does not emit inline — call dispatch,
+    /// deoptimization, OSR re-entry, and inline-cache misses.
+    /// </param>
     /// <param name="args">The positional arguments for this invocation.</param>
-    /// <param name="scope">The scope/`this` object the body executes against.</param>
+    /// <param name="scope">
+    /// The scope object the body executes against. Parameters and locals already
+    /// bound by the caller are reachable as children of this object.
+    /// </param>
     /// <returns>The function's return value.</returns>
-    public delegate ScriptVar JitDelegate(ScriptVar[] args, ScriptVar scope);
+    public delegate ScriptVar JitDelegate(VirtualMachine vm, ScriptVar[] args, ScriptVar scope);
 
     /// <summary>
     /// Contract between the VM and a pluggable JIT back-end. Implementations turn a
