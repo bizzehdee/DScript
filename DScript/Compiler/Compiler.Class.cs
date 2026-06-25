@@ -271,6 +271,7 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.Return);
 
             ExitFunctionBody(savedLoops, savedFinally, savedBlockDepth);
+            FinalizeArgumentsUsage(fnChunk, saved);
             chunk = saved;
             lexer = savedLexer;
 

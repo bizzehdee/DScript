@@ -178,6 +178,23 @@ namespace DScript.Compiler
             CompileTernary(true);
         }
 
+        // Decide whether a just-compiled function/method/arrow body needs its
+        // `arguments` object materialised at call time. It does if it references
+        // `arguments` (its name is in the name table — conservatively including any
+        // property named `arguments`), uses `eval` (which could access it
+        // dynamically), or already had the flag set by a nested arrow. An arrow has
+        // no own `arguments`, so its use is attributed to the enclosing scope.
+        // Called as each function chunk is finalised; `enclosing` is the chunk being
+        // restored to. Over-setting is always safe; under-setting would lose access.
+        private static void FinalizeArgumentsUsage(Chunk fnChunk, Chunk enclosing)
+        {
+            if (fnChunk.Names.Contains("arguments") || fnChunk.Names.Contains("eval"))
+                fnChunk.UsesArguments = true;
+
+            if (fnChunk.IsArrow && fnChunk.UsesArguments && enclosing != null)
+                enclosing.UsesArguments = true;
+        }
+
         // The comma (sequence) operator — the lowest-precedence Expression production:
         //   Expression : AssignmentExpression ( ',' AssignmentExpression )*
         // Each operand is evaluated left-to-right; all but the last result are

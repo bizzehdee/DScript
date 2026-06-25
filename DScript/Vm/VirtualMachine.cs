@@ -2220,7 +2220,7 @@ namespace DScript.Vm
             }
 
             // Bind arguments object for non-arrow functions
-            if (!vmfn.Body.IsArrow)
+            if (!vmfn.Body.IsArrow && vmfn.Body.UsesArguments)
             {
                 var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < (args?.Length ?? 0); j++)
@@ -2321,7 +2321,7 @@ namespace DScript.Vm
             }
 
             // Bind arguments object for non-arrow functions
-            if (!vmfn.Body.IsArrow)
+            if (!vmfn.Body.IsArrow && vmfn.Body.UsesArguments)
             {
                 var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < argc; j++)
@@ -2399,7 +2399,7 @@ namespace DScript.Vm
                     restArr.SetArrayIndex(restLen++, BindArgValue(args[j]));
                 vars.AddChild(parameters[restIdx], restArr);
             }
-            if (!vmfn.Body.IsArrow)
+            if (!vmfn.Body.IsArrow && vmfn.Body.UsesArguments)
             {
                 var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < argc; j++)
@@ -2433,7 +2433,7 @@ namespace DScript.Vm
             }
 
             // Bind arguments object for non-arrow functions
-            if (!vmfn.Body.IsArrow)
+            if (!vmfn.Body.IsArrow && vmfn.Body.UsesArguments)
             {
                 var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < (args?.Length ?? 0); j++)

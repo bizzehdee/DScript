@@ -789,6 +789,7 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
             ExitFunctionBody(savedLoops, savedFinally, savedBlockDepth);
+            FinalizeArgumentsUsage(fnChunk, saved);
             chunk = saved;
 
             _constScopes?.Pop();
@@ -945,6 +946,7 @@ namespace DScript.Compiler
             }
 
             ExitFunctionBody(savedLoops, savedFinally, savedBlockDepth);
+            FinalizeArgumentsUsage(fnChunk, saved);
             chunk = saved;
 
             _constScopes?.Pop();

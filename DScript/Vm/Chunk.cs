@@ -393,6 +393,15 @@ namespace DScript.Vm
         public bool IsArrow { get; set; }
 
         /// <summary>
+        /// True when this (non-arrow) function may access its <c>arguments</c> object —
+        /// it references <c>arguments</c> directly, contains a nested arrow that does,
+        /// or uses <c>eval</c> (which could access it dynamically). When false the VM
+        /// skips materialising the per-call <c>arguments</c> array, a significant saving
+        /// for call-heavy code that never uses it. Defaults false; set by the compiler.
+        /// </summary>
+        public bool UsesArguments { get; set; }
+
+        /// <summary>
         /// Returns true when this generator body can use the stackless execution path:
         /// no try/catch blocks, no awaits. Generators not meeting these criteria fall
         /// back to the thread-based <see cref="GeneratorObject"/> path.
