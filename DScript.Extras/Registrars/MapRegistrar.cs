@@ -43,7 +43,7 @@ namespace DScript.Extras.Registrars
                         var pair = iterableArg.GetArrayIndex(i);
                         var key = pair.GetArrayIndex(0);
                         var val = pair.GetArrayIndex(1);
-                        mapObj.Data[key] = val.DeepCopy();
+                        mapObj.Data[key] = val; // stored by reference (JS Map semantics)
                     }
                 }
                 // Store the MapObject onto `this` so that Map methods (get, set, …)

@@ -26,7 +26,9 @@ namespace DScript.Extras.FunctionProviders
 {
     public sealed class MapObject : INativeContainer
     {
-        public Dictionary<ScriptVar, ScriptVar> Data { get; } = new Dictionary<ScriptVar, ScriptVar>(ReferenceEqualityComparer.Instance);
+        // Keyed by SameValueZero (primitives by value, objects by reference) so get/
+        // set/has/delete are O(1) dictionary lookups.
+        public Dictionary<ScriptVar, ScriptVar> Data { get; } = new Dictionary<ScriptVar, ScriptVar>(ScriptVarKeyComparer.Instance);
 
         /// <inheritdoc/>
         public int GetSize() => Data.Count;

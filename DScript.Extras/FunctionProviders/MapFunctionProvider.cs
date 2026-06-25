@@ -32,12 +32,10 @@ namespace DScript.Extras.FunctionProviders
         public static void MapGetImpl(ScriptVar var, object userData)
         {
             var map = GetMap(var.GetParameter("this"));
-            var key = var.GetParameter("key");
-            foreach (var kvp in map.Data)
-            {
-                if (kvp.Key.Equal(key)) { var.ReturnVar = kvp.Value; return; }
-            }
-            var.ReturnVar.SetUndefined();
+            if (map.Data.TryGetValue(var.GetParameter("key"), out var value))
+                var.ReturnVar = value;
+            else
+                var.ReturnVar.SetUndefined();
         }
 
         [ScriptMethod("set", "key", "val")]
@@ -45,14 +43,9 @@ namespace DScript.Extras.FunctionProviders
         {
             var thisVar = var.GetParameter("this");
             var map = GetMap(thisVar);
-            var key = var.GetParameter("key");
-            var val = var.GetParameter("val").DeepCopy();
-            // replace if key already exists (reference equality for objects)
-            foreach (var existing in map.Data.Keys)
-            {
-                if (existing.Equal(key)) { map.Data[existing] = val; var.ReturnVar = thisVar; return; }
-            }
-            map.Data[key] = val;
+            // Store the value by reference (JS Map semantics); the SameValueZero
+            // comparer handles replace-if-present in O(1).
+            map.Data[var.GetParameter("key")] = var.GetParameter("val");
             var.ReturnVar = thisVar;
         }
 
@@ -60,22 +53,14 @@ namespace DScript.Extras.FunctionProviders
         public static void MapHasImpl(ScriptVar var, object userData)
         {
             var map = GetMap(var.GetParameter("this"));
-            var key = var.GetParameter("key");
-            foreach (var k in map.Data.Keys)
-                if (k.Equal(key)) { var.ReturnVar.Int = 1; return; }
-            var.ReturnVar.Int = 0;
+            var.ReturnVar.Int = map.Data.ContainsKey(var.GetParameter("key")) ? 1 : 0;
         }
 
         [ScriptMethod("delete", "key")]
         public static void MapDeleteImpl(ScriptVar var, object userData)
         {
             var map = GetMap(var.GetParameter("this"));
-            var key = var.GetParameter("key");
-            foreach (var k in map.Data.Keys)
-            {
-                if (k.Equal(key)) { map.Data.Remove(k); var.ReturnVar.Int = 1; return; }
-            }
-            var.ReturnVar.Int = 0;
+            var.ReturnVar.Int = map.Data.Remove(var.GetParameter("key")) ? 1 : 0;
         }
 
         [ScriptMethod("clear")]

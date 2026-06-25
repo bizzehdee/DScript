@@ -219,6 +219,38 @@ namespace DScript.Test
         }
 
         [Test]
+        public void NumericKeys_ComparedByValue()
+        {
+            // 1 and 1.0 are the same key; distinct numbers are distinct keys.
+            var result = RunScript(
+                "var m = new Map(); m.set(1, \"a\"); m.set(1.0, \"b\"); m.set(2, \"c\");" +
+                "__result__ = m.size * 100 + (m.get(1) === \"b\" ? 1 : 0);");
+            Assert.That(result.Int, Is.EqualTo(2 * 100 + 1));
+        }
+
+        [Test]
+        public void ObjectKeys_ComparedByReference()
+        {
+            // Distinct object literals are distinct keys; the same object is one key.
+            var result = RunScript(
+                "var o = {}; var m = new Map(); m.set(o, 7); m.set({}, 8);" +
+                "__result__ = m.size * 100 + m.get(o) + (m.has({}) ? 0 : 0);");
+            Assert.That(result.Int, Is.EqualTo(2 * 100 + 7));
+        }
+
+        [Test]
+        public void StoresValueByReference()
+        {
+            // Map stores values by reference (no copy): mutating the retrieved object
+            // is visible, and pushing into a stored array accumulates.
+            var result = RunScript(
+                "var m = new Map(); m.set(\"k\", []);" +
+                "m.get(\"k\").push(1); m.get(\"k\").push(2);" +
+                "__result__ = m.get(\"k\").length;");
+            Assert.That(result.Int, Is.EqualTo(2));
+        }
+
+        [Test]
         public void Size_IsANumberProperty_NotAFunction()
         {
             // `map.size` must be the count (a getter property, like JS), not a method —

@@ -97,7 +97,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Symbol` | ✅ | `Symbol()`, `Symbol.for`, `Symbol.keyFor`, `Symbol.iterator`, `Symbol.asyncIterator`, `Symbol.hasInstance`, `Symbol.toPrimitive`, `Symbol.toStringTag` |
 | Custom iterables (`[Symbol.iterator]()`) | ✅ | |
 | Generators (`function*`, `yield`) | ✅ | Including `yield*` delegation |
-| `Map` | ✅ | |
+| `Map` | ✅ | SameValueZero keys (primitives by value, objects by reference; O(1) get/set/has); values stored by reference |
 | `Set` | ✅ | |
 | `WeakMap` | ✅ | `set`/`get`/`has`/`delete`; primitive keys throw `TypeError` |
 | `WeakSet` | ✅ | `add`/`has`/`delete`; primitive values throw `TypeError` |
