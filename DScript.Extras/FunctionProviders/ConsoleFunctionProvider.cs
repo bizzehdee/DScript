@@ -53,39 +53,51 @@ namespace DScript.Extras.FunctionProviders
 
         private static string Indent() => new string(' ', _indentLevel * 2);
 
-        [ScriptMethod("log", "val")]
+        // Join all variadic arguments with a single space, matching console.log's
+        // multi-argument behaviour. `args` is the rest-parameter array.
+        private static string FormatArgs(ScriptVar args)
+        {
+            var len = args.GetArrayLength();
+            if (len == 0) return string.Empty;
+            if (len == 1) return args.GetArrayIndex(0).GetParsableString();
+
+            var sb = new StringBuilder();
+            for (var i = 0; i < len; i++)
+            {
+                if (i > 0) sb.Append(' ');
+                sb.Append(args.GetArrayIndex(i).GetParsableString());
+            }
+            return sb.ToString();
+        }
+
+        [ScriptMethod("log", "...args")]
         public static void ConsoleLogImpl(ScriptVar var, object userData)
         {
-            var val = var.GetParameter("val").GetParsableString();
-            _stdout(Indent() + val);
+            _stdout(Indent() + FormatArgs(var.GetParameter("args")));
         }
 
-        [ScriptMethod("error", "val")]
+        [ScriptMethod("error", "...args")]
         public static void ConsoleErrorImpl(ScriptVar var, object userData)
         {
-            var val = var.GetParameter("val").GetParsableString();
-            _stderr(Indent() + val);
+            _stderr(Indent() + FormatArgs(var.GetParameter("args")));
         }
 
-        [ScriptMethod("warn", "val")]
+        [ScriptMethod("warn", "...args")]
         public static void ConsoleWarnImpl(ScriptVar var, object userData)
         {
-            var val = var.GetParameter("val").GetParsableString();
-            _stderr(Indent() + "[WARN] " + val);
+            _stderr(Indent() + "[WARN] " + FormatArgs(var.GetParameter("args")));
         }
 
-        [ScriptMethod("info", "val")]
+        [ScriptMethod("info", "...args")]
         public static void ConsoleInfoImpl(ScriptVar var, object userData)
         {
-            var val = var.GetParameter("val").GetParsableString();
-            _stdout(Indent() + "[INFO] " + val);
+            _stdout(Indent() + "[INFO] " + FormatArgs(var.GetParameter("args")));
         }
 
-        [ScriptMethod("debug", "val")]
+        [ScriptMethod("debug", "...args")]
         public static void ConsoleDebugImpl(ScriptVar var, object userData)
         {
-            var val = var.GetParameter("val").GetParsableString();
-            _stdout(Indent() + "[DEBUG] " + val);
+            _stdout(Indent() + "[DEBUG] " + FormatArgs(var.GetParameter("args")));
         }
 
         [ScriptMethod("assert", "cond", "msg")]

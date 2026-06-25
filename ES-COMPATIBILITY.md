@@ -22,6 +22,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Comma operator | ✅ | Sequence operator in expression statements, groupings, `return`/`throw`, the `for`-header, and conditions |
 | Automatic Semicolon Insertion (ASI) | ⚠️ | A statement terminates without `;` before `}`, end-of-input, or a line terminator. Restricted productions (e.g. `return`/`throw`/`break`/`continue` newline rules, `[`/`(`/`` ` `` continuations) are not specially handled |
 | Ternary (`?:`) | ✅ | |
+| Truthiness (`ToBoolean`) | ✅ | Objects/arrays/functions are always truthy; non-empty strings truthy; `0`/`NaN`/`""`/`null`/`undefined` falsy |
 | `void` operator | ✅ | |
 | Bitwise operators (`&` `\|` `^` `~` `<<` `>>` `>>>`) | ✅ | |
 | `arguments` object | ✅ | Available in all non-arrow functions; `.length`, indexed access, `Array.from(arguments)` all work; arrow functions correctly have no `arguments` binding |
@@ -58,6 +59,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `isNaN` / `isFinite` | ✅ | |
 | `Number.isNaN` / `Number.isFinite` / `Number.isInteger` | ✅ | |
 | `Number.parseInt` / `Number.parseFloat` | ✅ | |
+| `Number.prototype` methods (`toFixed`, `toString`, `toPrecision`, `toExponential`) | ✅ | Resolve on number literals/values, e.g. `(3.14).toFixed(1)` |
 | `Number.EPSILON` / `MAX_SAFE_INTEGER` / `MIN_SAFE_INTEGER` | ✅ | |
 | `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ✅ | Constructable via `new` or call; `message`, `name`, `stack` set; `instanceof Error` works through prototype chain; `Error.cause` (ES2022) not implemented |
@@ -271,7 +273,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Feature | Notes |
 |---|---|
 | `require(path)` / CommonJS `module.exports` | CommonJS-style module system |
-| `console.log` / `.warn` / `.error` | |
+| `console.log` / `.warn` / `.error` / `.info` / `.debug` | Variadic — multiple arguments are printed space-separated |
 | `trace(val)` | Debug dump of any value |
 | `exec(str)` | Alias of `eval` for statements |
 | `charToInt(ch)` | Unicode code point of first character |

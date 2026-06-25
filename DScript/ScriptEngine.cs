@@ -856,6 +856,17 @@ namespace DScript
             lexer.Match((ScriptLex.LexTypes)'(');
             while (lexer.TokenType != (ScriptLex.LexTypes)')')
             {
+                // A rest parameter (e.g. `...args`) collects all remaining call
+                // arguments into an array. Stored with the "..." prefix so the call
+                // path can recognise it; it must be the last parameter.
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    funcVar.AddChildNoDup("..." + lexer.TokenString, null);
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    break;
+                }
+
                 funcVar.AddChildNoDup(lexer.TokenString, null);
                 lexer.Match(ScriptLex.LexTypes.Id);
 
@@ -907,6 +918,23 @@ namespace DScript
                 if (regexClass != null)
                 {
                     implementation = regexClass.FindChild(name);
+                    if (implementation != null)
+                    {
+                        return implementation;
+                    }
+                }
+            }
+
+            if (obj.IsInt || obj.IsDouble)
+            {
+                // Number primitives (literals and computed values) are bare ScriptVars
+                // not linked to the Number class, so resolve their methods (toFixed,
+                // toString, toPrecision, …) against the Number constructor where those
+                // methods are registered.
+                var numberClass = Root.FindChild("Number")?.Var;
+                if (numberClass != null)
+                {
+                    implementation = numberClass.FindChild(name);
                     if (implementation != null)
                     {
                         return implementation;

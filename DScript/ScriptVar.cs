@@ -515,7 +515,18 @@ namespace DScript
 
         public bool Bool
         {
-            get => Int != 0;
+            // JavaScript ToBoolean: objects/arrays/functions are always truthy, a
+            // non-empty string is truthy, numbers are truthy unless 0 / NaN, and
+            // null/undefined are falsy. (Booleans are stored as the integers 0/1.)
+            get
+            {
+                if (IsInt) return intData != 0;
+                if (IsDouble) return doubleData != 0 && !double.IsNaN(doubleData);
+                if (IsString) return GetString().Length != 0;
+                if (IsBigInt) return !BigIntData.IsZero;
+                if (IsUndefined || IsNull) return false;
+                return true; // object, array, function, regexp, symbol, proxy
+            }
             set => Int = value ? 1 : 0;
         }
 

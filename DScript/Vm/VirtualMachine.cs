@@ -2149,6 +2149,18 @@ namespace DScript.Vm
                 var i = 0;
                 while (p != null)
                 {
+                    // A "..." prefix marks a rest parameter: gather the remaining
+                    // arguments into an array bound under the (un-prefixed) name.
+                    if (p.Name.Length > 3 && p.Name[0] == '.' && p.Name[1] == '.' && p.Name[2] == '.')
+                    {
+                        var restArr = ScriptVar.CreateArray();
+                        var ri = 0;
+                        for (; i < args.Length; i++)
+                            restArr.SetArrayIndex(ri++, BindArg(args, i));
+                        scope.AddChild(p.Name.Substring(3), restArr);
+                        p = p.Next;
+                        continue;
+                    }
                     scope.AddChild(p.Name, BindArg(args, i));
                     i++;
                     p = p.Next;
