@@ -1334,7 +1334,7 @@ namespace DScript.Vm
                     {
                         var spreadArr = Pop();
                         var arr = Peek(); // the array being built stays on stack
-                        var elems = ExtractArrayElements(spreadArr);
+                        var elems = CollectSpreadElements(spreadArr);
                         for (var si = 0; si < elems.Length; si++)
                             arr.AppendArrayElement(elems[si]); // O(1) per element
                         break;
@@ -1362,7 +1362,7 @@ namespace DScript.Vm
                     {
                         var argsArr = Pop();
                         var callee = Pop();
-                        var args = ExtractArrayElements(argsArr);
+                        var args = CollectSpreadElements(argsArr);
                         Push(InvokeCallable(callee, null, args));
                         break;
                     }
@@ -1371,7 +1371,7 @@ namespace DScript.Vm
                         var argsArr = Pop();
                         var callee = Pop();
                         var receiver = Pop();
-                        var args = ExtractArrayElements(argsArr);
+                        var args = CollectSpreadElements(argsArr);
                         Push(InvokeCallable(callee, receiver, args));
                         break;
                     }
@@ -1379,7 +1379,7 @@ namespace DScript.Vm
                     {
                         var argsArr = Pop();
                         var ctor = Pop();
-                        var args = ExtractArrayElements(argsArr);
+                        var args = CollectSpreadElements(argsArr);
                         Push(Construct(ctor, args));
                         break;
                     }
@@ -2951,6 +2951,40 @@ namespace DScript.Vm
         // Single-pass O(n) extraction of array elements into a flat ScriptVar[].
         // Replaces the previous per-element FindChild(IndexName(i)) pattern which
         // was O(n²) because each FindChild walk scans from the head of the list.
+        // Collect the values produced by spreading `v`. Arrays and strings use the
+        // fast path; any other value with an iterator protocol (generators, Map/Set
+        // iterators, custom [Symbol.iterator]) is driven via next() until done, so
+        // [...gen], f(...gen) and new C(...gen) all work like in JS.
+        private ScriptVar[] CollectSpreadElements(ScriptVar v)
+        {
+            if (v.IsArray || v.IsString) return ExtractArrayElements(v);
+
+            // Resolve an iterator: v itself if it already has next(), else [Symbol.iterator]().
+            ScriptVar iter = null;
+            if (v.FindChild("next") != null)
+            {
+                iter = v;
+            }
+            else
+            {
+                var symIter = v.FindChild(WellKnownSymbols.Iterator.GetSymbolKey());
+                if (symIter != null && symIter.Var.IsFunction)
+                    iter = InvokeCallable(symIter.Var, v, Array.Empty<ScriptVar>());
+            }
+
+            var nextLink = iter?.FindChild("next");
+            if (nextLink == null || !nextLink.Var.IsFunction) return Array.Empty<ScriptVar>();
+
+            var items = new List<ScriptVar>();
+            while (true)
+            {
+                var result = InvokeCallable(nextLink.Var, iter, Array.Empty<ScriptVar>());
+                if (result == null || (result.FindChild("done")?.Var.Bool ?? true)) break;
+                items.Add(result.FindChild("value")?.Var ?? ScriptVar.CreateUndefined());
+            }
+            return items.ToArray();
+        }
+
         private static ScriptVar[] ExtractArrayElements(ScriptVar arr)
         {
             // Spreading a string iterates its code points (so [..."😀"] is one element,

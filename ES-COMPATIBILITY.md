@@ -82,8 +82,8 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Arrow functions | ✅ | Expression and block bodies; lexical `this` |
 | Default parameters | ✅ | |
 | Rest parameters (`...rest`) | ✅ | |
-| Spread in calls (`fn(...arr)`) | ✅ | |
-| Spread in array literals (`[...a, ...b]`) | ✅ | |
+| Spread in calls (`fn(...arr)`) | ✅ | Spreads arrays, strings (by code point), and any iterable (generators, Map/Set iterators) |
+| Spread in array literals (`[...a, ...b]`) | ✅ | Also `[..."str"]` (code points) and `[...generator]` / other iterables |
 | Object spread (`{...obj}`) | ✅ | |
 | Template literals (tagged and untagged) | ✅ | Nested expressions supported |
 | Tagged template literals | ✅ | Tag receives `strings` array with `.raw` property; interpolated values passed as further args |

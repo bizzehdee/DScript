@@ -110,6 +110,23 @@ namespace DScript.Test
         }
 
         [Test]
+        public void SpreadGenerator_IntoArray()
+        {
+            // [...gen] must drive the iterator protocol, not treat the generator as empty.
+            Assert.That(RunInt("function* g(){ yield 1; yield 2; yield 3; } var a = [...g()]; var r = a.length;"),
+                Is.EqualTo(3));
+            Assert.That(RunInt("function* g(){ yield 10; yield 20; } var a = [...g()]; var r = a[0] + a[1];"),
+                Is.EqualTo(30));
+        }
+
+        [Test]
+        public void SpreadGenerator_IntoCall()
+        {
+            Assert.That(RunInt("function* g(){ yield 1; yield 2; } function add(a, b){ return a + b; } var r = add(...g());"),
+                Is.EqualTo(3));
+        }
+
+        [Test]
         public void SpreadArray_AppendedElement()
         {
             Assert.That(RunInt("var a = [1, 2]; var b = [...a, 3]; var r = b[2];"), Is.EqualTo(3));
