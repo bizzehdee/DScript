@@ -2139,11 +2139,23 @@ namespace DScript.Vm
         /// functions (run on this VM with a fresh environment whose lexical
         /// parent is the function's captured environment).
         /// </summary>
+        // Build a JS-catchable TypeError value (a plain { name, message, stack } object,
+        // matching the Error builtins) so calling a non-function throws an error that
+        // script-level try/catch can handle, as it does in a real engine.
+        private static JITException TypeError(string message)
+        {
+            var obj = ScriptVar.CreateObject();
+            obj.AddChild("name", ScriptVar.FromString("TypeError"));
+            obj.AddChild("message", ScriptVar.FromString(message));
+            obj.AddChild("stack", ScriptVar.FromString("TypeError: " + message));
+            return new JITException(obj);
+        }
+
         public ScriptVar InvokeCallable(ScriptVar callee, ScriptVar thisArg, ScriptVar[] args)
         {
             if (callee == null || (!callee.IsFunction && !callee.IsProxy))
             {
-                throw new ScriptException("Value is not a function");
+                throw TypeError("Value is not a function");
             }
 
             // Proxy [[Apply]] trap
@@ -2158,7 +2170,7 @@ namespace DScript.Vm
                 }
                 callee = callee.ProxyTarget ?? callee;
                 if (callee == null || !callee.IsFunction)
-                    throw new ScriptException("Value is not a function");
+                    throw TypeError("Value is not a function");
             }
 
             if (callee.IsNative)

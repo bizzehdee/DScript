@@ -109,12 +109,22 @@ namespace DScript.Test
         [Test]
         public void ScriptExceptionCarriesStackTrace()
         {
-            // Calling a non-function raises a ScriptException from the VM.
-            var ex = Assert.Throws<ScriptException>(() =>
+            // Calling a non-function raises a catchable TypeError (JITException), which
+            // still accumulates the script stack trace as it unwinds.
+            var ex = Assert.Throws<JITException>(() =>
                 Run("function call_nonfunction() { var x = 1; x(); }\ncall_nonfunction();"));
 
             Assert.That(ex.ScriptStackTrace.Count, Is.GreaterThanOrEqualTo(1));
             Assert.That(ex.ScriptStackTrace[0].Source, Is.EqualTo("call_nonfunction"));
+        }
+
+        [Test]
+        public void CallingNonFunction_IsCatchableTypeError()
+        {
+            // The TypeError must be catchable by script-level try/catch (it used to be
+            // an uncatchable host ScriptException that aborted execution).
+            var r = Run("var caught = ''; try { var x = 1; x(); } catch (e) { caught = e.name; } result = caught;");
+            Assert.That(r.GetParameter("result").String, Is.EqualTo("TypeError"));
         }
 
         [Test]
