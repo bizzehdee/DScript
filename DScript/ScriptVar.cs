@@ -1232,20 +1232,24 @@ namespace DScript
 
             if (op == ScriptLex.LexTypes.TypeEqual || op == ScriptLex.LexTypes.NTypeEqual)
             {
-                var equal = ((a.flags & Flags.VarTypeMask) == (b.flags & Flags.VarTypeMask));
-
-                if (equal)
+                bool equal;
+                // Int and Double are the same JS type ("number"); compare them by exact
+                // IEEE value, not by internal representation (so 5.0 === 5 is true and
+                // 0.1 + 0.2 === 0.3 is false). NaN !== NaN, and -0 === +0, fall out of ==.
+                if ((a.IsInt || a.IsDouble) && (b.IsInt || b.IsDouble))
                 {
-                    var contents = a.MathsOp(b, ScriptLex.LexTypes.Equal);
-                    if (!contents.Bool) equal = false;
+                    equal = a.Float == b.Float;
+                }
+                else if ((a.flags & Flags.VarTypeMask) == (b.flags & Flags.VarTypeMask))
+                {
+                    equal = a.MathsOp(b, ScriptLex.LexTypes.Equal).Bool;
+                }
+                else
+                {
+                    equal = false;
                 }
 
-                if (op == ScriptLex.LexTypes.TypeEqual)
-                {
-                    return new ScriptVar(equal);
-                }
-
-                return new ScriptVar(!equal);
+                return new ScriptVar(op == ScriptLex.LexTypes.TypeEqual ? equal : !equal);
             }
 
             if (a.IsUndefined && b.IsUndefined)
@@ -1323,8 +1327,10 @@ namespace DScript
                             case '/': return new ScriptVar(da / db);
                             case '%': return new ScriptVar(da % db);
                             case (char)ScriptLex.LexTypes.Power: return new ScriptVar(Math.Pow(da, db));
-                            case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(Math.Abs(da - db) < 0.00001);
-                            case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(Math.Abs(da - db) > 0.00001);
+                            // Exact IEEE comparison — JS == on numbers is not approximate
+                            // (0.1 + 0.2 == 0.3 is false; NaN == NaN is false).
+                            case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(da == db);
+                            case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(da != db);
                             case '<': return new ScriptVar(da < db);
                             case (char)ScriptLex.LexTypes.LEqual: return new ScriptVar(da <= db);
                             case '>': return new ScriptVar(da > db);

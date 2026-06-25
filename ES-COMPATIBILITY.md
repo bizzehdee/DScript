@@ -63,6 +63,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Number.EPSILON` / `MAX_SAFE_INTEGER` / `MIN_SAFE_INTEGER` | ✅ | |
 | `NaN` / `Infinity` global constants | ✅ | `typeof` is `"number"`; `-Infinity` via negation |
 | Number arithmetic (doubles) | ✅ | `/` is real division (`1/3` → `0.333…`), not integer truncation; `+ - *` promote to double on int32 overflow; `%` on ints and doubles; division/modulo by zero yield `Infinity`/`NaN` |
+| Number equality | ✅ | `===`/`==` compare exactly (not epsilon): `5.0 === 5` is true, `0.1 + 0.2 === 0.3` is false, `NaN === NaN` is false; `-0 === 0` is true but `Object.is(-0, 0)` is false |
 | Numeric literals exceeding int32 | ✅ | Decimal/hex/binary/octal literals above int32 parse as doubles (JS has no integer type); e.g. `1736855917056`, `0xFFFFFFFF` → `4294967295` |
 | Number → string coercion | ✅ | ECMAScript `Number::toString`: full fixed-point digits for magnitudes in `[1e-6, 1e21)`, exponential outside; e.g. `1.7e17` prints all 18 digits, `0.1+0.2` → `0.30000000000000004` |
 | `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |

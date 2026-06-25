@@ -839,7 +839,9 @@ namespace DScript.Vm
                         var a = Pop();
                         // numeric fast path avoids the MathsOp dispatch + a temp;
                         // fall back to MathsOp for the (rare) non-numeric cases
-                        if (a.IsInt) Push(ScriptVar.FromInt(-a.Int));
+                        // Negating integer 0 yields IEEE -0.0 (a double), so 1/(-0) is
+                        // -Infinity and Object.is(-0, 0) is false, matching JS.
+                        if (a.IsInt) Push(a.Int == 0 ? ScriptVar.FromDouble(-0.0) : ScriptVar.FromInt(-a.Int));
                         else if (a.IsDouble) Push(ScriptVar.FromDouble(-a.Float));
                         else if (a.IsBigInt) Push(ScriptVar.CreateBigInt(-a.BigIntData));
                         else Push(Zero.MathsOp(a, (ScriptLex.LexTypes)'-'));
