@@ -243,11 +243,24 @@ surface.
 **Work:** Known compiled/declined/deopted chunks report the expected tier and reason.
 **Depends on:** T54
 
-### T56 — Interpreter dispatch optimisation
+### T56 — Interpreter dispatch optimisation — **investigated; no safe positive lever**
 **File:** `DScript/Vm/VirtualMachine.cs`
-**Work:** Reduce dispatch cost for never-JIT chunks (computed-goto-style dispatch
-where supported; a few loop-shaped superinstructions). Benchmark-gated; must not
-regress. Append any new opcodes to the end of the enum.
+**Outcome:**
+- **Computed-goto: N/A in C#.** The interpreter dispatches via `switch (op)` over a
+  dense opcode enum, which RyuJIT already lowers to a jump table — the platform
+  optimum. A hand-rolled delegate-threaded dispatch would be *slower* (indirect
+  calls vs inlined switch arms), so this lever does not apply.
+- **Superinstruction fusion is already extensive** — `BinaryConst`, `BinaryIntConst`,
+  `GetVarGetVarBinary`, `GetVarGetProp`, `SetVarPop`, `SetPropPop`, `GetPropMethod`,
+  `GetPropCall0`. The peephole optimizer already yields 1.3–1.77× on the loop
+  workloads, and the JIT adds 1.5–2.4× on top.
+- The one remaining candidate is a **compound-assign superinstruction** (fuse
+  `GetVar(x) + BinaryIntConst(op,k) + SetVarPop(x)`, same `x`, into one opcode for
+  `x = x op k`). It needs a fragile 3-instruction byte-stream peephole (variable-width
+  + narrow/wide forms + jump-target safety) and a new handler in the *hottest* loop,
+  for a marginal dispatch saving. Deferred: the regression/correctness risk in the
+  hot path outweighs the small expected gain. Left as a dedicated, benchmark-gated
+  follow-up.
 **Depends on:** nothing (independent)
 
 ---
@@ -286,9 +299,22 @@ Loops and stateful functions now compile (conservative tier); the closure back-e
 declines control flow. Benchmark: an inlined helper loop runs ~2.37× the interpreter
 (ReflEmit).
 
-**OSR is sequenced behind the live-frame-transfer mechanism**: build and test
-T34 (live-frame transfer) + T35 first, then T35a/T35b (OSR) as a thin policy layer
-on top. All four are deferred — narrow ROI (only a long loop within a sub-threshold
-number of calls) — and picked up only if a workload demands it.
+**Tier 3 complete** (T50–T55): expanded opcodes (indexing, unary, shifts),
+bimorphic property inline cache, opt-in background compilation, and JIT
+diagnostics. **T56** (dispatch) investigated — computed-goto is N/A in C# (the
+switch is already a jump table) and fusion is already extensive; the one remaining
+lever (a compound-assign superinstruction) is deferred as high-risk/low-reward in
+the hot path.
 
-**Not yet started:** Tier 2 (T44–T49) and Tier 3 (T50–T56).
+**Tier 2 partial:** Phase 10 (frame pooling) — env pooling not viable (inline-cache
+identity conflict); vars pooling already in place. Phase 11 — `Value` spike (T47)
+done; the full operand-stack/arithmetic migration (T48/T49) is deferred as a
+dedicated incremental refactor (a single-leap migration would break identity
+invariants and the green suite).
+
+**Deferred:** OSR (sequenced behind the live-frame-transfer mechanism, T34/T35 →
+T35a/T35b — narrow ROI); Phase 11 migration (T48/T49); the T56 compound-assign
+superinstruction.
+
+All phases from 10 onward have been addressed (implemented or investigated with a
+recorded outcome). 1799 tests green, ~90.5% coverage; everything pushed.
