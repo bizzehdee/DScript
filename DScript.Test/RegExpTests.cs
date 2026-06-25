@@ -154,6 +154,89 @@ namespace DScript.Test
             Assert.That(engine.Root.GetParameter("result").Bool, Is.True);
         }
 
+        // --- literal regex prototype methods (exec/test resolve via the RegExp class) ---
+
+        [Test]
+        public void RegExpLiteral_Exec_IsAFunction()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var result = typeof (/x/).exec;");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("function"));
+        }
+
+        [Test]
+        public void RegExpLiteral_Exec_Match_ReturnsArray()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var m = /(hel)lo/.exec('say hello'); var result = m[0];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("hello"));
+        }
+
+        [Test]
+        public void RegExpLiteral_Exec_Match_ReturnsGroup()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var m = /(hel)lo/.exec('say hello'); var result = m[1];");
+            Assert.That(engine.Root.GetParameter("result").String, Is.EqualTo("hel"));
+        }
+
+        [Test]
+        public void RegExpLiteral_Exec_Match_SetsIndexAndInput()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var m = /hello/.exec('say hello'); var idx = m.index; var inp = m.input;");
+            Assert.That(engine.Root.GetParameter("idx").Int, Is.EqualTo(4));
+            Assert.That(engine.Root.GetParameter("inp").String, Is.EqualTo("say hello"));
+        }
+
+        [Test]
+        public void RegExpLiteral_Exec_WithFlags_Matches()
+        {
+            // The shape from the reported script: /user(\d+)@example\.com/i
+            var engine = MakeEngine();
+            engine.Execute(
+                "var r = /user(\\d+)@example\\.com/i;" +
+                "var m = r.exec('USER42@EXAMPLE.COM');" +
+                "var whole = m[0]; var num = m[1];");
+            Assert.That(engine.Root.GetParameter("whole").String, Is.EqualTo("USER42@EXAMPLE.COM"));
+            Assert.That(engine.Root.GetParameter("num").String, Is.EqualTo("42"));
+        }
+
+        [Test]
+        public void RegExpLiteral_Exec_NoMatch_ReturnsUndefined()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var m = /xyz/.exec('hello'); var result = (m === undefined);");
+            Assert.That(engine.Root.GetParameter("result").Bool, Is.True);
+        }
+
+        [Test]
+        public void RegExpLiteral_Test_Matches()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var result = /HELLO/i.test('say hello');");
+            Assert.That(engine.Root.GetParameter("result").Bool, Is.True);
+        }
+
+        [Test]
+        public void RegExpLiteral_Test_NoMatch()
+        {
+            var engine = MakeEngine();
+            engine.Execute("var result = /zzz/.test('say hello');");
+            Assert.That(engine.Root.GetParameter("result").Bool, Is.False);
+        }
+
+        [Test]
+        public void RegExpLiteral_Exec_NamedGroups()
+        {
+            var engine = MakeEngine();
+            engine.Execute(
+                "var m = /(?<year>\\d{4})-(?<month>\\d{2})/.exec('2024-01');" +
+                "var y = m.groups.year; var mo = m.groups.month;");
+            Assert.That(engine.Root.GetParameter("y").String, Is.EqualTo("2024"));
+            Assert.That(engine.Root.GetParameter("mo").String, Is.EqualTo("01"));
+        }
+
         // --- literal regex with existing string methods ---
 
         [Test]

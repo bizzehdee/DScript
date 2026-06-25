@@ -877,6 +877,23 @@ namespace DScript
                 }
             }
 
+            if (obj.IsRegexp)
+            {
+                // Regex literals (e.g. /foo/i) are bare ScriptVars not linked to the
+                // RegExp class, so resolve their methods (exec/test/…) against the
+                // RegExp constructor where those methods are registered — mirroring
+                // how `new RegExp(...)` instances reach them via the prototype chain.
+                var regexClass = Root.FindChild("RegExp")?.Var;
+                if (regexClass != null)
+                {
+                    implementation = regexClass.FindChild(name);
+                    if (implementation != null)
+                    {
+                        return implementation;
+                    }
+                }
+            }
+
             if (obj.IsString)
             {
                 implementation = stringClass.FindChild(name);
