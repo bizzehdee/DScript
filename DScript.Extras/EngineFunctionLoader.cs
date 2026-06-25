@@ -56,6 +56,7 @@ namespace DScript.Extras
             DateRegistrar.Register(engine);
             RegExpRegistrar.Register(engine);
             BufferRegistrar.Register(engine);
+            TypedArrayRegistrar.Register(engine);
             EventEmitterRegistrar.Register(engine);
             EventEmitterRegistrar.RegisterHostEvents(engine);
             GeneratedFunctionRegistrar.RegisterAll(engine, engine);

@@ -2853,6 +2853,15 @@ namespace DScript.Vm
             if (name == "size" && obj.GetData() is INativeContainer container)
                 return ScriptVar.FromInt(container.GetSize());
 
+            // TypedArray element read: numeric index routed to the byte buffer.
+            if (name.Length > 0 && (uint)(name[0] - '0') <= 9u
+                && obj.GetData() is ITypedArrayAccess taMem
+                && int.TryParse(name, System.Globalization.NumberStyles.None,
+                                System.Globalization.CultureInfo.InvariantCulture, out int taMemIdx))
+                return taMemIdx >= 0 && taMemIdx < taMem.Length
+                    ? taMem.GetElement(taMemIdx)
+                    : ScriptVar.CreateUndefined();
+
             return ScriptVar.CreateUndefined();
         }
 
@@ -2869,6 +2878,18 @@ namespace DScript.Vm
                     return;
                 }
                 obj = obj.ProxyTarget ?? obj;
+            }
+
+            // TypedArray element write: numeric index routed to the byte buffer.
+            // Must come before FindChild so no stray child is created.
+            if (name.Length > 0 && (uint)(name[0] - '0') <= 9u
+                && obj.GetData() is ITypedArrayAccess taSet
+                && int.TryParse(name, System.Globalization.NumberStyles.None,
+                                System.Globalization.CultureInfo.InvariantCulture, out int taSetIdx))
+            {
+                if (taSetIdx >= 0 && taSetIdx < taSet.Length)
+                    taSet.SetElement(taSetIdx, value);
+                return; // out-of-bounds writes silently ignored (per spec)
             }
 
             var link = obj.FindChild(name);
@@ -3210,6 +3231,13 @@ namespace DScript.Vm
             if (obj.IsString && name == "length") return ScriptVar.FromInt(obj.String.Length);
             if (name == "size" && obj.GetData() is INativeContainer container)
                 return ScriptVar.FromInt(container.GetSize());
+            if (name.Length > 0 && (uint)(name[0] - '0') <= 9u
+                && obj.GetData() is ITypedArrayAccess taJit
+                && int.TryParse(name, System.Globalization.NumberStyles.None,
+                                System.Globalization.CultureInfo.InvariantCulture, out int taJitIdx))
+                return taJitIdx >= 0 && taJitIdx < taJit.Length
+                    ? taJit.GetElement(taJitIdx)
+                    : ScriptVar.CreateUndefined();
             return ScriptVar.CreateUndefined();
         }
 

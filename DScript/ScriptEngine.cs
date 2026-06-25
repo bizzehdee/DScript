@@ -1001,6 +1001,16 @@ namespace DScript
                 }
             }
 
+            if (obj.GetData() is ITypedArrayAccess)
+            {
+                var typedArrayClass = Root.FindChild("TypedArray")?.Var;
+                if (typedArrayClass != null)
+                {
+                    implementation = typedArrayClass.FindChild(name);
+                    if (implementation != null) return implementation;
+                }
+            }
+
             if (obj.IsFunction)
             {
                 implementation = functionClass.FindChild(name);

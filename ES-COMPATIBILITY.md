@@ -125,6 +125,9 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Number.EPSILON` etc. | ✅ | |
 | Binary (`0b`) and octal (`0o`) literals | ✅ | |
 | `import` / `export` (static ES modules) | ✅ | Named, namespace (`* as`), default, and re-export forms |
+| `ArrayBuffer` | ✅ | Constructor, `byteLength`, `slice` |
+| `DataView` | ✅ | All `getInt8`/`getUint8`/`getInt16`/`getUint16`/`getInt32`/`getUint32`/`getFloat32`/`getFloat64`/`getBigInt64`/`getBigUint64` and corresponding setters; big/little-endian parameter |
+| Typed Arrays (`Int8Array`, `Uint8Array`, `Uint8ClampedArray`, `Int16Array`, `Uint16Array`, `Int32Array`, `Uint32Array`, `Float32Array`, `Float64Array`, `BigInt64Array`, `BigUint64Array`) | ✅ | Constructors accept length / ArrayBuffer / array-like; indexed get/set routes through the byte buffer (O(1), no child nodes); `length`, `byteLength`, `byteOffset`, `BYTES_PER_ELEMENT`, `buffer`; `forEach`, `map`, `filter`, `find`, `findIndex`, `indexOf`, `includes`, `every`, `some`, `reduce`, `fill`, `set`, `subarray`, `slice`, `join`, `reverse`, `copyWithin`, `keys`, `values`, `entries`; shared-buffer semantics (two views on the same `ArrayBuffer` see each other's writes); `ArrayBuffer.isView` |
 
 ---
 
@@ -254,7 +257,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 |---|---|---|
 | `Promise.withResolvers` | ✅ | Returns `{ promise, resolve, reject }`; second resolve/reject is a no-op |
 | `Object.groupBy` / `Map.groupBy` | ✅ | |
-| `ArrayBuffer.prototype.resize` | ❌ | Out of scope — requires typed array / ArrayBuffer support |
+| `ArrayBuffer.prototype.resize` | ❌ | Resizable ArrayBuffer / detach semantics not implemented |
 | `Atomics.waitAsync` | ❌ | Out of scope — requires multi-threading infrastructure; see ES2017 notes |
 | RegExp `v` flag and set notation | ⚠️ | `v` flag accepted; `.unicodeSets` property exposed; Unicode property escapes work; set notation (`[A--Z]`, `[A&&Z]`) not supported — .NET `Regex` has no equivalent |
 | `String.prototype.isWellFormed` / `toWellFormed` | ✅ | `isWellFormed()` returns bool; `toWellFormed()` replaces lone surrogates with U+FFFD |
@@ -314,7 +317,6 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 ## Known limitations and out-of-scope features
 
 - **Regular expression `v` flag sticky semantics**: The `v` flag is accepted and triggers Unicode property escape translation but does not implement the full set-notation difference from `u` (e.g. `[A--Z]` syntax is not supported).
-- **Typed arrays** (`Uint8Array`, `Int32Array`, `Float64Array`, etc.): Not implemented.
-- **ArrayBuffer** / **SharedArrayBuffer** / **Atomics**: Will not be implemented. `SharedArrayBuffer` requires multiple concurrently-executing VM instances sharing an address space, and `Atomics` only operates through typed array views. DScript is a single-threaded embedded engine with no Worker/thread model, so there is nothing to synchronise across. The prerequisites (typed arrays, thread-safe `ScriptVar` and scope chain, `Atomics.wait` blocking without deadlocking the host) make this impractical without a fundamental redesign of the engine.
+- **SharedArrayBuffer / Atomics**: Will not be implemented. `SharedArrayBuffer` requires multiple concurrently-executing VM instances sharing an address space, and `Atomics` only operates through typed array views. DScript is a single-threaded embedded engine with no Worker/thread model, so there is nothing to synchronise across.
 - **Async generators — `await` inside body**: `await` inside an `async function*` body is compiled as `yield` and driven as a plain yield, not as a true awaited Promise. Code that `yield`s values works correctly; code that `await`s Promises inside the body may not produce the expected interleaving.
 - **`FinalizationRegistry`**: Will not be implemented. `FinalizationRegistry` requires the engine to fire a callback at the moment a registered object becomes unreachable. DScript uses explicit reference counting (`ScriptVar` carries `AddRef`/`Release` and suppresses the .NET finalizer via `GC.SuppressFinalize`), so object lifetimes are deterministic and there is no "object was just collected" hook point. Implementing it correctly would require replacing the ref-count model with a tracing (mark-and-sweep or generational) garbage collector over the entire `ScriptVar` graph — a complete redesign of memory management that is out of scope.
