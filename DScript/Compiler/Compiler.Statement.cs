@@ -423,7 +423,7 @@ namespace DScript.Compiler
         {
             lexer.Match(ScriptLex.LexTypes.RIf);
             lexer.Match((ScriptLex.LexTypes)'(');
-            CompileBase();
+            CompileExpression();
             lexer.Match((ScriptLex.LexTypes)')');
 
             var toElse = chunk.EmitJump(OpCode.JumpIfFalse);
@@ -449,7 +449,7 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)'(');
 
             var condStart = chunk.Count;
-            CompileBase();
+            CompileExpression();
             lexer.Match((ScriptLex.LexTypes)')');
 
             var exitJump = chunk.EmitJump(OpCode.JumpIfFalse);
@@ -476,7 +476,7 @@ namespace DScript.Compiler
             var condStart = chunk.Count;
             lexer.Match(ScriptLex.LexTypes.RWhile);
             lexer.Match((ScriptLex.LexTypes)'(');
-            CompileBase();
+            CompileExpression();
             lexer.Match((ScriptLex.LexTypes)')');
             lexer.Match((ScriptLex.LexTypes)';');
 
@@ -492,7 +492,7 @@ namespace DScript.Compiler
             lexer.Match(ScriptLex.LexTypes.RReturn);
 
             if (lexer.TokenType != (ScriptLex.LexTypes)';')
-                CompileBase();
+                CompileExpression();
             else
                 chunk.Emit(OpCode.PushUndefined);
 
@@ -552,7 +552,7 @@ namespace DScript.Compiler
             var condStart = chunk.Count;
             if (lexer.TokenType != (ScriptLex.LexTypes)';')
             {
-                CompileBase();
+                CompileExpression();
             }
             else
             {
@@ -566,7 +566,7 @@ namespace DScript.Compiler
             var incrStart = chunk.Count;
             if (lexer.TokenType != (ScriptLex.LexTypes)')')
             {
-                CompileBase();
+                CompileExpression();
                 chunk.Emit(OpCode.Pop);
             }
             chunk.Emit(OpCode.Jump, condStart);
@@ -591,7 +591,7 @@ namespace DScript.Compiler
 
         private void CompileExpressionStatement()
         {
-            CompileBase();
+            CompileExpression();
             chunk.Emit(OpCode.Pop);
             lexer.Match((ScriptLex.LexTypes)';');
         }
@@ -669,7 +669,7 @@ namespace DScript.Compiler
         {
             lexer.Match(ScriptLex.LexTypes.RSwitch);
             lexer.Match((ScriptLex.LexTypes)'(');
-            CompileBase();                  // discriminant → [D]
+            CompileExpression();            // discriminant → [D]
             lexer.Match((ScriptLex.LexTypes)')');
             lexer.Match((ScriptLex.LexTypes)'{');
 
@@ -764,7 +764,7 @@ namespace DScript.Compiler
 
             if (lexer.TokenType != (ScriptLex.LexTypes)';')
             {
-                CompileBase();
+                CompileExpression();
             }
             else
             {

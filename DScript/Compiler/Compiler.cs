@@ -109,7 +109,7 @@ namespace DScript.Compiler
                 _constScopes.Push(new Dictionary<string, ConstantValue>());
             }
 
-            CompileBase();
+            CompileExpression();
             chunk.Emit(OpCode.Return);
 
             if (EnableOptimizer)
@@ -176,6 +176,28 @@ namespace DScript.Compiler
         private void CompileBase()
         {
             CompileTernary(true);
+        }
+
+        // The comma (sequence) operator — the lowest-precedence Expression production:
+        //   Expression : AssignmentExpression ( ',' AssignmentExpression )*
+        // Each operand is evaluated left-to-right; all but the last result are
+        // discarded and the value of the whole expression is the last operand.
+        //
+        // This is only valid where the grammar allows a full Expression (expression
+        // statements, parenthesised groupings, return/throw operands, the for-header
+        // and the if/while/switch conditions). Contexts where ',' is a separator —
+        // argument lists, array/object literals, variable declarators, arrow params —
+        // keep calling CompileBase (AssignmentExpression) so the comma is not consumed
+        // here.
+        private void CompileExpression()
+        {
+            CompileBase();
+            while (lexer.TokenType == (ScriptLex.LexTypes)',')
+            {
+                chunk.Emit(OpCode.Pop);            // discard the preceding operand's value
+                lexer.Match((ScriptLex.LexTypes)',');
+                CompileBase();                     // next AssignmentExpression
+            }
         }
 
         private void CompileTernary(bool canAssign)

@@ -47,7 +47,7 @@ namespace DScript.Compiler
             {
                 case (ScriptLex.LexTypes)'(':
                     lexer.Match((ScriptLex.LexTypes)'(');
-                    CompileBase();
+                    CompileExpression();   // grouping allows the comma operator: (a, b)
                     lexer.Match((ScriptLex.LexTypes)')');
                     break;
                 case ScriptLex.LexTypes.RTrue:
