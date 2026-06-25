@@ -79,6 +79,14 @@ namespace DScript
         /// <summary>Path of the module currently being executed (used for relative imports).</summary>
         public string CurrentModulePath { get; set; } = string.Empty;
 
+        /// <summary>
+        /// When true (the default), the bytecode optimiser runs during compilation
+        /// (constant folding, dead-code elimination, super-instruction fusion, narrow
+        /// encoding). Set false to compile straight, unoptimised bytecode — honoured
+        /// by <see cref="Execute"/>, <see cref="EvalComplex"/>, and module compilation.
+        /// </summary>
+        public bool EnableOptimizer { get; set; } = true;
+
         private readonly Dictionary<string, ScriptVar> _moduleCache = new();
 
         // --- host event system -----------------------------------------------
@@ -243,7 +251,7 @@ namespace DScript
                 CurrentModulePath = path;
                 try
                 {
-                    using var compiler = new Compiler.DScriptCompiler();
+                    using var compiler = new Compiler.DScriptCompiler { EnableOptimizer = EnableOptimizer };
                     var chunk = compiler.CompileProgram(source);
                     var vm = new Vm.VirtualMachine(this);
                     vm.Run(chunk, moduleEnv);
@@ -540,7 +548,8 @@ namespace DScript
         {
             try
             {
-                Run(Compile(code));
+                using var compiler = new DScriptCompiler { EnableOptimizer = EnableOptimizer };
+                Run(compiler.CompileProgram(code));
             }
             catch (Exception ex) when (ex is ScriptException || ex is JITException)
             {
@@ -557,7 +566,7 @@ namespace DScript
             try
             {
                 Chunk chunk;
-                using (var compiler = new DScriptCompiler())
+                using (var compiler = new DScriptCompiler { EnableOptimizer = EnableOptimizer })
                 {
                     chunk = compiler.CompileExpression(code);
                 }

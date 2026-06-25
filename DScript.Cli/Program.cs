@@ -15,7 +15,9 @@ Usage:
 using DScript;
 using DScript.Compiler;
 using DScript.Extras;
+using DScript.Jit;
 using DScript.Profiler;
+using DScript.Vm;
 
 const string Version = "0.1.0";
 
@@ -130,6 +132,10 @@ static int RunRepl()
 
     var engine = MakeEngine("<repl>", []);
 
+    // JIT is opt-in engine-wide; the REPL turns it on by default (reflection-emit
+    // back-end) so hot functions tier up. Toggle via `.options jit ...`.
+    JitRegistry.Register(new ReflectionEmitJitCompiler());
+
     while (true)
     {
         Console.Write("> ");
@@ -145,11 +151,20 @@ static int RunRepl()
             case ".quit":
                 goto done;
             case ".help":
-                Console.WriteLine("  .exit / .quit  — quit the REPL");
-                Console.WriteLine("  .help          — show this message");
+                Console.WriteLine("  .exit / .quit          — quit the REPL");
+                Console.WriteLine("  .help                  — show this message");
+                Console.WriteLine("  .options                    — show current options");
+                Console.WriteLine("  .options jit <value>        — on | off | reflection | closure  (default: reflection)");
+                Console.WriteLine("  .options optimisation <v>   — on | off  (compiler optimiser; default: on)");
                 Console.WriteLine("  Any DScript statement or expression is evaluated.");
                 Console.WriteLine("  State persists across inputs.");
                 continue;
+        }
+
+        if (line == ".options" || line.StartsWith(".options ", StringComparison.Ordinal))
+        {
+            HandleOptionsCommand(engine, line);
+            continue;
         }
 
         var isDeclaration = line.StartsWith("var ",      StringComparison.Ordinal)
@@ -184,6 +199,105 @@ done:
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+// `.options [jit <value>] [optimisation <value>]` — inspect or change REPL
+// options. `jit` selects the JIT back-end (or off); `optimisation` toggles the
+// compiler's bytecode optimiser. Both default on for the REPL.
+static void HandleOptionsCommand(ScriptEngine engine, string line)
+{
+    var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+
+    if (parts.Length == 1) // ".options" — show all
+    {
+        Console.WriteLine($"  jit          = {DescribeJit()}");
+        Console.WriteLine($"  optimisation = {(engine.EnableOptimizer ? "on" : "off")}");
+        return;
+    }
+
+    switch (parts[1])
+    {
+        case "jit":
+            HandleJitOption(parts);
+            break;
+        case "optimisation":
+        case "optimization":
+            HandleOptimisationOption(engine, parts);
+            break;
+        default:
+            Console.WriteLine($"Unknown option '{parts[1]}'. Known options: jit, optimisation");
+            break;
+    }
+}
+
+static void HandleJitOption(string[] parts)
+{
+    if (parts.Length < 3) // ".options jit" — show + usage
+    {
+        Console.WriteLine($"  jit = {DescribeJit()}");
+        Console.WriteLine("  usage: .options jit <on|off|reflection|closure>");
+        return;
+    }
+
+    switch (parts[2].ToLowerInvariant())
+    {
+        case "off":
+        case "none":
+            JitRegistry.Clear();
+            Console.WriteLine("jit: off");
+            break;
+        case "on":          // default back-end
+        case "reflection":
+        case "reflect":
+        case "il":
+            JitRegistry.Register(new ReflectionEmitJitCompiler());
+            Console.WriteLine("jit: on (reflection-emit back-end) — hot functions will tier up");
+            break;
+        case "closure":
+        case "closurethreaded":
+            JitRegistry.Register(new ClosureThreadedJitCompiler());
+            Console.WriteLine("jit: on (closure-threaded back-end) — hot functions will tier up");
+            break;
+        default:
+            Console.WriteLine($"Unknown jit value '{parts[2]}'. Use: on | off | reflection | closure");
+            break;
+    }
+}
+
+static void HandleOptimisationOption(ScriptEngine engine, string[] parts)
+{
+    if (parts.Length < 3)
+    {
+        Console.WriteLine($"  optimisation = {(engine.EnableOptimizer ? "on" : "off")}");
+        Console.WriteLine("  usage: .options optimisation <on|off>");
+        return;
+    }
+
+    switch (parts[2].ToLowerInvariant())
+    {
+        case "on":
+        case "true":
+            engine.EnableOptimizer = true;
+            Console.WriteLine("optimisation: on");
+            break;
+        case "off":
+        case "false":
+        case "none":
+            engine.EnableOptimizer = false;
+            Console.WriteLine("optimisation: off");
+            break;
+        default:
+            Console.WriteLine($"Unknown optimisation value '{parts[2]}'. Use: on | off");
+            break;
+    }
+}
+
+static string DescribeJit() => JitRegistry.Current switch
+{
+    null                        => "off",
+    ReflectionEmitJitCompiler   => "on (reflection-emit back-end)",
+    ClosureThreadedJitCompiler  => "on (closure-threaded back-end)",
+    var c                       => "on (" + c.GetType().Name + ")",
+};
 
 static ScriptEngine MakeEngine(string scriptPath, string[] scriptArgs)
 {
