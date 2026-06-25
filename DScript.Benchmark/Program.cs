@@ -34,7 +34,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Reflection;
 using System.Text;
 using DScript;
 using DScript.Compiler;
@@ -194,47 +193,45 @@ internal static class Program
         Console.WriteLine("compile-once vs execute (same script run many times)");
         Console.WriteLine(new string('-', 64));
 
-        var compile = typeof(ScriptEngine).GetMethod(
-            "Compile", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null);
-        var run = compile == null ? null : typeof(ScriptEngine).GetMethod("Run", new[] { compile.ReturnType });
-
-        if (compile == null || run == null)
-        {
-            Console.WriteLine("  not available on this engine.");
-            return;
-        }
-
         const string code = "function sq(x) { return x * x; } var s = 0; for (var i = 0; i < 30; i = i + 1) { s = s + sq(i); } result = s;";
         const int m = 5000;
 
+        // Execute = compile + run on every call.
         var engineA = NewEngine();
-        engineA.Execute(code);
+        engineA.Execute(code); // warm
         var swA = Stopwatch.StartNew();
         for (var i = 0; i < m; i++) engineA.Execute(code);
         swA.Stop();
 
+        // Compile once, then run the cached bytecode each call (direct calls — no
+        // reflection overhead, so this reflects the true reuse gain).
         var engineB = NewEngine();
-        var chunk = compile.Invoke(null, new object[] { code });
-        run.Invoke(engineB, new[] { chunk });
+        var chunk = ScriptEngine.Compile(code);
+        engineB.Run(chunk); // warm
         var swB = Stopwatch.StartNew();
-        for (var i = 0; i < m; i++) run.Invoke(engineB, new[] { chunk });
+        for (var i = 0; i < m; i++) engineB.Run(chunk);
         swB.Stop();
+
+        // Compile only, to show how much of Execute is compilation.
+        ScriptEngine.Compile(code); // warm
+        var swC = Stopwatch.StartNew();
+        for (var i = 0; i < m; i++) ScriptEngine.Compile(code);
+        swC.Stop();
 
         var a = swA.Elapsed.TotalMilliseconds;
         var b = swB.Elapsed.TotalMilliseconds;
+        var c = swC.Elapsed.TotalMilliseconds;
 
-        Console.WriteLine($"  Execute x{m} (compiles each):  {a,9:F2} ms  ({a / m * 1000.0,7:F2} us/call)");
+        Console.WriteLine($"  Execute x{m} (compile + run):  {a,9:F2} ms  ({a / m * 1000.0,7:F2} us/call)");
         Console.WriteLine($"  Compile once + Run x{m}:       {b,9:F2} ms  ({b / m * 1000.0,7:F2} us/call)");
-        if (b > 0) Console.WriteLine($"  -> {a / b:F2}x faster reusing compiled bytecode");
-        Console.WriteLine("  (Mode B includes per-call reflection overhead; real gain is larger.)");
+        Console.WriteLine($"  Compile only  x{m}:            {c,9:F2} ms  ({c / m * 1000.0,7:F2} us/call)");
+        if (b > 0) Console.WriteLine($"  -> {a / b:F2}x faster reusing compiled bytecode (saves the compile step)");
 
-        CompileThroughputDemo(compile);
+        CompileThroughputDemo();
     }
 
-    private static void CompileThroughputDemo(MethodInfo compile)
+    private static void CompileThroughputDemo()
     {
-        if (compile == null) return;
-
         const int vars = 2000;
         var sb = new StringBuilder();
         for (var i = 0; i < vars; i++) sb.Append("var v").Append(i).Append(" = ").Append(i).Append("; ");
@@ -244,13 +241,13 @@ internal static class Program
         var bigCode = sb.ToString();
 
         const int reps = 200;
-        compile.Invoke(null, new object[] { bigCode });
+        ScriptEngine.Compile(bigCode);
 
         var best = double.MaxValue;
         for (var run = 0; run < 5; run++)
         {
             var sw = Stopwatch.StartNew();
-            for (var i = 0; i < reps; i++) compile.Invoke(null, new object[] { bigCode });
+            for (var i = 0; i < reps; i++) ScriptEngine.Compile(bigCode);
             sw.Stop();
             if (sw.Elapsed.TotalMilliseconds < best) best = sw.Elapsed.TotalMilliseconds;
         }
