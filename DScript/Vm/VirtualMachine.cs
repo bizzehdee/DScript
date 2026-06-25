@@ -2967,6 +2967,12 @@ namespace DScript.Vm
             return Execute(chunk, frame.Env, bypassJit: true) ?? ScriptVar.CreateUndefined();
         }
 
+        // Fused zero-argument method call for JIT-compiled code, mirroring the
+        // GetPropCall0 opcode: resolve obj.name (through the inline cache, getters and
+        // prototype chain) and invoke it with obj as the receiver and no arguments.
+        internal ScriptVar JitGetPropCall0(ScriptVar obj, string name, PropCacheCell cell)
+            => InvokeCallable(JitGetPropCached(obj, name, cell), obj, System.Array.Empty<ScriptVar>());
+
         // Assign a variable for JIT-compiled code, mirroring the SetVar(Pop) opcode:
         // resolve through the scope chain and ReplaceWith; in non-strict mode a missing
         // binding creates a global. internal static (no VM state needed).

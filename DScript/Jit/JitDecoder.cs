@@ -116,6 +116,27 @@ namespace DScript.Jit
                         ip += 2;
                         break;
 
+                    case OpCode.GetPropMethod:
+                        instrs.Add(JitInstruction.GetPropMethod(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.GetPropMethodN:
+                        instrs.Add(JitInstruction.GetPropMethod(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+                    case OpCode.GetPropCall0:
+                        instrs.Add(JitInstruction.GetPropCall0(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.GetPropCall0N:
+                        instrs.Add(JitInstruction.GetPropCall0(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+                    case OpCode.CallMethod:
+                        instrs.Add(JitInstruction.CallMethod(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+
                     case OpCode.SetVar:
                         instrs.Add(JitInstruction.SetVar(chunk.Names[chunk.ReadInt(ip)]));
                         ip += 4;

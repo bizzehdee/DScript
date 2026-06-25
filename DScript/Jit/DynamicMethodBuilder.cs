@@ -72,6 +72,8 @@ namespace DScript.Jit
             "JitGetVar", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitGetPropCachedMethod = typeof(VirtualMachine).GetMethod(
             "JitGetPropCached", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitGetPropCall0Method = typeof(VirtualMachine).GetMethod(
+            "JitGetPropCall0", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo JitSetVarMethod = typeof(VirtualMachine).GetMethod(
             "JitSetVar", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitSetPropMethod = typeof(VirtualMachine).GetMethod(
@@ -437,6 +439,46 @@ namespace DScript.Jit
         /// thisArg and args must already be on the stack in that order.
         /// </summary>
         public void EmitInvokeCallable() => IL.EmitCall(OpCodes.Callvirt, InvokeCallableMethod, null);
+
+        /// <summary>
+        /// Fused zero-arg method call of the object on top of the stack:
+        /// <c>vm.JitGetPropCall0(obj, name, cell)</c>, where <c>cell</c> is a fresh
+        /// per-site inline cache. <paramref name="objTemp"/> is scratch.
+        /// </summary>
+        public void EmitGetPropCall0(string name, LocalBuilder objTemp)
+        {
+            EmitStoreLocal(objTemp);          // pop obj
+            EmitLoadVm();
+            EmitLoadLocal(objTemp);
+            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadData(AddData(new PropCacheCell()), typeof(PropCacheCell));
+            IL.EmitCall(OpCodes.Callvirt, JitGetPropCall0Method, null);
+        }
+
+        /// <summary>
+        /// Method-call dispatch. The stack holds <c>[receiver, callee, arg0..arg{argc-1}]</c>;
+        /// emits <c>vm.InvokeCallable(callee, receiver, args)</c> and leaves the result.
+        /// </summary>
+        public void EmitCallMethod(int argc, LocalBuilder argTmp, LocalBuilder calleeSlot, LocalBuilder receiverSlot, LocalBuilder argArr)
+        {
+            EmitNewScriptVarArray(argc);
+            EmitStoreLocal(argArr);
+            for (var j = argc - 1; j >= 0; j--)
+            {
+                EmitStoreLocal(argTmp);       // pop one argument
+                EmitLoadLocal(argArr);
+                EmitLdcI4(j);
+                EmitLoadLocal(argTmp);
+                EmitStoreElemRef();
+            }
+            EmitStoreLocal(calleeSlot);       // pop callee
+            EmitStoreLocal(receiverSlot);     // pop receiver
+            EmitLoadVm();
+            EmitLoadLocal(calleeSlot);
+            EmitLoadLocal(receiverSlot);
+            EmitLoadLocal(argArr);
+            EmitInvokeCallable();
+        }
 
         // ── speculative unboxed-int tier ────────────────────────────────────────
 

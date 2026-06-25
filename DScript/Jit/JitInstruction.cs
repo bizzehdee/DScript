@@ -92,6 +92,12 @@ namespace DScript.Jit
         Shift,
         /// <summary>Pop callee + N args, dispatch, push the result.</summary>
         Call,
+        /// <summary>Peek the receiver (keep it), push its named method.</summary>
+        GetPropMethod,
+        /// <summary>Pop the receiver, call its named method with no args, push the result.</summary>
+        GetPropCall0,
+        /// <summary>Pop receiver + callee + N args, dispatch with the receiver as `this`, push the result.</summary>
+        CallMethod,
         /// <summary>Discard the top operand (its side effects still run).</summary>
         Pop,
         /// <summary>Return the top operand.</summary>
@@ -185,6 +191,12 @@ namespace DScript.Jit
             new(JitOpKind.Shift, null, 0, null, op, null);
         public static JitInstruction Call(int argc, ScriptVar callee0, ScriptVar callee1) =>
             new(JitOpKind.Call, null, argc, null, default, callee0, callee1);
+        public static JitInstruction GetPropMethod(string name) =>
+            new(JitOpKind.GetPropMethod, null, 0, name, default, null);
+        public static JitInstruction GetPropCall0(string name) =>
+            new(JitOpKind.GetPropCall0, null, 0, name, default, null);
+        public static JitInstruction CallMethod(int argc) =>
+            new(JitOpKind.CallMethod, null, argc, null, default, null);
         public static JitInstruction Pop() =>
             new(JitOpKind.Pop, null, 0, null, default, null);
         public static JitInstruction Return() =>

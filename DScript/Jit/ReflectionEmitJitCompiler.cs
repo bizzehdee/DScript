@@ -133,6 +133,9 @@ namespace DScript.Jit
                     case JitOpKind.JumpIfTrueOrPop:
                     case JitOpKind.JumpIfNullOrUndefined:
                     case JitOpKind.JumpIfDefined:
+                    case JitOpKind.GetPropMethod:
+                    case JitOpKind.GetPropCall0:
+                    case JitOpKind.CallMethod:
                     case JitOpKind.SetVar:
                     case JitOpKind.SetVarPop:
                     case JitOpKind.SetProp:
@@ -402,6 +405,9 @@ namespace DScript.Jit
                     case JitOpKind.JumpIfTrueOrPop:
                     case JitOpKind.JumpIfNullOrUndefined:
                     case JitOpKind.JumpIfDefined:
+                    case JitOpKind.GetPropMethod:
+                    case JitOpKind.GetPropCall0:
+                    case JitOpKind.CallMethod:
                     case JitOpKind.SetVar:
                     case JitOpKind.SetVarPop:
                     case JitOpKind.SetProp:
@@ -503,6 +509,9 @@ namespace DScript.Jit
                     case JitOpKind.Shift:         b.EmitShift(instr.Op); break;
                     case JitOpKind.Binary:        EmitBinary(b, instr.Op, aSlot, bSlot, rSlot); break;
                     case JitOpKind.Call:          EmitCall(b, instr.MonoCallee, instr.MonoCallee1, instr.IntValue, aSlot, bSlot, argArr, rSlot); break;
+                    case JitOpKind.GetPropMethod: b.IL.Emit(OpCodes.Dup); b.EmitGetProp(instr.Name, aSlot); break; // keep receiver, push method
+                    case JitOpKind.GetPropCall0:  b.EmitGetPropCall0(instr.Name, aSlot); break;
+                    case JitOpKind.CallMethod:    b.EmitCallMethod(instr.IntValue, aSlot, bSlot, rSlot, argArr); break;
                     case JitOpKind.Jump:
                         b.IL.Emit(OpCodes.Br, labels[instr.IntValue]);
                         break;
@@ -645,10 +654,12 @@ namespace DScript.Jit
         {
             JitOpKind.PushConst or JitOpKind.PushIntLiteral or JitOpKind.PushVar
                 or JitOpKind.PushNull or JitOpKind.PushUndefined => 1,
-            JitOpKind.GetProp or JitOpKind.Not or JitOpKind.SetVar
+            JitOpKind.GetProp or JitOpKind.Not or JitOpKind.SetVar or JitOpKind.GetPropCall0
                 or JitOpKind.Negate or JitOpKind.BitNot or JitOpKind.Typeof or JitOpKind.ToNumber => 0,
+            JitOpKind.GetPropMethod => 1,                    // peek receiver (kept), push method
             JitOpKind.Binary or JitOpKind.SetProp or JitOpKind.GetIndex or JitOpKind.Shift => -1,
             JitOpKind.Call => -instr.IntValue,               // pop callee + argc, push result
+            JitOpKind.CallMethod => -(instr.IntValue + 1),   // pop receiver + callee + argc, push result
             JitOpKind.Pop or JitOpKind.Return or JitOpKind.SetVarPop
                 or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue => -1,
             JitOpKind.SetPropPop or JitOpKind.SetIndex => -2,
