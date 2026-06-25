@@ -17,6 +17,40 @@ namespace DScript.Test
         }
 
         [Test]
+        public void Stringify_PreservesNonAsciiCharacters()
+        {
+            // The escaper masked code points to a byte (ch & 0xFF), corrupting
+            // non-ASCII to \xNN. They must be emitted as-is, matching V8.
+            // U+2713 ✓ built via fromCharCode to avoid relying on \u source escapes.
+            Assert.That(Run("result = JSON.stringify({m: String.fromCharCode(0x2713)});").String,
+                Is.EqualTo("{\"m\":\"✓\"}"));
+        }
+
+        [Test]
+        public void Stringify_EscapesControlCharsAsUnicode()
+        {
+            // Control chars below 0x20 (other than the named ones) use \u00XX, not \x.
+            Assert.That(Run("result = JSON.stringify(String.fromCharCode(1));").String,
+                Is.EqualTo("\"\\u0001\""));
+        }
+
+        [Test]
+        public void Stringify_EscapesNamedControlChars()
+        {
+            Assert.That(Run("result = JSON.stringify(\"a\\tb\\nc\");").String,
+                Is.EqualTo("\"a\\tb\\nc\""));
+        }
+
+        [Test]
+        public void Stringify_RoundTripsNonAscii()
+        {
+            // é (0x00E9) + ✓ (0x2713) round-trip through stringify/parse unchanged.
+            Assert.That(Run("var s = String.fromCharCode(0x00e9) + String.fromCharCode(0x2713);" +
+                            "result = JSON.parse(JSON.stringify({s: s})).s;").String,
+                Is.EqualTo("é✓"));
+        }
+
+        [Test]
         public void ParsesObjectFields()
         {
             Assert.That(Run("var o = JSON.parse('{\"a\":1,\"b\":2}'); result = o.a + o.b;").Int, Is.EqualTo(3));

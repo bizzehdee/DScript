@@ -99,14 +99,18 @@ namespace DScript
                     case '"': builder.Append("\\\""); break;
                     default:
                     {
-                        var nCh = ch & 0xFF;
-                        if (nCh is < 32 or > 127)
+                        if (ch < 0x20)
                         {
-                            builder.Append("\\x");
-                            builder.Append(nCh.ToString("x2"));
+                            // Other control characters → \uXXXX (valid JSON; the old
+                            // code masked to a byte and emitted \xNN, which both
+                            // corrupted code points > 0xFF and is not valid JSON).
+                            builder.Append("\\u");
+                            builder.Append(((int)ch).ToString("x4"));
                         }
                         else
                         {
+                            // Printable, including non-ASCII (✓, é, emoji surrogate
+                            // halves) — emit as-is, matching JSON.stringify and V8.
                             builder.Append(ch);
                         }
                     }
