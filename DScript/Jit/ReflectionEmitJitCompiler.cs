@@ -182,10 +182,21 @@ namespace DScript.Jit
         // inlined; comparisons emit 0/1 matching IntBinary's boolean results.
         private static void EmitIntBinaryRaw(DynamicMethodBuilder b, ScriptLex.LexTypes op)
         {
-            var inline = InlineIntOp(op);
-            if (inline.HasValue) { b.IL.Emit(inline.Value); return; }
-
             var il = b.IL;
+
+            // +, -, * use overflow-checked IL: on 32-bit overflow they throw, and the
+            // caller (the tier-up gate) catches it and deopts to the interpreter, which
+            // promotes to a double (matching JS). Bitwise ops are 32-bit by definition.
+            switch ((char)op)
+            {
+                case '+': il.Emit(OpCodes.Add_Ovf); return;
+                case '-': il.Emit(OpCodes.Sub_Ovf); return;
+                case '*': il.Emit(OpCodes.Mul_Ovf); return;
+            }
+
+            var inline = InlineBitwiseIntOp(op);
+            if (inline.HasValue) { il.Emit(inline.Value); return; }
+
             switch (op)
             {
                 case (ScriptLex.LexTypes)'<':       il.Emit(OpCodes.Clt); break;

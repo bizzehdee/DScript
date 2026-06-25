@@ -1,5 +1,6 @@
 using DScript;
 using DScript.Compiler;
+using DScript.Jit;
 using DScript.Vm;
 using NUnit.Framework;
 using Environment = DScript.Vm.Environment;
@@ -65,6 +66,26 @@ namespace DScript.Test
             // Bitwise operators are defined to produce 32-bit results.
             Assert.That(Eval("1073741824 | 0"), Is.EqualTo(1073741824.0)); // 2^30
             Assert.That(Eval("255 & 15"), Is.EqualTo(15.0));
+        }
+
+        // A hot, pure-integer function tiers up to the speculative unboxed-int JIT,
+        // which uses overflow-checked arithmetic; on overflow it deopts to the
+        // interpreter, which promotes to double — so the result stays correct.
+        [Test]
+        [NonParallelizable]
+        public void SpeculativeJit_HotOverflowingFunction_DeoptsToCorrectResult()
+        {
+            JitRegistry.Register(new ReflectionEmitJitCompiler());
+            try
+            {
+                var engine = new ScriptEngine();
+                engine.Execute(
+                    "function add(a, b){ return a + b; }" +
+                    "var r = 0; for (var i = 0; i < 200000; i = i + 1) r = add(r, i); result = r;");
+                // sum 0..199999 = 19999900000, exceeds int32
+                Assert.That(engine.Root.GetParameter("result").Float, Is.EqualTo(19999900000.0));
+            }
+            finally { JitRegistry.Clear(); }
         }
     }
 }

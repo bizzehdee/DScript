@@ -374,7 +374,10 @@ namespace DScript.Vm
             if (!bypassJit && genObj == null && gsState == null)
             {
                 if (chunk.CompiledDelegate != null)
-                    return chunk.CompiledDelegate(this, System.Array.Empty<ScriptVar>(), env);
+                {
+                    try { return chunk.CompiledDelegate(this, System.Array.Empty<ScriptVar>(), env); }
+                    catch (OverflowException) { return DeoptimizeOverflow(chunk, env, genObj, gsState); }
+                }
 
                 if (chunk.IsHot() && JitRegistry.Current != null)
                 {
@@ -399,6 +402,12 @@ namespace DScript.Vm
                             }
                             // Compiler declined this chunk: don't retry it.
                             chunk.JitState = Chunk.JitStatus.Failed;
+                        }
+                        catch (OverflowException)
+                        {
+                            // A speculative unboxed-int path overflowed 32 bits on its
+                            // first run: deopt and prefer the (overflow-safe) tiers.
+                            return DeoptimizeOverflow(chunk, env, genObj, gsState);
                         }
                         catch
                         {
@@ -3016,6 +3025,18 @@ namespace DScript.Vm
         // failing guard. After DeoptThreshold deopts the speculation is given up: the
         // compiled delegate is cleared and the chunk is marked to recompile with the
         // conservative tier. internal so JIT-compiled code can call it.
+        // Deopt path for a speculative unboxed-int chunk that overflowed 32 bits.
+        // The interpreter promotes to double and the conservative tier routes +,-,*
+        // through IntBinary (also overflow-safe), so prefer it and never re-speculate
+        // this chunk. Safe because speculative tiers only compile pure chunks.
+        private ScriptVar DeoptimizeOverflow(Chunk chunk, Environment env, GeneratorObject genObj, GeneratorState gsState)
+        {
+            chunk.PreferConservativeTier = true;
+            chunk.CompiledDelegate = null;
+            chunk.JitState = Chunk.JitStatus.Cold;
+            return Execute(chunk, env, genObj, gsState, bypassJit: true) ?? ScriptVar.CreateUndefined();
+        }
+
         internal ScriptVar Deoptimize(DeoptFrame frame)
         {
             var chunk = frame.Chunk;
