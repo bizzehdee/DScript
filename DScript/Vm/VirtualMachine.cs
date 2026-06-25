@@ -44,6 +44,15 @@ namespace DScript.Vm
         private ScriptVar[] stack = new ScriptVar[64];
         private int sp;
 
+        // Nested script-call depth. Bounded (see MaxCallStackDepth) so runaway or
+        // infinite recursion throws a catchable error rather than overflowing the
+        // native stack and crashing the process.
+        private int _callDepth;
+        private const int DefaultMaxCallDepth = 10000;
+        // Cached at construction (the VM is created fresh per top-level Run) so the
+        // per-call guard reads a plain field rather than walking to the engine.
+        private readonly int _maxCallDepth;
+
         // Shared read-only operand for unary 0-based ops. MathsOp only reads its
         // operands (results are always freshly allocated), so sharing is safe and
         // avoids allocating a throwaway zero on every Negate/Not.
@@ -249,11 +258,15 @@ namespace DScript.Vm
             return new DebugFrame(chunk.Name, loc, locals);
         }
 
-        public VirtualMachine() { }
+        public VirtualMachine()
+        {
+            _maxCallDepth = DefaultMaxCallDepth;
+        }
 
         public VirtualMachine(ScriptEngine engine)
         {
             this.engine = engine;
+            _maxCallDepth = engine?.MaxCallStackDepth ?? DefaultMaxCallDepth;
         }
 
         /// <summary>
@@ -283,7 +296,40 @@ namespace DScript.Vm
             return Run(chunk, new Environment(ScriptVar.CreateObject(), null));
         }
 
+        // Size of the worker-thread stack used for top-level execution. The
+        // interpreter's Execute frame is large, so the default ~1 MB thread stack only
+        // holds a few hundred recursion levels; a dedicated large stack lets scripts
+        // recurse to a useful depth, with MaxCallStackDepth (default 10000) bounding
+        // it well short of overflow — leaving room for the error to unwind from that
+        // depth — so runaway recursion throws a catchable error instead of crashing.
+        private const int ExecutionStackBytes = 256 * 1024 * 1024;
+
+        // True while running on a spawned execution thread, so nested/reentrant Run
+        // calls (e.g. a host callback that re-enters the engine) execute inline rather
+        // than spawning another thread.
+        [ThreadStatic] private static bool _onExecutionThread;
+
         public ScriptVar Run(Chunk chunk, Environment env)
+        {
+            if (_onExecutionThread)
+                return RunCore(chunk, env);
+
+            ScriptVar result = null;
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo captured = null;
+            var worker = new System.Threading.Thread(() =>
+            {
+                _onExecutionThread = true;
+                try { result = RunCore(chunk, env); }
+                catch (Exception ex) { captured = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
+            }, ExecutionStackBytes);
+            worker.IsBackground = true;
+            worker.Start();
+            worker.Join();
+            captured?.Throw();
+            return result;
+        }
+
+        private ScriptVar RunCore(Chunk chunk, Environment env)
         {
             _instrCount = 0;
             _instrHardLimit = (engine != null && engine.InstructionLimit > 0) ? engine.InstructionLimit : long.MaxValue;
@@ -2183,6 +2229,7 @@ namespace DScript.Vm
                 vars.AddChild("arguments", argObj);
             }
 
+            if (++_callDepth > _maxCallDepth) { _callDepth--; throw new ScriptException("Maximum call stack size exceeded"); }
             _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
             if (recyclable)
             {
@@ -2191,11 +2238,12 @@ namespace DScript.Vm
                 {
                     ReturnFrameVars(vars);
                     _profiler?.Leave();
+                    _callDepth--;
                 }
             }
 
             try { return Execute(vmfn.Body, callEnv) ?? ScriptVar.CreateUndefined(); }
-            finally { _profiler?.Leave(); }
+            finally { _profiler?.Leave(); _callDepth--; }
         }
 
         // Invoke a compiled (non-native) function whose arguments are sitting on
@@ -2287,6 +2335,7 @@ namespace DScript.Vm
             // stay alive via the call frame's child links.
             sp = argBase;
 
+            if (++_callDepth > _maxCallDepth) { _callDepth--; throw new ScriptException("Maximum call stack size exceeded"); }
             _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
             try
             {
@@ -2320,6 +2369,7 @@ namespace DScript.Vm
             {
                 if (recyclable) ReturnFrameVars(vars);
                 _profiler?.Leave();
+                _callDepth--;
             }
         }
 

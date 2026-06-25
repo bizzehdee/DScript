@@ -87,6 +87,17 @@ namespace DScript
         /// </summary>
         public bool EnableOptimizer { get; set; } = true;
 
+        /// <summary>
+        /// Maximum depth of nested script function calls before a catchable
+        /// <c>"Maximum call stack size exceeded"</c> error is thrown (the JS engine's
+        /// RangeError analogue). This bounds recursion short of the point where the
+        /// native .NET stack would overflow — an uncatchable condition that crashes
+        /// the process. Top-level execution runs on a large (256&nbsp;MB) stack, so the
+        /// default (10000) sits well below its real ceiling — with room for the error
+        /// to unwind from that depth — while matching typical engine limits.
+        /// </summary>
+        public int MaxCallStackDepth { get; set; } = 10000;
+
         private readonly Dictionary<string, ScriptVar> _moduleCache = new();
 
         // --- host event system -----------------------------------------------
