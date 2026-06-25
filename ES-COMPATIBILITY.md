@@ -59,7 +59,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `isNaN` / `isFinite` | ✅ | |
 | `Number.isNaN` / `Number.isFinite` / `Number.isInteger` | ✅ | |
 | `Number.parseInt` / `Number.parseFloat` | ✅ | |
-| `Number.prototype` methods (`toFixed`, `toString`, `toPrecision`, `toExponential`) | ✅ | Resolve on number literals/values, e.g. `(3.14).toFixed(1)` |
+| `Number.prototype` methods (`toFixed`, `toString`, `toPrecision`, `toExponential`) | ✅ | Resolve on number literals/values, e.g. `(3.14).toFixed(1)`; `toString` supports any radix 2–36 |
 | `Number.EPSILON` / `MAX_SAFE_INTEGER` / `MIN_SAFE_INTEGER` | ✅ | |
 | `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ✅ | Constructable via `new` or call; `message`, `name`, `stack` set; `instanceof Error` works through prototype chain; `Error.cause` (ES2022) not implemented |
@@ -185,6 +185,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `BigInt()` factory | ✅ | |
 | BigInt arithmetic and comparisons | ✅ | `+` `-` `*` `/` `%` `&` `\|` `^` `~` `-` (unary) `<` `>` `<=` `>=` `==` `!=` |
 | BigInt mixed-type TypeError | ✅ | |
+| `BigInt.prototype` methods (`toString`, `toString(radix)`, `valueOf`, `toLocaleString`) | ✅ | Resolve on BigInt primitives, e.g. `(255n).toString(16)`; radix 2–36 |
 | `globalThis` | ✅ | Refers to the engine root; no circular reference; `globalThis === globalThis` is stable |
 | Optional chaining (`?.`) | ✅ | Member access, index access, and function calls |
 | Nullish coalescing (`??`) | ✅ | |
