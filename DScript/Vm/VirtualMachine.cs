@@ -3188,13 +3188,24 @@ namespace DScript.Vm
 
         // internal (not private) so the JIT emitter in DScript.Jit can call it
         // directly for the integer fast path it does not inline.
+        // A 64-bit arithmetic result as an int when it fits, else a double — so
+        // integer arithmetic that overflows 32 bits promotes to a JS number rather
+        // than wrapping.
+        private static ScriptVar IntOrDouble(long value)
+            => value >= int.MinValue && value <= int.MaxValue
+                ? ScriptVar.FromInt((int)value)
+                : ScriptVar.FromDouble(value);
+
         internal static bool IntBinary(int a, int b, ScriptLex.LexTypes op, out ScriptVar result)
         {
             switch ((char)op)
             {
-                case '+': result = ScriptVar.FromInt(a + b); return true;
-                case '-': result = ScriptVar.FromInt(a - b); return true;
-                case '*': result = ScriptVar.FromInt(a * b); return true;
+                // JS numbers are doubles; +, -, * must not wrap at 32 bits. Compute in
+                // 64-bit and promote to double when the result leaves the int range
+                // (an int*int product always fits in a long).
+                case '+': result = IntOrDouble((long)a + b); return true;
+                case '-': result = IntOrDouble((long)a - b); return true;
+                case '*': result = IntOrDouble((long)a * b); return true;
                 case '/': result = b == 0 ? ScriptVar.FromDouble((double)a / b) : ScriptVar.FromInt(a / b); return true;
                 case '&': result = ScriptVar.FromInt(a & b); return true;
                 case '|': result = ScriptVar.FromInt(a | b); return true;

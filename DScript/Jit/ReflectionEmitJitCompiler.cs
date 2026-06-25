@@ -922,9 +922,10 @@ namespace DScript.Jit
             b.EmitIsInt(bSlot);
             il.Emit(OpCodes.Brfalse, afterInt);
 
-            var inlineOp = InlineIntOp(op);
+            var inlineOp = InlineBitwiseIntOp(op);
             if (inlineOp.HasValue)
             {
+                // Bitwise ops (&, |, ^) yield a 32-bit result by definition — emit raw.
                 // result = ScriptVar.FromInt(a.Int <op> b.Int)
                 b.EmitLoadInt(aSlot);
                 b.EmitLoadInt(bSlot);
@@ -933,7 +934,8 @@ namespace DScript.Jit
             }
             else
             {
-                // result = IntBinary(a.Int, b.Int, op, out r); falls back if not an int op.
+                // +, -, *, /, %, comparisons via IntBinary, which promotes +/-/* to a
+                // double on 32-bit overflow (matching JS) and handles the rest.
                 b.EmitIntBinaryCall(aSlot, bSlot, op, rSlot, fallback);
             }
             il.Emit(OpCodes.Br, done);
@@ -986,6 +988,16 @@ namespace DScript.Jit
             '+' => OpCodes.Add,
             '-' => OpCodes.Sub,
             '*' => OpCodes.Mul,
+            '&' => OpCodes.And,
+            '|' => OpCodes.Or,
+            '^' => OpCodes.Xor,
+            _   => null,
+        };
+
+        // Bitwise int ops whose result is always a 32-bit int (JS bitwise semantics),
+        // so they can be emitted as raw IL without overflow promotion — unlike +, -, *.
+        private static System.Reflection.Emit.OpCode? InlineBitwiseIntOp(ScriptLex.LexTypes op) => (char)op switch
+        {
             '&' => OpCodes.And,
             '|' => OpCodes.Or,
             '^' => OpCodes.Xor,

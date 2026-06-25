@@ -1006,6 +1006,13 @@ namespace DScript
             return res;
         }
 
+        // A 64-bit integer arithmetic result as an int when it fits, else a double, so
+        // overflowing int arithmetic promotes to a JS number rather than wrapping.
+        private static ScriptVar IntOrDoubleResult(long value)
+            => value >= int.MinValue && value <= int.MaxValue
+                ? new ScriptVar((int)value)
+                : new ScriptVar((double)value);
+
         public ScriptVar MathsOp(ScriptVar b, ScriptLex.LexTypes op)
         {
             var a = this;
@@ -1054,9 +1061,11 @@ namespace DScript
 
                         switch (opc)
                         {
-                            case '+': return new ScriptVar(da + db);
-                            case '-': return new ScriptVar(da - db);
-                            case '*': return new ScriptVar(da * db);
+                            // +, -, * promote to double on 32-bit overflow (JS numbers
+                            // are doubles), computed in 64-bit to detect it.
+                            case '+': return IntOrDoubleResult((long)da + db);
+                            case '-': return IntOrDoubleResult((long)da - db);
+                            case '*': return IntOrDoubleResult((long)da * db);
                             // Match JS semantics for division by zero (Infinity/NaN)
                             // instead of throwing a DivideByZeroException.
                             case '/': return db == 0 ? new ScriptVar((double)da / db) : new ScriptVar(da / db);
