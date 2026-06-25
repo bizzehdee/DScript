@@ -357,10 +357,21 @@ namespace DScript.Compiler
         private void CompileObjectDestructuring(bool readOnly, bool isLet)
         {
             var bindings = new System.Collections.Generic.List<(string Key, string Name, string DefaultSrc)>();
+            string restName = null;
 
             lexer.Match((ScriptLex.LexTypes)'{');
             while (lexer.TokenType != (ScriptLex.LexTypes)'}')
             {
+                // Rest element: `{ a, ...rest }` — collects the remaining own properties.
+                // Must be last, so stop scanning the pattern after it.
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    restName = lexer.TokenString;
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    break;
+                }
+
                 var key = lexer.TokenString;
                 if (lexer.TokenType == ScriptLex.LexTypes.Str)
                     lexer.Match(ScriptLex.LexTypes.Str);
@@ -417,6 +428,26 @@ namespace DScript.Compiler
                     chunk.Emit(OpCode.SetVar, nameIdx);
                     chunk.Emit(OpCode.Pop);
                     chunk.PatchJump(skipDefault);
+                }
+            }
+
+            // Rest: build a shallow copy of the RHS and delete the named keys, leaving
+            // only the remaining own properties (ES object-rest semantics).
+            if (restName != null)
+            {
+                var restIdx = chunk.AddName(restName);
+                chunk.Emit(declOp, restIdx);
+                chunk.Emit(OpCode.NewObject);
+                chunk.Emit(OpCode.GetVar, tmpIdx);
+                chunk.Emit(OpCode.MergeObject); // rest = { ...tmp }
+                chunk.Emit(OpCode.SetVar, restIdx);
+                chunk.Emit(OpCode.Pop);
+
+                foreach (var (key, _, _) in bindings)
+                {
+                    chunk.Emit(OpCode.GetVar, restIdx);
+                    chunk.Emit(OpCode.DeleteProp, chunk.AddName(key));
+                    chunk.Emit(OpCode.Pop); // discard the `true` DeleteProp pushes
                 }
             }
         }

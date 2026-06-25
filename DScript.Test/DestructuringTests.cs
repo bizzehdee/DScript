@@ -38,6 +38,41 @@ namespace DScript.Test
             return engine.Root.GetParameter("r").Int;
         }
 
+        // ── object rest destructuring ─────────────────────────────────────────
+
+        [Test]
+        public void ObjectRest_CollectsRemainingProperties()
+        {
+            // { a, ...r } — previously a parse error ("Expected Id, found Ellipsis").
+            Assert.That(RunInt("var {a, ...r} = {a: 1, b: 2, c: 3}; var r2 = a + r.b + r.c; var r = r2;"),
+                Is.EqualTo(6));
+        }
+
+        [Test]
+        public void ObjectRest_ExcludesNamedKeys()
+        {
+            // rest keeps c,d; named a,b are excluded (a undefined contributes 0).
+            Assert.That(RunInt("var {a, b, ...rest} = {a: 1, b: 2, c: 3, d: 4}; " +
+                "var r = rest.c * 10 + rest.d + (rest.a === undefined ? 0 : 100);"),
+                Is.EqualTo(34));
+        }
+
+        [Test]
+        public void ObjectRest_EmptyWhenAllNamed()
+        {
+            // All keys named → rest has none of them.
+            Assert.That(RunInt("var {a, b, ...rest} = {a: 1, b: 2}; " +
+                "var r = (rest.a === undefined && rest.b === undefined) ? 1 : 0;"),
+                Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ObjectRest_WithDefaultOnNamedBinding()
+        {
+            Assert.That(RunInt("let {x = 9, ...rest} = {y: 2}; var r = x * 10 + rest.y;"),
+                Is.EqualTo(92));
+        }
+
         // ── array destructuring ───────────────────────────────────────────────
 
         [Test]
