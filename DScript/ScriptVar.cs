@@ -565,7 +565,53 @@ namespace DScript
 
             if (scriptData is Vm.VmFunction fn) return fn.Source;
 
+            if (scriptData is StringRope rope)
+            {
+                var flat = FlattenRope(rope);
+                scriptData = flat; // collapse the rope so later reads are O(1)
+                return flat;
+            }
+
             return scriptData as string ?? string.Empty;
+        }
+
+        // A lazily-concatenated ("cons") string: `a + b` builds one of these in O(1)
+        // instead of copying, so repeated concatenation (e.g. s += x in a loop) is O(n)
+        // overall rather than O(n^2). It is flattened to a real string on first read.
+        // Left is a string or a nested StringRope; Right is always a flat string.
+        private sealed class StringRope
+        {
+            public object Left;
+            public string Right;
+            public int Length;
+        }
+
+        // Iteratively flatten a left-leaning rope (no recursion — chains can be long).
+        private static string FlattenRope(StringRope rope)
+        {
+            var sb = new System.Text.StringBuilder(rope.Length);
+            var rights = new System.Collections.Generic.Stack<string>();
+            object node = rope;
+            while (node is StringRope sr) { rights.Push(sr.Right); node = sr.Left; }
+            sb.Append((string)node);
+            while (rights.Count > 0) sb.Append(rights.Pop());
+            return sb.ToString();
+        }
+
+        // Concatenate two values as strings without materialising the left side, so a
+        // chain of concatenations stays O(1) per step.
+        private static ScriptVar ConcatStrings(ScriptVar a, ScriptVar b)
+        {
+            var right = b.GetString();
+            object leftContent;
+            int leftLen;
+            if (a.IsString && a.scriptData is StringRope lr) { leftContent = lr; leftLen = lr.Length; }
+            else if (a.IsString && a.scriptData is string ls)  { leftContent = ls; leftLen = ls.Length; }
+            else { var s = a.GetString(); leftContent = s; leftLen = s.Length; }
+
+            var sv = new ScriptVar(string.Empty, Flags.String);
+            sv.scriptData = new StringRope { Left = leftContent, Right = right, Length = leftLen + right.Length };
+            return sv;
         }
 
         public object GetData()
@@ -1185,12 +1231,16 @@ namespace DScript
                     }
                 }
 
+                // Concatenation builds a lazy rope (no materialisation of the left
+                // operand), making s += x loops O(n) instead of O(n^2).
+                if (opc == '+') return ConcatStrings(a, b);
+
                 var sda = a.GetString();
                 var sdb = b.GetString();
 
                 switch (opc)
                 {
-                    case '+': return new ScriptVar(sda + sdb, Flags.String);
+                    case '+': return new ScriptVar(sda + sdb, Flags.String); // unreachable; kept for clarity
                     case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(sda == sdb);
                     case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(sda != sdb);
                     case '<': return new ScriptVar(String.CompareOrdinal(sda, sdb) < 0);
