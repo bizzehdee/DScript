@@ -172,6 +172,35 @@ namespace DScript.Test
             Assert.That(result.Int, Is.EqualTo(123));
         }
 
+        [Test]
+        public void Sort_FractionalComparatorResult_OrdersCorrectly()
+        {
+            // (x,y)=>x-y on doubles returns a fractional value; truncating it to int
+            // made every comparison 0, leaving the array unsorted. The sign must be used.
+            var result = RunScript(
+                "var a = [0.3, 0.1, 0.2]; a.sort(function(x, y){ return x - y; });" +
+                "var __result__ = a[0] + \",\" + a[1] + \",\" + a[2];");
+            Assert.That(result.String, Is.EqualTo("0.1,0.2,0.3"));
+        }
+
+        [Test]
+        public void Sort_FractionalComparatorDescending()
+        {
+            var result = RunScript(
+                "var a = [0.1, 0.3, 0.2]; a.sort(function(x, y){ return y - x; });" +
+                "var __result__ = a[0] + \",\" + a[1] + \",\" + a[2];");
+            Assert.That(result.String, Is.EqualTo("0.3,0.2,0.1"));
+        }
+
+        [Test]
+        public void ToSorted_FractionalComparatorResult_OrdersCorrectly()
+        {
+            var result = RunScript(
+                "var a = [0.3, 0.1, 0.2]; var b = a.toSorted(function(x, y){ return x - y; });" +
+                "var __result__ = b[0] + \",\" + b[1] + \",\" + b[2];");
+            Assert.That(result.String, Is.EqualTo("0.1,0.2,0.3"));
+        }
+
         // ── find ──────────────────────────────────────────────────────────────
 
         [Test]

@@ -263,6 +263,15 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar = arr;
         }
 
+        // JS array comparators may return any number; List.Sort needs -1/0/1. Use the
+        // SIGN of the (possibly fractional) result — taking .Int truncated comparators
+        // like (a,b)=>a-b on doubles to 0, leaving the array unsorted. NaN sorts as 0.
+        private static int CompareSign(ScriptEngine engine, ScriptVar compare, ScriptVar a, ScriptVar b)
+        {
+            var c = engine.CallFunction(compare, null, a, b).Float;
+            return c < 0 ? -1 : c > 0 ? 1 : 0;
+        }
+
         [ScriptMethod("sort", "compare")]
         public static void ArraySortImpl(ScriptVar var, object userData)
         {
@@ -283,7 +292,7 @@ namespace DScript.Extras.FunctionProviders
             if (compare.IsFunction)
             {
                 //use the supplied comparator: negative => a before b
-                values.Sort((a, b) => engine.CallFunction(compare, null, a, b).Int);
+                values.Sort((a, b) => CompareSign(engine, compare, a, b));
             }
             else
             {
@@ -770,7 +779,7 @@ namespace DScript.Extras.FunctionProviders
                 values.Add(arr.GetArrayIndex(x));
 
             if (compare.IsFunction)
-                values.Sort((a, b) => engine.CallFunction(compare, null, a, b).Int);
+                values.Sort((a, b) => CompareSign(engine, compare, a, b));
             else
                 values.Sort((a, b) => string.CompareOrdinal(a.String, b.String));
 
