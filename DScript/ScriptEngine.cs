@@ -171,6 +171,12 @@ namespace DScript
             Root.AddChild("Array", arrayClass);
             Root.AddChild("Function", functionClass);
 
+            // Global numeric constants (typeof is "number"). In JS these are
+            // non-writable/non-configurable; DScript exposes them as ordinary
+            // values, which is sufficient for read access and coercion.
+            Root.AddChild("NaN", ScriptVar.FromDouble(double.NaN));
+            Root.AddChild("Infinity", ScriptVar.FromDouble(double.PositiveInfinity));
+
             RegisterPromiseBuiltin();
             RegisterRequireBuiltin();
             SymbolRegistrar.Register(this);
