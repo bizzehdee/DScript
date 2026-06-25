@@ -318,8 +318,18 @@ namespace DScript.Vm
         /// The compiled entry point for this chunk once <see cref="JitState"/> is
         /// <see cref="JitStatus.Compiled"/>, or <c>null</c> while the chunk is still
         /// interpreted. The VM invokes this in preference to the interpreter loop.
+        ///
+        /// Backed by a <c>volatile</c> field so that when background compilation
+        /// (<see cref="JitRegistry.BackgroundCompilation"/>) publishes a delegate from
+        /// the worker thread, the interpreter thread observes a fully-constructed
+        /// delegate (the volatile write acts as a release barrier).
         /// </summary>
-        public JitDelegate CompiledDelegate { get; set; }
+        public JitDelegate CompiledDelegate
+        {
+            get => compiledDelegate;
+            set => compiledDelegate = value;
+        }
+        private volatile JitDelegate compiledDelegate;
 
         /// <summary>
         /// Returns true when this chunk is a worthwhile JIT candidate: it is still

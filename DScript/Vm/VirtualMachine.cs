@@ -333,22 +333,32 @@ namespace DScript.Vm
                 if (chunk.IsHot() && JitRegistry.Current != null)
                 {
                     chunk.JitState = Chunk.JitStatus.Compiling;
-                    try
+                    if (JitRegistry.BackgroundCompilation)
                     {
-                        var compiled = JitRegistry.Current.Compile(chunk);
-                        if (compiled != null)
-                        {
-                            chunk.CompiledDelegate = compiled;
-                            chunk.JitState = Chunk.JitStatus.Compiled;
-                            return compiled(this, System.Array.Empty<ScriptVar>(), env);
-                        }
-                        // Compiler declined this chunk: don't retry it.
-                        chunk.JitState = Chunk.JitStatus.Failed;
+                        // Hand off to the worker; keep interpreting until it publishes
+                        // the delegate (picked up by the CompiledDelegate check above
+                        // on a later invocation).
+                        JitRegistry.EnqueueForCompilation(chunk);
                     }
-                    catch
+                    else
                     {
-                        // Compilation blew up: fall back to the interpreter for good.
-                        chunk.JitState = Chunk.JitStatus.Failed;
+                        try
+                        {
+                            var compiled = JitRegistry.Current.Compile(chunk);
+                            if (compiled != null)
+                            {
+                                chunk.CompiledDelegate = compiled;
+                                chunk.JitState = Chunk.JitStatus.Compiled;
+                                return compiled(this, System.Array.Empty<ScriptVar>(), env);
+                            }
+                            // Compiler declined this chunk: don't retry it.
+                            chunk.JitState = Chunk.JitStatus.Failed;
+                        }
+                        catch
+                        {
+                            // Compilation blew up: fall back to the interpreter for good.
+                            chunk.JitState = Chunk.JitStatus.Failed;
+                        }
                     }
                 }
             }

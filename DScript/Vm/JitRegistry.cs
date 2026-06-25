@@ -57,5 +57,75 @@ namespace DScript.Vm
                 current = null;
             }
         }
+
+        // ── background compilation (opt-in) ──────────────────────────────────────
+
+        /// <summary>
+        /// When true, hot chunks are compiled on a background worker thread instead of
+        /// synchronously on the interpreter thread, so the compile pause does not stall
+        /// execution — the chunk keeps running interpreted until the worker publishes
+        /// its <see cref="Chunk.CompiledDelegate"/>. Off by default (synchronous).
+        ///
+        /// Note: the worker reads the chunk's profiling arrays while the interpreter may
+        /// still be mutating them. That race is benign — it only influences which
+        /// (guarded) specialization tier is chosen, never correctness; a wrong guess is
+        /// caught by a runtime guard/deopt.
+        /// </summary>
+        public static bool BackgroundCompilation { get; set; }
+
+        private static readonly System.Collections.Concurrent.BlockingCollection<Chunk> CompileQueue = new();
+        private static System.Threading.Thread worker;
+        private static readonly object WorkerGate = new();
+
+        /// <summary>
+        /// Queue a hot chunk for background compilation (lazily starting the worker).
+        /// The caller has already transitioned the chunk to <c>Compiling</c>.
+        /// </summary>
+        public static void EnqueueForCompilation(Chunk chunk)
+        {
+            EnsureWorker();
+            CompileQueue.Add(chunk);
+        }
+
+        private static void EnsureWorker()
+        {
+            if (worker != null) return;
+            lock (WorkerGate)
+            {
+                if (worker != null) return;
+                worker = new System.Threading.Thread(WorkerLoop)
+                {
+                    IsBackground = true,
+                    Name = "DScript-JIT",
+                };
+                worker.Start();
+            }
+        }
+
+        private static void WorkerLoop()
+        {
+            foreach (var chunk in CompileQueue.GetConsumingEnumerable())
+            {
+                var compiler = current;
+                if (compiler == null) { chunk.JitState = Chunk.JitStatus.Failed; continue; }
+                try
+                {
+                    var compiled = compiler.Compile(chunk);
+                    if (compiled != null)
+                    {
+                        chunk.CompiledDelegate = compiled;          // volatile release
+                        chunk.JitState = Chunk.JitStatus.Compiled;
+                    }
+                    else
+                    {
+                        chunk.JitState = Chunk.JitStatus.Failed;
+                    }
+                }
+                catch
+                {
+                    chunk.JitState = Chunk.JitStatus.Failed;
+                }
+            }
+        }
     }
 }
