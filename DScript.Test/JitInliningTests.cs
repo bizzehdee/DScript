@@ -67,5 +67,59 @@ namespace DScript.Test
                 "function inc(x){ return x + 1; } function outer(x){ return inc(x) + 1; }",
                 "s = s + outer(i);", "i % 30"));
         }
+
+        // ── bimorphic inlining: a site that sees two callees inlines both ─────────
+
+        private static string RunSrc(string src, IJitCompiler c)
+        {
+            if (c != null) JitRegistry.Register(c); else JitRegistry.Clear();
+            var chunk = ScriptEngine.Compile(src);
+            var engine = new ScriptEngine();
+            engine.Run(chunk);
+            return engine.Root.GetParameter("__result__").String;
+        }
+
+        private void BimorphicMatches(string src)
+            => Assert.That(RunSrc(src, new ReflectionEmitJitCompiler()), Is.EqualTo(RunSrc(src, null)));
+
+        [Test]
+        public void BimorphicBothInlined()
+        {
+            // f's call site `fn(x)` alternates between two pure-param leaves -> the
+            // site is bimorphic; both bodies are guarded and inlined.
+            BimorphicMatches(
+                "function sq(x){ return x * x; }\n" +
+                "function dbl(x){ return x + x; }\n" +
+                "function f(fn, x){ return fn(x) + 0; }\n" +
+                "var fns = [sq, dbl];\n" +
+                "var r=0; var i=0; while(i<1500){ r = r + f(fns[i % 2], i % 30); i = i + 1; }\n__result__=r;");
+        }
+
+        [Test]
+        public void BimorphicOneInlinableOneNot()
+        {
+            // One callee reads a global (not inlinable) -> only the eligible one is
+            // guarded+inlined; the other and any miss go through general dispatch.
+            BimorphicMatches(
+                "var BASE = 7;\n" +
+                "function sq(x){ return x * x; }\n" +
+                "function glob(x){ return x + BASE; }\n" +
+                "function f(fn, x){ return fn(x) + 0; }\n" +
+                "var fns = [sq, glob];\n" +
+                "var r=0; var i=0; while(i<1500){ r = r + f(fns[i % 2], i % 30); i = i + 1; }\n__result__=r;");
+        }
+
+        [Test]
+        public void MegamorphicFallsBack()
+        {
+            // Three callees -> megamorphic -> no baked guard, general dispatch only.
+            BimorphicMatches(
+                "function a(x){ return x + 1; }\n" +
+                "function b(x){ return x + 2; }\n" +
+                "function c(x){ return x + 3; }\n" +
+                "function f(fn, x){ return fn(x) + 0; }\n" +
+                "var fns = [a, b, c];\n" +
+                "var r=0; var i=0; while(i<1500){ r = r + f(fns[i % 3], i % 30); i = i + 1; }\n__result__=r;");
+        }
     }
 }

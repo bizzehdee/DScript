@@ -351,7 +351,7 @@ namespace DScript.Jit
                     case JitOpKind.ToNumber:      b.EmitToNumber(); break;
                     case JitOpKind.Shift:         b.EmitShift(instr.Op); break;
                     case JitOpKind.Binary:        EmitBinary(b, instr.Op, aSlot, bSlot, rSlot); break;
-                    case JitOpKind.Call:          EmitCall(b, instr.MonoCallee, instr.IntValue, aSlot, bSlot, argArr, rSlot); break;
+                    case JitOpKind.Call:          EmitCall(b, instr.MonoCallee, instr.MonoCallee1, instr.IntValue, aSlot, bSlot, argArr, rSlot); break;
                     case JitOpKind.Jump:
                         b.IL.Emit(OpCodes.Br, labels[instr.IntValue]);
                         break;
@@ -439,12 +439,13 @@ namespace DScript.Jit
         // IL stack as [callee, arg0, ..., arg{argc-1}] (top = last arg), matching the
         // interpreter's Call layout. Tail and method calls are declined by the decoder.
         //
-        // Monomorphic sites (T14): the decoder supplies the single observed callee;
-        // bake it, guard the runtime callee against it, and dispatch through
-        // vm.InvokeCallable. A guard miss falls through to the same general dispatch
-        // on the runtime callee. Bimorphic/megamorphic/unobserved sites (T15):
-        // monoCallee is null, so dispatch on the runtime callee with no baked guard.
-        private static void EmitCall(DynamicMethodBuilder b, ScriptVar monoCallee, int argc,
+        // The decoder bakes the observed callee(s): one for a monomorphic site, two
+        // for a bimorphic site. For each baked callee that is inline-eligible (a small
+        // pure-parameter leaf), emit an identity guard that splices its body inline on
+        // a match (no call frame allocated). Anything not inlined — a non-eligible
+        // baked callee, a guard miss, or a megamorphic/unobserved site (both callees
+        // null) — falls through to general dispatch on the runtime callee.
+        private static void EmitCall(DynamicMethodBuilder b, ScriptVar callee0, ScriptVar callee1, int argc,
                                      LocalBuilder tmp, LocalBuilder calleeSlot, LocalBuilder argArr,
                                      LocalBuilder rSlot)
         {
@@ -463,46 +464,42 @@ namespace DScript.Jit
             }
             b.EmitStoreLocal(calleeSlot);              // pop callee
 
-            if (monoCallee == null)
-            {
-                // Megamorphic fallback (T15): bimorphic, megamorphic, and unobserved
-                // sites dispatch on the runtime callee with no baked guard.
-                EmitGeneralCall(b, calleeSlot, argArr);
-                return;
-            }
-
-            var bakedIndex = b.AddData(monoCallee);
-            var general = il.DefineLabel();
             var done = il.DefineLabel();
 
-            // Guard: runtime callee is the same object the site always saw.
-            b.EmitLoadLocal(calleeSlot);
-            b.EmitLoadData(bakedIndex, typeof(ScriptVar));
-            il.Emit(OpCodes.Ceq);
-            il.Emit(OpCodes.Brfalse, general);
+            // One guarded inline path per inline-eligible baked callee (≤2). A callee
+            // that isn't inline-eligible gets no guard — it would dispatch identically
+            // to the general path, so the guard would be dead weight.
+            EmitInlineGuard(b, callee0, argc, calleeSlot, argArr, tmp, rSlot, done);
+            EmitInlineGuard(b, callee1, argc, calleeSlot, argArr, tmp, rSlot, done);
 
-            // Monomorphic fast path. If the callee is a small pure-parameter leaf
-            // function, inline its body (no call frame allocated); otherwise dispatch
-            // on the baked callee.
-            if (TryGetInlineBody(monoCallee, argc, out var calleeChunk, out var body))
-            {
-                EmitInlinedBody(b, calleeChunk, body, argArr, tmp, calleeSlot, rSlot);
-            }
-            else
-            {
-                b.EmitLoadVm();
-                b.EmitLoadData(bakedIndex, typeof(ScriptVar));
-                il.Emit(OpCodes.Ldnull);               // thisArg
-                b.EmitLoadLocal(argArr);
-                b.EmitInvokeCallable();
-            }
+            // Fallback: dispatch on the runtime callee (handles misses + non-inlined).
+            EmitGeneralCall(b, calleeSlot, argArr);
+            il.MarkLabel(done);
+        }
+
+        // If <paramref name="callee"/> is inline-eligible, emit: guard runtimeCallee ==
+        // callee; on a match splice the body inline and branch to <paramref name="done"/>;
+        // on a miss fall through to whatever the caller emits next. No-op otherwise.
+        private static void EmitInlineGuard(DynamicMethodBuilder b, ScriptVar callee, int argc,
+                                            LocalBuilder calleeSlot, LocalBuilder argArr,
+                                            LocalBuilder tmp, LocalBuilder rSlot, System.Reflection.Emit.Label done)
+        {
+            if (callee == null) return;
+            if (!TryGetInlineBody(callee, argc, out var calleeChunk, out var body)) return;
+
+            var il = b.IL;
+            var skip = il.DefineLabel();
+            b.EmitLoadLocal(calleeSlot);
+            b.EmitLoadData(b.AddData(callee), typeof(ScriptVar));
+            il.Emit(OpCodes.Ceq);
+            il.Emit(OpCodes.Brfalse, skip);
+
+            // Guard hit: splice the callee body (clobbers calleeSlot, but this path
+            // branches to done without reaching any later guard that reads it).
+            EmitInlinedBody(b, calleeChunk, body, argArr, tmp, calleeSlot, rSlot);
             il.Emit(OpCodes.Br, done);
 
-            // Guard miss: dispatch on the runtime callee.
-            il.MarkLabel(general);
-            EmitGeneralCall(b, calleeSlot, argArr);
-
-            il.MarkLabel(done);
+            il.MarkLabel(skip);
         }
 
         // Maximum inlined callee size (instructions), bounding code growth.

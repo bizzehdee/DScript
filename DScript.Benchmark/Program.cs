@@ -402,6 +402,13 @@ internal static class Program
             ($"control-flow loop (n={propN})",
                 $"function classify(n){{ var s=0; var k=0; while(k<n){{ if(k<10){{s=s+1;}} else if(k<50){{s=s+2;}} else {{s=s+3;}} k=k+1; }} return s; }} " +
                 $"var t=0; for(var i=0;i<{propN};i=i+1){{ t=classify(60); }} result=t;"),
+
+            // Bimorphic inlining: the call site `fn(x)` alternates between two
+            // pure-parameter leaves, so both are guarded and inlined (no frame alloc).
+            ($"bimorphic inlined call (n={propN})",
+                $"function sq(x){{return x*x;}} function dbl(x){{return x+x;}} " +
+                $"function f(fn,x){{ return fn(x) + 0; }} var fns=[sq,dbl]; var s=0; " +
+                $"for(var i=0;i<{propN};i=i+1){{ s=s+f(fns[i%2], i%100); }} result=s;"),
         };
 
         Console.WriteLine();

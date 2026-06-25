@@ -102,10 +102,11 @@ namespace DScript.Jit
         public readonly int IntValue;               // PushIntLiteral, Call (argc), Jump* (target instruction index)
         public readonly string Name;                // PushVar
         public readonly ScriptLex.LexTypes Op;      // Binary
-        public readonly ScriptVar MonoCallee;       // Call (the baked monomorphic target, or null)
+        public readonly ScriptVar MonoCallee;        // Call: first baked callee (monomorphic/bimorphic), or null
+        public readonly ScriptVar MonoCallee1;       // Call: second baked callee (bimorphic only), or null
 
         private JitInstruction(JitOpKind kind, ConstantValue constant, int intValue,
-                               string name, ScriptLex.LexTypes op, ScriptVar monoCallee)
+                               string name, ScriptLex.LexTypes op, ScriptVar monoCallee, ScriptVar monoCallee1 = null)
         {
             Kind = kind;
             Constant = constant;
@@ -113,6 +114,7 @@ namespace DScript.Jit
             Name = name;
             Op = op;
             MonoCallee = monoCallee;
+            MonoCallee1 = monoCallee1;
         }
 
         public static JitInstruction PushConst(ConstantValue c) =>
@@ -165,8 +167,8 @@ namespace DScript.Jit
             new(JitOpKind.ToNumber, null, 0, null, default, null);
         public static JitInstruction Shift(ScriptLex.LexTypes op) =>
             new(JitOpKind.Shift, null, 0, null, op, null);
-        public static JitInstruction Call(int argc, ScriptVar monoCallee) =>
-            new(JitOpKind.Call, null, argc, null, default, monoCallee);
+        public static JitInstruction Call(int argc, ScriptVar callee0, ScriptVar callee1) =>
+            new(JitOpKind.Call, null, argc, null, default, callee0, callee1);
         public static JitInstruction Pop() =>
             new(JitOpKind.Pop, null, 0, null, default, null);
         public static JitInstruction Return() =>

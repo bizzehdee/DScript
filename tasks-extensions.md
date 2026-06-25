@@ -212,11 +212,20 @@ Parity tests both back-ends; benchmark.
 **Done:** `PropCacheCell` is now a 2-way LRU (two object/shape/link entries); a site
 alternating between two objects/shapes hits instead of thrashing. Bimorphic tests +
 a benchmark workload (`bimorphic prop read` ~1.21× ReflEmit) added.
-**Scoped out:** bimorphic *call* dispatch. Without inlining, baked-callee dispatch is
-near-identical to general dispatch (both call `InvokeCallable`), so a two-callee
-guard adds branches for negligible benefit; bi/megamorphic calls already route
-through general dispatch correctly. Worthwhile only alongside bimorphic *inlining*
-(future work).
+**Scoped out at the time:** bimorphic *call* dispatch — without inlining it's
+near-identical to general dispatch. **Now done via bimorphic inlining** (see below):
+a bimorphic call site bakes both observed callees and inlines each inline-eligible
+one behind an identity guard.
+
+### Bimorphic inlining (follow-up to T41/T42 + T51)
+**File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`, `JitDecoder.cs`, `JitInstruction.cs`
+**Done:** the decoder bakes both callees of a Bimorphic site (`Callee0`/`Callee1`);
+`EmitCall` emits one guarded inline path per inline-eligible baked callee (≤2),
+splicing the matching body on a hit and falling through to general dispatch on a
+miss or for non-inlinable/megamorphic sites. Unifies the mono and bimorphic paths
+(a non-inlinable callee now gets no dead guard). Tests: both-inlined, mixed
+eligibility, megamorphic fallback. Benchmark `bimorphic inlined call` ~1.52× ReflEmit
+vs 1.11× closure (general dispatch) — confirming inlining engages.
 **Depends on:** T14, T28
 
 ### T52 — Background compilation

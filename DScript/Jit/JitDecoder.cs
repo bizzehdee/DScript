@@ -225,10 +225,19 @@ namespace DScript.Jit
                         var site = ip; // operand-start: matches CallProfiles indexing
                         var argc = chunk.ReadInt(ip);
                         var profile = chunk.CallProfiles[site];
-                        var mono = profile.State == Chunk.CallSiteMorphism.Monomorphic
-                            ? profile.Callee0
-                            : null;
-                        instrs.Add(JitInstruction.Call(argc, mono));
+                        // Bake the observed callee(s) so the emitter can inline them:
+                        // one for a monomorphic site, two for a bimorphic site.
+                        ScriptVar callee0 = null, callee1 = null;
+                        if (profile.State == Chunk.CallSiteMorphism.Monomorphic)
+                        {
+                            callee0 = profile.Callee0;
+                        }
+                        else if (profile.State == Chunk.CallSiteMorphism.Bimorphic)
+                        {
+                            callee0 = profile.Callee0;
+                            callee1 = profile.Callee1;
+                        }
+                        instrs.Add(JitInstruction.Call(argc, callee0, callee1));
                         ip += 4;
                         break;
                     }
