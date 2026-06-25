@@ -310,6 +310,79 @@ namespace DScript
             intData = val ? 1 : 0;
         }
 
+        // Parse an integer literal token, preferring an int32 (DScript's small-int
+        // fast path) but falling back to a double when the value exceeds int32. JS
+        // has no integer type, so large literals like 1736855917056 or 0xFFFFFFFF are
+        // doubles, not overflow errors. Returns true with intValue when it fits,
+        // false with doubleValue otherwise.
+        internal static bool TryParseIntegerLiteral(string val, out int intValue, out double doubleValue)
+        {
+            intValue = 0;
+            doubleValue = 0;
+
+            GetLiteralRadix(val, out var radix, out var digits);
+
+            if (radix == 10)
+            {
+                if (long.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lng))
+                {
+                    if (lng >= int.MinValue && lng <= int.MaxValue) { intValue = (int)lng; return true; }
+                    doubleValue = lng;
+                    return false;
+                }
+                // Beyond long range — parse as double (very large literals, may be Infinity).
+                doubleValue = double.Parse(digits, NumberStyles.Float, CultureInfo.InvariantCulture);
+                return false;
+            }
+
+            // Non-decimal literal: accumulate the unsigned magnitude. JS treats these
+            // as positive numbers, so 0xFFFFFFFF is 4294967295, not -1 (a signed
+            // 32-bit wrap). Stop as soon as it leaves int32 and fall back to a double.
+            long acc = 0;
+            foreach (var c in digits)
+            {
+                acc = acc * radix + DigitValue(c);
+                if (acc > int.MaxValue)
+                {
+                    doubleValue = IntegerLiteralToDouble(val);
+                    return false;
+                }
+            }
+            intValue = (int)acc;
+            return true;
+        }
+
+        private static int DigitValue(char c) =>
+            c >= '0' && c <= '9' ? c - '0'
+          : c >= 'a' && c <= 'f' ? c - 'a' + 10
+          : c >= 'A' && c <= 'F' ? c - 'A' + 10
+          : 0;
+
+        // Classify an integer literal token into a radix and its digit string.
+        private static void GetLiteralRadix(string val, out int radix, out string digits)
+        {
+            if (val.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) { radix = 16; digits = val.Substring(2); }
+            else if (val.StartsWith("0b", StringComparison.OrdinalIgnoreCase)) { radix = 2; digits = val.Substring(2); }
+            else if (val.StartsWith("0o", StringComparison.OrdinalIgnoreCase)) { radix = 8; digits = val.Substring(2); }
+            else if (val.Length > 1 && val[0] == '0') { radix = 8; digits = val; } // legacy octal
+            else { radix = 10; digits = val; }
+        }
+
+        // Exact magnitude of an integer literal (any radix) as a double, used when it
+        // overflows int32. BigInteger keeps non-decimal forms exact before the cast.
+        private static double IntegerLiteralToDouble(string val)
+        {
+            GetLiteralRadix(val, out var radix, out var digits);
+            if (radix == 10)
+                return double.Parse(digits, NumberStyles.Float, CultureInfo.InvariantCulture);
+
+            // Exact magnitude before the cast (non-decimal forms can exceed long).
+            var acc = BigInteger.Zero;
+            foreach (var c in digits)
+                acc = acc * radix + DigitValue(c);
+            return (double)acc;
+        }
+
         private ScriptVar(string val, Flags flags)
         {
             this.flags = flags;
@@ -552,7 +625,7 @@ namespace DScript
             }
             if (IsDouble)
             {
-                return Float.ToString(CultureInfo.InvariantCulture);
+                return FormatDouble(Float);
             }
             if (IsNull) return "null";
             if (IsUndefined) return "undefined";
@@ -573,6 +646,98 @@ namespace DScript
             }
 
             return scriptData as string ?? string.Empty;
+        }
+
+        // Render a double using the ECMAScript Number::toString algorithm rather than
+        // .NET's default, which switches to exponential notation around 1e15. JS only
+        // uses exponential when the decimal point position n is > 21 or <= -6; in the
+        // common range it prints full fixed-point digits (e.g. 1.73e17 -> the full
+        // 18-digit integer, matching V8).
+        internal static string FormatDouble(double d)
+        {
+            if (double.IsNaN(d)) return "NaN";
+            if (double.IsPositiveInfinity(d)) return "Infinity";
+            if (double.IsNegativeInfinity(d)) return "-Infinity";
+            if (d == 0.0) return "0";
+
+            var negative = d < 0;
+            // "R" gives the shortest round-trippable decimal representation.
+            var str = System.Math.Abs(d).ToString("R", CultureInfo.InvariantCulture);
+
+            // Split off an exponent if present (e.g. "1.736E+17", "1E-07").
+            var exp = 0;
+            var ePos = str.IndexOf('E');
+            if (ePos >= 0)
+            {
+                exp = int.Parse(str.Substring(ePos + 1), CultureInfo.InvariantCulture);
+                str = str.Substring(0, ePos);
+            }
+
+            // Recover the raw digit string and n = position of the decimal point.
+            string digits;
+            int n; // number of digits to the left of the decimal point
+            var dot = str.IndexOf('.');
+            if (dot >= 0)
+            {
+                var intPart = str.Substring(0, dot);
+                var fracPart = str.Substring(dot + 1);
+                digits = intPart + fracPart;
+                n = intPart.Length;
+            }
+            else
+            {
+                digits = str;
+                n = str.Length;
+            }
+            n += exp;
+
+            // Strip leading zeros (each one shifts the decimal point left).
+            var lead = 0;
+            while (lead < digits.Length - 1 && digits[lead] == '0') { lead++; n--; }
+            digits = digits.Substring(lead);
+            // Strip trailing zeros — they are recovered via n (no value change).
+            digits = digits.TrimEnd('0');
+            if (digits.Length == 0) digits = "0";
+
+            var k = digits.Length; // count of significant digits
+            var sb = new StringBuilder();
+            if (negative) sb.Append('-');
+
+            if (k <= n && n <= 21)
+            {
+                // Integer with trailing zeros: digits then (n-k) zeros.
+                sb.Append(digits);
+                sb.Append('0', n - k);
+            }
+            else if (0 < n && n <= 21)
+            {
+                // Decimal point falls inside the digits.
+                sb.Append(digits, 0, n);
+                sb.Append('.');
+                sb.Append(digits, n, k - n);
+            }
+            else if (-6 < n && n <= 0)
+            {
+                // Small magnitude: 0.00…digits.
+                sb.Append("0.");
+                sb.Append('0', -n);
+                sb.Append(digits);
+            }
+            else
+            {
+                // Exponential notation (n > 21 or n <= -6).
+                sb.Append(digits[0]);
+                if (k > 1)
+                {
+                    sb.Append('.');
+                    sb.Append(digits, 1, k - 1);
+                }
+                var e = n - 1;
+                sb.Append('e');
+                sb.Append(e >= 0 ? '+' : '-');
+                sb.Append(System.Math.Abs(e).ToString(CultureInfo.InvariantCulture));
+            }
+            return sb.ToString();
         }
 
         // A lazily-concatenated ("cons") string: `a + b` builds one of these in O(1)
@@ -1112,13 +1277,21 @@ namespace DScript
                             case '+': return IntOrDoubleResult((long)da + db);
                             case '-': return IntOrDoubleResult((long)da - db);
                             case '*': return IntOrDoubleResult((long)da * db);
-                            // Match JS semantics for division by zero (Infinity/NaN)
-                            // instead of throwing a DivideByZeroException.
-                            case '/': return db == 0 ? new ScriptVar((double)da / db) : new ScriptVar(da / db);
+                            // JS '/' is always real division (1/3 -> 0.333…); keep an
+                            // int result only when it divides evenly. Division by zero
+                            // yields Infinity/NaN rather than throwing.
+                            case '/':
+                                if (db == 0) return new ScriptVar((double)da / db);
+                                if (db == -1) return IntOrDoubleResult(-(long)da); // avoids MinValue/-1 overflow
+                                if (da % db == 0) return new ScriptVar(da / db);
+                                return new ScriptVar((double)da / db);
                             case '&': return new ScriptVar(da & db);
                             case '|': return new ScriptVar(da | db);
                             case '^': return new ScriptVar(da ^ db);
-                            case '%': return db == 0 ? new ScriptVar(double.NaN) : new ScriptVar(da % db);
+                            case '%':
+                                if (db == 0) return new ScriptVar(double.NaN);
+                                if (db == -1) return new ScriptVar(0); // avoids MinValue%-1 overflow
+                                return new ScriptVar(da % db);
                             case (char)ScriptLex.LexTypes.Power:
                             {
                                 var r = Math.Pow(da, db);
@@ -1148,6 +1321,7 @@ namespace DScript
                             case '-': return new ScriptVar(da - db);
                             case '*': return new ScriptVar(da * db);
                             case '/': return new ScriptVar(da / db);
+                            case '%': return new ScriptVar(da % db);
                             case (char)ScriptLex.LexTypes.Power: return new ScriptVar(Math.Pow(da, db));
                             case (char)ScriptLex.LexTypes.Equal: return new ScriptVar(Math.Abs(da - db) < 0.00001);
                             case (char)ScriptLex.LexTypes.NEqual: return new ScriptVar(Math.Abs(da - db) > 0.00001);

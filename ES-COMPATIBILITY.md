@@ -61,6 +61,10 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Number.parseInt` / `Number.parseFloat` | ✅ | |
 | `Number.prototype` methods (`toFixed`, `toString`, `toPrecision`, `toExponential`) | ✅ | Resolve on number literals/values, e.g. `(3.14).toFixed(1)`; `toString` supports any radix 2–36 |
 | `Number.EPSILON` / `MAX_SAFE_INTEGER` / `MIN_SAFE_INTEGER` | ✅ | |
+| `NaN` / `Infinity` global constants | ✅ | `typeof` is `"number"`; `-Infinity` via negation |
+| Number arithmetic (doubles) | ✅ | `/` is real division (`1/3` → `0.333…`), not integer truncation; `+ - *` promote to double on int32 overflow; `%` on ints and doubles; division/modulo by zero yield `Infinity`/`NaN` |
+| Numeric literals exceeding int32 | ✅ | Decimal/hex/binary/octal literals above int32 parse as doubles (JS has no integer type); e.g. `1736855917056`, `0xFFFFFFFF` → `4294967295` |
+| Number → string coercion | ✅ | ECMAScript `Number::toString`: full fixed-point digits for magnitudes in `[1e-6, 1e21)`, exponential outside; e.g. `1.7e17` prints all 18 digits, `0.1+0.2` → `0.30000000000000004` |
 | `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ✅ | Constructable via `new` or call; `message`, `name`, `stack` set; `instanceof Error` works through prototype chain; `Error.cause` (ES2022) not implemented |
 | `Function.prototype.bind` / `call` / `apply` | ✅ | |

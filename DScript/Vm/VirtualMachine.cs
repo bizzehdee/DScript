@@ -3236,11 +3236,20 @@ namespace DScript.Vm
                 case '+': result = IntOrDouble((long)a + b); return true;
                 case '-': result = IntOrDouble((long)a - b); return true;
                 case '*': result = IntOrDouble((long)a * b); return true;
-                case '/': result = b == 0 ? ScriptVar.FromDouble((double)a / b) : ScriptVar.FromInt(a / b); return true;
+                // JS '/' is always real division (1/3 -> 0.333…). Keep an int result
+                // only when it divides evenly, so 10/2 stays an int fast path.
+                case '/':
+                    if (b == 0) { result = ScriptVar.FromDouble((double)a / b); return true; }
+                    if (b == -1) { result = IntOrDouble(-(long)a); return true; } // avoids MinValue/-1 overflow
+                    if (a % b == 0) { result = ScriptVar.FromInt(a / b); return true; }
+                    result = ScriptVar.FromDouble((double)a / b); return true;
                 case '&': result = ScriptVar.FromInt(a & b); return true;
                 case '|': result = ScriptVar.FromInt(a | b); return true;
                 case '^': result = ScriptVar.FromInt(a ^ b); return true;
-                case '%': result = b == 0 ? ScriptVar.FromDouble(double.NaN) : ScriptVar.FromInt(a % b); return true;
+                case '%':
+                    if (b == 0) { result = ScriptVar.FromDouble(double.NaN); return true; }
+                    if (b == -1) { result = ScriptVar.FromInt(0); return true; } // avoids MinValue%-1 overflow
+                    result = ScriptVar.FromInt(a % b); return true;
                 case (char)ScriptLex.LexTypes.Equal:  result = a == b ? SharedTrue : SharedFalse; return true;
                 case (char)ScriptLex.LexTypes.NEqual: result = a != b ? SharedTrue : SharedFalse; return true;
                 case '<':                              result = a <  b ? SharedTrue : SharedFalse; return true;

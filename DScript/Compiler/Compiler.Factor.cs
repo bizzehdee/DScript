@@ -70,9 +70,14 @@ namespace DScript.Compiler
                 {
                     if (chunk.IsStrict && IsLegacyOctal(lexer.TokenString))
                         throw new ScriptException("SyntaxError: Octal literals are not allowed in strict mode");
-                    var value = ScriptVar.ParseLiteral(lexer.TokenString, ScriptVar.Flags.Integer).Int;
+                    var tok = lexer.TokenString;
                     lexer.Match(ScriptLex.LexTypes.Int);
-                    EmitConstantInt(value);
+                    // JS has no int type — a literal that exceeds int32 is a double,
+                    // not an overflow. int32 is only DScript's small-value fast path.
+                    if (ScriptVar.TryParseIntegerLiteral(tok, out var intLit, out var dblLit))
+                        EmitConstantInt(intLit);
+                    else
+                        chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Double(dblLit)));
                     break;
                 }
                 case ScriptLex.LexTypes.Float:

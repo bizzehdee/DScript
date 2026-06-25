@@ -140,7 +140,9 @@ namespace DScript.Extras.FunctionProviders
             var radix = radixVar.IsUndefined ? 10 : radixVar.Int;
             if (radix == 10)
             {
-                var.ReturnVar.String = d.ToString(CultureInfo.InvariantCulture);
+                // Reuse the engine's ECMAScript number formatter (same exponential
+                // threshold as implicit string coercion) by reading a double's String.
+                var.ReturnVar.String = ScriptVar.FromDouble(d).String;
                 return;
             }
             if (radix < 2 || radix > 36) { var.ReturnVar.String = "NaN"; return; }

@@ -60,6 +60,38 @@ namespace DScript.Test
             Assert.That(v.Int, Is.EqualTo(14));
         }
 
+        // JS has no integer type, so a literal exceeding int32 is a double, not an
+        // overflow error. int32 is only DScript's small-value fast path.
+        [Test]
+        public void LargeDecimalLiteral_ParsesAsDouble()
+        {
+            var chunk = new DScriptCompiler().CompileExpression("1736855917056");
+            var v = new VirtualMachine().Run(chunk);
+            Assert.That(v.IsInt, Is.False);
+            Assert.That(v.Float, Is.EqualTo(1736855917056.0));
+        }
+
+        [Test]
+        public void HugeDecimalLiteral_ParsesAsDouble()
+        {
+            Assert.That(Eval("1000000000000000000000"), Is.EqualTo(1e21));
+        }
+
+        [Test]
+        public void LargeHexLiteral_ParsesAsDouble()
+        {
+            // 0xFFFFFFFF = 4294967295 exceeds int32 max → double.
+            Assert.That(Eval("0xFFFFFFFF"), Is.EqualTo(4294967295.0));
+        }
+
+        [Test]
+        public void SmallLiteral_StaysInt()
+        {
+            var v = new VirtualMachine().Run(new DScriptCompiler().CompileExpression("255"));
+            Assert.That(v.IsInt, Is.True);
+            Assert.That(v.Int, Is.EqualTo(255));
+        }
+
         [Test]
         public void BitwiseOps_StayInt32()
         {
