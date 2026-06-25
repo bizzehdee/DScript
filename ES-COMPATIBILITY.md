@@ -87,13 +87,13 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Template literals (tagged and untagged) | ✅ | Nested expressions supported |
 | Tagged template literals | ✅ | Tag receives `strings` array with `.raw` property; interpolated values passed as further args |
 | Array destructuring | ✅ | Including rest element and defaults |
-| Object destructuring | ✅ | Including rename, nested, and defaults |
+| Object destructuring | ✅ | Including rename, nested, defaults, and rest (`{a, ...rest}`) |
 | Destructuring in parameters | ✅ | |
 | Shorthand property names | ✅ | |
 | Computed property names | ✅ | |
 | Method shorthand in object literals | ✅ | |
 | `class` syntax | ✅ | |
-| `extends` and `super` | ✅ | |
+| `extends` and `super` | ✅ | `super(args)` constructor call, `super.method(args)`, and `super.prop` reads |
 | Static methods and properties | ✅ | |
 | Static initialisation blocks | ✅ | |
 | Private fields and methods (`#name`) | ✅ | Stored as string key `"#name"` |
