@@ -1387,6 +1387,11 @@ namespace DScript
             {
                 return GetString();
             }
+            if(IsBigInt)
+            {
+                // Console / parsable form mirrors a BigInt literal (digits + "n").
+                return GetString() + "n";
+            }
             if(IsFunction)
             {
                 // compiled functions retain their source for round-tripping

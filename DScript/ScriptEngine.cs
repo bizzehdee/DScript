@@ -961,6 +961,22 @@ namespace DScript
                 }
             }
 
+            if (obj.IsBigInt)
+            {
+                // BigInt primitives are bare ScriptVars not linked to the BigInt
+                // class, so resolve their methods (toString, valueOf, …) against the
+                // BigInt constructor where those methods are registered.
+                var bigIntClass = Root.FindChild("BigInt")?.Var;
+                if (bigIntClass != null)
+                {
+                    implementation = bigIntClass.FindChild(name);
+                    if (implementation != null)
+                    {
+                        return implementation;
+                    }
+                }
+            }
+
             if (obj.IsString)
             {
                 implementation = stringClass.FindChild(name);
