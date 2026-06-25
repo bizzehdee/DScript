@@ -762,8 +762,10 @@ namespace DScript.Jit
             il.Emit(OpCodes.Brfalse, skip);
 
             // Guard hit: splice the callee body (clobbers calleeSlot, but this path
-            // branches to done without reaching any later guard that reads it).
-            EmitInlinedBody(b, calleeChunk, body, argArr, tmp, calleeSlot, rSlot);
+            // branches to done without reaching any later guard that reads it). Free
+            // (global) reads resolve against the callee's captured defining scope.
+            var captured = ((VmFunction)callee.GetData()).Captured;
+            EmitInlinedBody(b, calleeChunk, body, captured, argArr, tmp, calleeSlot, rSlot);
             il.Emit(OpCodes.Br, done);
 
             il.MarkLabel(skip);
@@ -772,10 +774,12 @@ namespace DScript.Jit
         // Maximum inlined callee size (instructions), bounding code growth.
         private const int InlineBudget = 24;
 
-        // A callee is inline-eligible when it is a small, straight-line, pure
-        // (call-free, mutation-free) leaf function that reads only its own parameters.
-        // Such a body needs no call environment, so it can be spliced into the caller
-        // with parameter reads rewritten to the caller's argument array.
+        // A callee is inline-eligible when it is a small, mutation-free leaf function
+        // (no calls, no assignments, no local declarations). It may contain control
+        // flow (if/while branches) and may read its own parameters and free variables
+        // (e.g. globals). Parameter reads are rewritten to the caller's argument array;
+        // free-variable reads resolve against the function's captured defining scope —
+        // so the spliced body needs no per-call environment of its own.
         private static bool TryGetInlineBody(ScriptVar callee, int argc, out Chunk calleeChunk,
                                              out List<JitInstruction> body)
         {
@@ -799,6 +803,7 @@ namespace DScript.Jit
                 {
                     case JitOpKind.PushConst:
                     case JitOpKind.PushIntLiteral:
+                    case JitOpKind.PushVar:        // param -> arg array; free var -> captured env
                     case JitOpKind.PushNull:
                     case JitOpKind.PushUndefined:
                     case JitOpKind.Not:
@@ -806,43 +811,74 @@ namespace DScript.Jit
                     case JitOpKind.GetProp:
                     case JitOpKind.Pop:
                     case JitOpKind.Return:
-                        break;
-                    case JitOpKind.PushVar:
-                        if (!c.Parameters.Contains(instr.Name)) return false; // only params
+                    case JitOpKind.Jump:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
                         break;
                     default:
-                        return false; // calls, control flow, assignments, declares
+                        // calls, assignments, declares, blocks, conditional-pop jumps,
+                        // index/literal ops — not inlined (would need an env or be unsafe).
+                        return false;
                 }
             }
+
+            // Control flow in the body must satisfy the same flat IL-stack model the
+            // conservative tier verifies before we splice it.
+            if (!VerifyStackConsistency(instrs)) return false;
 
             calleeChunk = c;
             body = instrs;
             return true;
         }
 
-        // Splice a straight-line pure-parameter callee body inline. Parameter reads
-        // become reads of the caller's argument array; the single trailing Return is a
-        // no-op (its value is left on the IL stack as the call result).
+        // Splice a mutation-free leaf callee body inline. Parameter reads become reads
+        // of the caller's argument array; free-variable reads resolve against the
+        // callee's captured defining scope. Control flow uses a FRESH label set local
+        // to this body, and every Return branches to a shared end label (the result is
+        // on the IL stack there = the call result).
         private static void EmitInlinedBody(DynamicMethodBuilder b, Chunk calleeChunk,
-                                            List<JitInstruction> body, LocalBuilder argArr,
+                                            List<JitInstruction> body, Environment captured,
+                                            LocalBuilder argArr,
                                             LocalBuilder aSlot, LocalBuilder bSlot, LocalBuilder rSlot)
         {
+            var il = b.IL;
+            var labels = new Dictionary<int, Label>();
             foreach (var instr in body)
+                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                    labels[instr.IntValue] = il.DefineLabel();
+            var end = il.DefineLabel();
+
+            for (var i = 0; i < body.Count; i++)
             {
+                if (labels.TryGetValue(i, out var here))
+                    il.MarkLabel(here);
+
+                var instr = body[i];
                 switch (instr.Kind)
                 {
                     case JitOpKind.PushConst:      b.EmitMaterializeConstant(instr.Constant); break;
                     case JitOpKind.PushIntLiteral: b.EmitPushIntConst(instr.IntValue); break;
-                    case JitOpKind.PushVar:        b.EmitLoadArgElement(argArr, calleeChunk.Parameters.IndexOf(instr.Name)); break;
+                    case JitOpKind.PushVar:
+                    {
+                        var p = calleeChunk.Parameters.IndexOf(instr.Name);
+                        if (p >= 0) b.EmitLoadArgElement(argArr, p);
+                        else        b.EmitLoadNamedVarFrom(instr.Name, captured);
+                        break;
+                    }
                     case JitOpKind.PushNull:       b.EmitPushNull(); break;
                     case JitOpKind.PushUndefined:  b.EmitPushUndefined(); break;
                     case JitOpKind.Not:            b.EmitLogicalNot(); break;
                     case JitOpKind.Binary:         EmitBinary(b, instr.Op, aSlot, bSlot, rSlot); break;
                     case JitOpKind.GetProp:        b.EmitGetProp(instr.Name, aSlot); break;
-                    case JitOpKind.Pop:            b.IL.Emit(OpCodes.Pop); break;
-                    case JitOpKind.Return:         break; // value already on stack = call result
+                    case JitOpKind.Pop:            il.Emit(OpCodes.Pop); break;
+                    case JitOpKind.Jump:           il.Emit(OpCodes.Br, labels[instr.IntValue]); break;
+                    case JitOpKind.JumpIfFalse:    b.EmitToBool(); il.Emit(OpCodes.Brfalse, labels[instr.IntValue]); break;
+                    case JitOpKind.JumpIfTrue:     b.EmitToBool(); il.Emit(OpCodes.Brtrue, labels[instr.IntValue]); break;
+                    case JitOpKind.Return:         il.Emit(OpCodes.Br, end); break; // result on stack -> end
                 }
             }
+
+            il.MarkLabel(end);
         }
 
         // General dispatch: vm.InvokeCallable(callee, null, args).

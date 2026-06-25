@@ -50,14 +50,42 @@ namespace DScript.Test
             => Matches(Wrap("function f2(x){ return x * 2 + 1; }", "s = s + f2(i);", "i % 50"));
 
         [Test]
-        public void GlobalReadingHelperFallsBack()
+        public void GlobalReadingHelperInlined()
+            // Phase 7: a leaf helper that reads a global is now inlined — the free
+            // variable resolves against the callee's captured (global) scope.
             => Matches("var BASE = 10; " + Wrap("function helper(x){ return x + BASE; }", "s = s + helper(i);", "i % 40"));
 
         [Test]
-        public void LoopingHelperFallsBack()
+        public void BranchyHelperInlined()
+            // Phase 7: a leaf helper containing control flow (no local mutation) is
+            // spliced inline with a fresh label set.
+            => Matches(Wrap(
+                "function clamp(x){ if (x > 20) { return 20; } if (x < 5) { return 5; } return x; }",
+                "s = s + clamp(i);", "i % 40"));
+
+        [Test]
+        public void BranchyGlobalHelperInlined()
+            // Phase 7: control flow AND a global read combined in one inlined leaf.
+            => Matches("var LIMIT = 15; " + Wrap(
+                "function cap(x){ if (x > LIMIT) { return LIMIT; } return x; }",
+                "s = s + cap(i);", "i % 40"));
+
+        [Test]
+        public void LoopingHelperWithLocalsFallsBack()
+            // Local declarations/assignments are still not inlined (the body would need
+            // its own environment) — it falls back to dispatch but matches the interpreter.
             => Matches(Wrap(
                 "function tri(x){ var t = 0; var k = 0; while (k < x) { t = t + k; k = k + 1; } return t; }",
                 "s = s + tri(i % 8);", "i % 20"));
+
+        [Test]
+        public void ClosureMakingHelperFallsBack()
+            // A helper that defines an inner function (MakesClosure) is not inlined
+            // (its body has a MakeClosure opcode the inliner declines); the result
+            // still matches the interpreter.
+            => Matches(Wrap(
+                "function cap(x){ var g = function(){ return 1; }; return x + g(); }",
+                "s = s + cap(i);", "i % 30"));
 
         [Test]
         public void NestedHelperCallFallsBack()
@@ -96,10 +124,10 @@ namespace DScript.Test
         }
 
         [Test]
-        public void BimorphicOneInlinableOneNot()
+        public void BimorphicMixedCalleesInlined()
         {
-            // One callee reads a global (not inlinable) -> only the eligible one is
-            // guarded+inlined; the other and any miss go through general dispatch.
+            // A bimorphic site whose two callees are a pure leaf and a global-reading
+            // leaf — both are now inline-eligible and guarded+inlined (Phase 7).
             BimorphicMatches(
                 "var BASE = 7;\n" +
                 "function sq(x){ return x * x; }\n" +

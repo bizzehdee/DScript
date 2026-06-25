@@ -248,6 +248,19 @@ namespace DScript.Jit
         }
 
         /// <summary>
+        /// Resolve a variable through a specific baked environment (rather than the
+        /// caller's <c>env</c> argument). Used by the inliner to read a callee's free
+        /// (e.g. global) variables against the function's captured defining scope —
+        /// exactly where the interpreter would resolve them.
+        /// </summary>
+        public void EmitLoadNamedVarFrom(string name, Environment captured)
+        {
+            EmitLoadData(AddData(captured), typeof(Environment));
+            EmitLoadData(AddData(name), typeof(string));
+            IL.EmitCall(OpCodes.Call, JitGetVarMethod, null);
+        }
+
+        /// <summary>
         /// Read a property of the object on top of the stack through a per-site inline
         /// cache: <c>vm.JitGetPropCached(obj, name, cell)</c>, where <c>cell</c> is a
         /// fresh <see cref="PropCacheCell"/> baked for this site. <paramref name="objTemp"/>

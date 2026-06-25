@@ -416,6 +416,15 @@ internal static class Program
             ($"unboxed int loop (n={propN})",
                 $"function sum(m){{ var s=0; var j=0; while(j<m){{ s=s+j*2-1; j=j+1; }} return s; }} " +
                 $"var t=0; for(var i=0;i<{propN};i=i+1){{ t=sum(40); }} result=t;"),
+
+            // Phase 7 extended inlining: a JIT-compiled loop calls a leaf helper that
+            // has control flow AND reads a global — both are now spliced inline (a
+            // fresh label set + the global resolved through the callee's captured scope)
+            // instead of dispatching a call per iteration.
+            ($"branchy global inlined helper (n={propN})",
+                $"var LIMIT=50; function clamp(x){{ if(x>LIMIT){{return LIMIT;}} if(x<0){{return 0;}} return x; }} " +
+                $"function run(m){{ var s=0; var j=0; while(j<m){{ s=s+clamp(j); j=j+1; }} return s; }} " +
+                $"var t=0; for(var i=0;i<{propN};i=i+1){{ t=run(80); }} result=t;"),
         };
 
         Console.WriteLine();
