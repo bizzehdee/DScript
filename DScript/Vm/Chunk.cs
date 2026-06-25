@@ -750,6 +750,7 @@ namespace DScript.Vm
             OpCode.MakeClosure  or OpCode.Call         or OpCode.CallMethod or
             OpCode.TailCall     or OpCode.TailCallMethod                    or
             OpCode.New          or OpCode.InitProp      or OpCode.InitElem  or
+            OpCode.InitPropOverwrite                                        or
             OpCode.LeaveTry     or OpCode.LeaveCatch                        or
             OpCode.DefineGetter or OpCode.DefineSetter                      or
             OpCode.SetVarPop    or OpCode.SetPropPop                        =>  5, // 1 + 4*1

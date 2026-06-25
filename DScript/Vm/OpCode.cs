@@ -239,5 +239,13 @@ namespace DScript.Vm
         // Layout: [i op][i var1Index][i var2Index]  (13 bytes wide, 4 bytes narrow)
         GetVarGetVarBinary,  // [i op][i var1][i var2]   (a op b) where a,b are named vars
         GetVarGetVarBinaryN, // [b op][b var1][b var2]   narrow form (4 bytes)
+
+        // --- Object-literal member after a spread -------------------------------
+        // Like InitProp but overwrites an existing same-named property instead of
+        // appending a duplicate link. Emitted only for explicit/shorthand/method
+        // keys that follow a spread (`{ ...o, d: 9 }`), where the key may already
+        // have been merged in — so the later literal key must win (JS semantics).
+        // The common no-spread path keeps using plain InitProp (append, no lookup).
+        InitPropOverwrite, // [i nameIndex]   obj, value -> obj
     }
 }

@@ -100,6 +100,43 @@ namespace DScript.Test
             Assert.That(RunInt("var a = {x: 1, y: 2}; var b = {...a, z: 3}; var r = b.x + b.y + b.z;"), Is.EqualTo(6));
         }
 
+        [Test]
+        public void SpreadObject_LaterExplicitKeyOverridesSpread()
+        {
+            // { ...o, d: 9 } — the explicit d after the spread must win. Previously
+            // InitProp appended a shadowed duplicate so the merged d (0) was read.
+            Assert.That(RunInt("var o = {a: 1, d: 0}; var p = {...o, d: 9}; var r = p.d;"), Is.EqualTo(9));
+        }
+
+        [Test]
+        public void SpreadObject_EarlierExplicitKeyOverriddenBySpread()
+        {
+            // { d: 9, ...o } — here the spread is last, so the merged value wins.
+            Assert.That(RunInt("var o = {a: 1, d: 0}; var q = {d: 9, ...o}; var r = q.d;"), Is.EqualTo(0));
+        }
+
+        [Test]
+        public void SpreadObject_MultipleExplicitKeysAfterSpreadOverride()
+        {
+            Assert.That(RunInt("var o = {a: 1, d: 0}; var s = {...o, a: 5, d: 7}; var r = s.a * 10 + s.d;"), Is.EqualTo(57));
+        }
+
+        [Test]
+        public void SpreadObject_OverriddenKeyHasNoDuplicateAfterReassign()
+        {
+            // After overwrite, reassigning the property must still update the single
+            // live link (not a shadowed duplicate left behind by the spread).
+            Assert.That(RunInt("var o = {d: 0}; var p = {...o, d: 9}; p.d = 3; var r = p.d;"), Is.EqualTo(3));
+        }
+
+        [Test]
+        public void ObjectLiteral_NoSpread_StillBuildsCorrectly()
+        {
+            // Guard the common (no-spread) InitProp path still works after the
+            // compiler change that switches to InitPropOverwrite only post-spread.
+            Assert.That(RunInt("var o = {a: 1, b: 2, c: 3, d: 4}; var r = o.a + o.b + o.c + o.d;"), Is.EqualTo(10));
+        }
+
         // ── AppendElem / O(n) spread correctness ─────────────────────────────
 
         [Test]

@@ -68,6 +68,7 @@ namespace DScript.Vm
                 case OpCode.CallMethod:
                 case OpCode.New:
                 case OpCode.InitProp:
+                case OpCode.InitPropOverwrite:
                 case OpCode.InitElem:
                 case OpCode.LeaveTry:
                 case OpCode.LeaveCatch:
@@ -231,6 +232,7 @@ namespace DScript.Vm
                 case OpCode.SetProp:
                 case OpCode.DeleteProp:
                 case OpCode.InitProp:
+                case OpCode.InitPropOverwrite:
                 case OpCode.SetVarPop:
                 case OpCode.SetPropPop:
                 case OpCode.GetPropMethod:

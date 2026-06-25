@@ -884,6 +884,15 @@ namespace DScript.Vm
                         Peek().AddChild(name, value); // object kept on stack
                         break;
                     }
+                    case OpCode.InitPropOverwrite:
+                    {
+                        // After a spread, the key may already exist — overwrite so the
+                        // later literal key wins instead of appending a shadowed dup.
+                        var name = chunk.Names[ReadOperand(code, ref ip)];
+                        var value = Pop();
+                        Peek().AddChildNoDup(name, value); // object kept on stack
+                        break;
+                    }
                     case OpCode.DefineGetter:
                     {
                         var name = chunk.Names[ReadOperand(code, ref ip)];

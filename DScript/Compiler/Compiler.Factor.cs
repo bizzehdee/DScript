@@ -1116,6 +1116,11 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)'{');
             chunk.Emit(OpCode.NewObject);
 
+            // Once a spread has been merged, later static keys may collide with a
+            // merged-in property and must overwrite it (the literal key wins). Plain
+            // InitProp appends without a lookup, so only switch after the first spread.
+            var initPropOp = OpCode.InitProp;
+
             while (lexer.TokenType != (ScriptLex.LexTypes)'}')
             {
                 // Spread property: { ...expr }
@@ -1124,6 +1129,7 @@ namespace DScript.Compiler
                     lexer.Match(ScriptLex.LexTypes.Ellipsis);
                     CompileBase();              // source object on stack, target below
                     chunk.Emit(OpCode.MergeObject);
+                    initPropOp = OpCode.InitPropOverwrite;
                 }
                 // Computed property: { [expr]: value }
                 else if (lexer.TokenType == (ScriptLex.LexTypes)'[')
@@ -1162,19 +1168,19 @@ namespace DScript.Compiler
                         var fnIdx = CompileFunctionRest(name);
                         chunk.Emit(OpCode.MakeClosure, fnIdx);
                         chunk.MakesClosure = true;
-                        chunk.Emit(OpCode.InitProp, chunk.AddName(name));
+                        chunk.Emit(initPropOp, chunk.AddName(name));
                     }
                     // Shorthand property: `{ x, y }` — no colon, use var with same name as key
                     else if (lexer.TokenType == (ScriptLex.LexTypes)',' || lexer.TokenType == (ScriptLex.LexTypes)'}')
                     {
                         chunk.Emit(OpCode.GetVar, chunk.AddName(name));
-                        chunk.Emit(OpCode.InitProp, chunk.AddName(name));
+                        chunk.Emit(initPropOp, chunk.AddName(name));
                     }
                     else
                     {
                         lexer.Match((ScriptLex.LexTypes)':');
                         CompileBase();
-                        chunk.Emit(OpCode.InitProp, chunk.AddName(name));
+                        chunk.Emit(initPropOp, chunk.AddName(name));
                     }
                 }
 
