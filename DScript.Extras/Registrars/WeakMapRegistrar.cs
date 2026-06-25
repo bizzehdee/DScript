@@ -29,10 +29,25 @@ namespace DScript.Extras.Registrars
         internal static void Register(ScriptEngine engine)
         {
             var ctor = ScriptVar.CreateNativeFunction();
+            ctor.AddChild("iterable", ScriptVar.CreateUndefined());
             ctor.SetCallback((scope, _) =>
             {
+                var mapObj = new WeakMapObject();
+
+                // new WeakMap([[k, v], …]) — seed from an array of [key, value] pairs.
+                var iterableArg = scope.FindChild("iterable")?.Var;
+                if (iterableArg != null && !iterableArg.IsUndefined && iterableArg.IsArray)
+                {
+                    var len = iterableArg.GetArrayLength();
+                    for (var i = 0; i < len; i++)
+                    {
+                        var pair = iterableArg.GetArrayIndex(i);
+                        mapObj.Data[pair.GetArrayIndex(0)] = pair.GetArrayIndex(1);
+                    }
+                }
+
                 var thisVar = scope.FindChild("this")?.Var;
-                thisVar?.SetData(new WeakMapObject());
+                thisVar?.SetData(mapObj);
             }, null);
 
             engine.Root.AddChild("WeakMap", ctor);

@@ -54,6 +54,18 @@ __result__ = wm.get(key);
         }
 
         [Test]
+        public void WeakMap_ConstructedFromEntries()
+        {
+            // new WeakMap([[k, v]]) previously ignored the initial entries.
+            var r = RunScript(@"
+var key = {};
+var wm = new WeakMap([[key, 5]]);
+__result__ = wm.get(key);
+").Int;
+            Assert.That(r, Is.EqualTo(5));
+        }
+
+        [Test]
         public void WeakMap_HasReturnsTrueAfterSet()
         {
             var r = RunScript(@"
