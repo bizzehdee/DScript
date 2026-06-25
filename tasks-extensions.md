@@ -173,20 +173,25 @@ return on exit (no stale child links — honour the repo's cycle-safety rules).
 
 ## Phase 11 — Value-representation overhaul (deferred / high-risk; spike first)
 
-### T47 — Spike: `Value` type + conversions
-**File:** `DScript/Vm/Value.cs`
-**Work:** Introduce a NaN-boxed/tagged `readonly struct Value` with conversions
-to/from `ScriptVar`. No call sites migrated yet; pure addition + unit tests for the
-conversions and edge values (NaN, -0, int/double boundary).
-**Depends on:** nothing (research spike)
+### T47 — Spike: `Value` type + conversions — **DONE**
+**File:** `DScript/Vm/Value.cs`, `DScript.Test/ValueTests.cs`
+**Work:** Tagged `readonly struct Value` (int/double/null/undefined inline; ScriptVar
+ref otherwise) with From/ToScriptVar conversions + queries; 12 unit tests covering
+edge values (NaN, -0, ±Infinity, ref round-trip). Not wired into the VM.
 
-### T48 — Migrate interpreter operand stack + arithmetic to `Value`
+### T48 — Migrate interpreter operand stack + arithmetic to `Value` — **DEFERRED**
 **File:** `DScript/Vm/VirtualMachine.cs`
-**Work:** Operand stack becomes `Value[]`; arithmetic opcodes operate on `Value`;
-convert at object/property boundaries. Full suite + benchmark before/after.
+**Why deferred:** this is a whole-interpreter refactor (the `ScriptVar[]` operand
+stack is threaded through ~100 opcode handlers). It cannot be landed safely as one
+change, and a naive `Value[]`-with-conversion shim would be *slower* (extra
+conversions) and *change identity semantics* — `ToScriptVar()` reallocates
+primitives, breaking reference-equality invariants the VM relies on (`SharedTrue`/
+`SharedFalse`, the inline caches). It must be done incrementally, opcode-by-opcode,
+keeping the suite green at each step — a dedicated multi-session effort. The T47
+spike is the abandon-safe foundation; the migration is the open work.
 **Depends on:** T47
 
-### T49 — Migrate JIT speculative tiers to `Value`
+### T49 — Migrate JIT speculative tiers to `Value` — **DEFERRED** (after T48)
 **File:** `DScript/Jit/*`
 **Work:** Flow `Value` through compiled code (subsumes the unboxed int/double tiers).
 Parity tests both back-ends; benchmark.
