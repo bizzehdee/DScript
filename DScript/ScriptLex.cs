@@ -81,6 +81,11 @@ namespace DScript
         public int ColumnNumber { get; private set; }
         public string TokenString { get; private set; }
 
+        /// <summary>True when a line terminator appeared in the whitespace/comments
+        /// immediately before the current token. Used by the parser for Automatic
+        /// Semicolon Insertion (ASI).</summary>
+        public bool NewlineBeforeToken { get; private set; }
+
         public enum LexTypes
         {
             Eof = 0,
@@ -256,12 +261,21 @@ namespace DScript
             TokenType = LexTypes.Eof;
             TokenString = string.Empty;
 
+            // Track whether a line terminator appears in the whitespace/comments
+            // skipped before this token (used by the parser for ASI). Detected per
+            // character here rather than by comparing LineNumber, because the '\n'
+            // that ends a token is consumed while lexing the *previous* token.
+            NewlineBeforeToken = false;
+
             // Skip whitespace and comments iteratively (avoids a call-stack entry
             // per comment block and a function-call overhead per whitespace run).
             while (true)
             {
                 while (CurrentChar != (char)0 && CurrentChar.IsWhitespace())
+                {
+                    if (CurrentChar == '\n') NewlineBeforeToken = true;
                     GetNextChar();
+                }
 
                 if (CurrentChar == '#' && NextChar == '!' && dataPos == dataStart + 2)
                 {
@@ -273,12 +287,17 @@ namespace DScript
                 {
                     while (CurrentChar != 0 && CurrentChar != '\n') GetNextChar();
                     GetNextChar();
+                    NewlineBeforeToken = true; // a line comment is ended by a newline
                     continue;
                 }
 
                 if (CurrentChar == '/' && NextChar == '*')
                 {
-                    while (CurrentChar != 0 && (CurrentChar != '*' || NextChar != '/')) GetNextChar();
+                    while (CurrentChar != 0 && (CurrentChar != '*' || NextChar != '/'))
+                    {
+                        if (CurrentChar == '\n') NewlineBeforeToken = true;
+                        GetNextChar();
+                    }
                     GetNextChar();
                     GetNextChar();
                     continue;

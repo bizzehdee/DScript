@@ -19,7 +19,8 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `in` operator | ✅ | |
 | `delete` operator | ✅ | |
 | `for...in` | ✅ | |
-| Comma operator | ✅ | |
+| Comma operator | ✅ | Sequence operator in expression statements, groupings, `return`/`throw`, the `for`-header, and conditions |
+| Automatic Semicolon Insertion (ASI) | ⚠️ | A statement terminates without `;` before `}`, end-of-input, or a line terminator. Restricted productions (e.g. `return`/`throw`/`break`/`continue` newline rules, `[`/`(`/`` ` `` continuations) are not specially handled |
 | Ternary (`?:`) | ✅ | |
 | `void` operator | ✅ | |
 | Bitwise operators (`&` `\|` `^` `~` `<<` `>>` `>>>`) | ✅ | |

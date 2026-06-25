@@ -84,12 +84,12 @@ namespace DScript.Compiler
                     break;
                 case ScriptLex.LexTypes.RBreak:
                     lexer.Match(ScriptLex.LexTypes.RBreak);
-                    lexer.Match((ScriptLex.LexTypes)';');
+                    MatchStatementTerminator();
                     if (loops.Count > 0) loops.Peek().BreakJumps.Add(chunk.EmitJump(OpCode.Jump));
                     break;
                 case ScriptLex.LexTypes.RContinue:
                     lexer.Match(ScriptLex.LexTypes.RContinue);
-                    lexer.Match((ScriptLex.LexTypes)';');
+                    MatchStatementTerminator();
                     // `continue` skips switch contexts and targets the nearest real loop.
                     foreach (var loopCtx in loops)
                     {
@@ -175,7 +175,7 @@ namespace DScript.Compiler
             var isLet    = lexer.TokenType == ScriptLex.LexTypes.RLet;
             lexer.Match(lexer.TokenType);
 
-            while (lexer.TokenType != (ScriptLex.LexTypes)';')
+            while (true)
             {
                 if (lexer.TokenType == (ScriptLex.LexTypes)'[')
                 {
@@ -216,13 +216,15 @@ namespace DScript.Compiler
                     }
                 }
 
-                if (lexer.TokenType != (ScriptLex.LexTypes)';')
+                if (lexer.TokenType == (ScriptLex.LexTypes)',')
                 {
                     lexer.Match((ScriptLex.LexTypes)',');
+                    continue;
                 }
+                break;
             }
 
-            lexer.Match((ScriptLex.LexTypes)';');
+            MatchStatementTerminator();
         }
 
         // Array destructuring: [a, b, ...rest] = expr
@@ -478,7 +480,7 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)'(');
             CompileExpression();
             lexer.Match((ScriptLex.LexTypes)')');
-            lexer.Match((ScriptLex.LexTypes)';');
+            MatchStatementTerminator();
 
             chunk.Emit(OpCode.JumpIfTrue, bodyStart);
 
@@ -516,7 +518,7 @@ namespace DScript.Compiler
                 chunk.Emit(OpCode.Return);
             }
 
-            lexer.Match((ScriptLex.LexTypes)';');
+            MatchStatementTerminator();
         }
 
         private void CompileFor()
@@ -593,7 +595,7 @@ namespace DScript.Compiler
         {
             CompileExpression();
             chunk.Emit(OpCode.Pop);
-            lexer.Match((ScriptLex.LexTypes)';');
+            MatchStatementTerminator();
         }
 
         // Skips an optional var/let/const keyword, reads the iterator variable name,
@@ -772,7 +774,7 @@ namespace DScript.Compiler
             }
 
             chunk.Emit(OpCode.Throw);
-            lexer.Match((ScriptLex.LexTypes)';');
+            MatchStatementTerminator();
         }
 
         private void CompileTry()

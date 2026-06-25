@@ -200,6 +200,28 @@ namespace DScript.Compiler
             }
         }
 
+        // Consume the semicolon that terminates a statement, applying Automatic
+        // Semicolon Insertion (ASI): when there is no explicit ';', a statement is
+        // still terminated if the next token is '}' or end-of-input, or if a line
+        // terminator precedes it. Otherwise this surfaces the normal "expected ;"
+        // error. Use only for statement terminators — never for the syntactic ';'
+        // separators inside a C-style for-header.
+        private void MatchStatementTerminator()
+        {
+            if (lexer.TokenType == (ScriptLex.LexTypes)';')
+            {
+                lexer.Match((ScriptLex.LexTypes)';');
+                return;
+            }
+
+            if (lexer.TokenType == (ScriptLex.LexTypes)'}' ||
+                lexer.TokenType == ScriptLex.LexTypes.Eof ||
+                lexer.NewlineBeforeToken)
+                return; // ASI — leave the terminating token for the enclosing context
+
+            lexer.Match((ScriptLex.LexTypes)';'); // no ASI applies: report the error
+        }
+
         private void CompileTernary(bool canAssign)
         {
             CompileLogic(canAssign);
