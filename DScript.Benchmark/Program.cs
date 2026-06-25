@@ -396,6 +396,12 @@ internal static class Program
             ($"bimorphic prop read (n={propN})",
                 $"function get(o){{return o.x;}} var a={{x:3,y:9}}; var b={{x:4}}; var s=0; " +
                 $"for(var i=0;i<{propN};i=i+1){{s=get(a)+get(b);}} result=s;"),
+
+            // Control flow: a JIT-compiled function with branches + a loop + an
+            // accumulator (if/else inside a while), exercising Phase 7/8 codegen.
+            ($"control-flow loop (n={propN})",
+                $"function classify(n){{ var s=0; var k=0; while(k<n){{ if(k<10){{s=s+1;}} else if(k<50){{s=s+2;}} else {{s=s+3;}} k=k+1; }} return s; }} " +
+                $"var t=0; for(var i=0;i<{propN};i=i+1){{ t=classify(60); }} result=t;"),
         };
 
         Console.WriteLine();

@@ -318,3 +318,12 @@ superinstruction.
 
 All phases from 10 onward have been addressed (implemented or investigated with a
 recorded outcome). 1799 tests green, ~90.5% coverage; everything pushed.
+
+**Benchmark accounting** (the cross-cutting rule): the `JitSection` now has a
+workload per shipped JIT phase — `inlined helper loop` (Phase 9, ~2.36× ReflEmit),
+`bimorphic prop read` (Phase 13, ~1.20×), and `control-flow loop` (Phase 7, ~1.28×).
+Phases 10/11/16 shipped no runtime change (reverted / spike-only / investigation), so
+before/after was moot. Interpreter-only regression check: the benchmark's interpreter
+`workloads` section (JIT off) totals ~323 ms vs the ~325–340 ms pre-extension
+baseline — no regression (the interpreter hot loop was never modified; the JIT is
+opt-in/off by default).
