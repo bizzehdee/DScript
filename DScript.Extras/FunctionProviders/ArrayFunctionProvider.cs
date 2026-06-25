@@ -684,10 +684,35 @@ namespace DScript.Extras.FunctionProviders
             var mapFn = var.GetParameter("mapFn");
             var result = ScriptVar.CreateUndefined();
             result.SetArray();
-            var len = iterable.GetArrayLength();
+
+            // Source length and element access. Real arrays use their indices; strings
+            // use their characters; any other object is treated as array-like via its
+            // `length` property (missing indices read as undefined) — so
+            // Array.from({ length: n }, (_, i) => ...) works like JS.
+            int len;
+            System.Func<int, ScriptVar> getElem;
+            if (iterable.IsArray)
+            {
+                len = iterable.GetArrayLength();
+                getElem = i => iterable.GetArrayIndex(i);
+            }
+            else if (iterable.IsString)
+            {
+                var str = iterable.String ?? "";
+                len = str.Length;
+                getElem = i => ScriptVar.FromString(str[i].ToString());
+            }
+            else
+            {
+                var lenLink = iterable.FindChild("length");
+                len = lenLink != null ? lenLink.Var.Int : 0;
+                if (len < 0) len = 0;
+                getElem = i => iterable.FindChild(i.ToString())?.Var ?? ScriptVar.CreateUndefined();
+            }
+
             for (var i = 0; i < len; i++)
             {
-                var elem = iterable.GetArrayIndex(i);
+                var elem = getElem(i);
                 var mapped = mapFn.IsFunction ? engine.CallFunction(mapFn, null, elem, ScriptVar.FromInt(i)) : elem.DeepCopy();
                 result.SetArrayIndex(i, mapped);
             }

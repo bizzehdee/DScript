@@ -36,6 +36,44 @@ namespace DScript.Test
             return engine.Root.GetParameter("__result__");
         }
 
+        // ── Array.from (arrays, strings, array-like objects) ───────────────────
+
+        [Test]
+        public void From_ArrayLikeWithLengthAndMapFn()
+        {
+            // Array.from({length:n}, (_, i) => ...) is the idiomatic range builder.
+            var result = RunScript(
+                "var a = Array.from({ length: 5 }, function(_, i){ return i * i; });" +
+                "var __result__ = a.length * 1000 + a[2] * 10 + a[4];"); // len5, a[2]=4, a[4]=16
+            Assert.That(result.Int, Is.EqualTo(5 * 1000 + 4 * 10 + 16));
+        }
+
+        [Test]
+        public void From_String()
+        {
+            var result = RunScript("var a = Array.from('abc', function(c, i){ return c + i; }); var __result__ = a[0] + a[2];");
+            Assert.That(result.String, Is.EqualTo("a0c2"));
+        }
+
+        [Test]
+        public void From_Array_ShallowMaps()
+        {
+            var result = RunScript("var a = Array.from([10, 20, 30], function(x){ return x * 2; }); var __result__ = a[0] + a[2];");
+            Assert.That(result.Int, Is.EqualTo(20 + 60));
+        }
+
+        [Test]
+        public void From_FilterMapReduceChain()
+        {
+            // The reported array-processing pattern (smaller n).
+            var result = RunScript(
+                "var __result__ = Array.from({ length: 1000 }, function(_, i){ return i; })" +
+                ".filter(function(x){ return x % 3 === 0; })" +
+                ".map(function(x){ return x * 2; })" +
+                ".reduce(function(s, x){ return s + x; }, 0);");
+            Assert.That(result.Int, Is.EqualTo(333666));
+        }
+
         // ── push / length cache (kept valid across appends) ────────────────────
 
         [Test]
