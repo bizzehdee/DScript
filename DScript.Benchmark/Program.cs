@@ -17,6 +17,13 @@ How to compare old vs new:
 Always build in Release. Pass a scale factor, e.g. `-- 0.25`, if the
 old engine is too slow for the full workload.
 
+By default every section runs. To run only some, pass --filter with a
+comma-separated list of section names (or individual workload names):
+      dotnet run --project DScript.Benchmark -c Release -- --filter workloads,jit
+      dotnet run --project DScript.Benchmark -c Release -- 0.5 --filter fib
+Sections: workloads, compile-once, optimizer, candidates, jit, showcase.
+Tokens match as case-insensitive substrings. `--help` lists them.
+
 Sections
 --------
   workloads               Execute() timings comparable across both engines.
@@ -43,11 +50,56 @@ using DScript.Vm;
 
 internal static class Program
 {
+    // Section keys, in run order. Used for --filter and the usage message.
+    private static readonly string[] SectionKeys =
+        { "workloads", "compile-once", "optimizer", "candidates", "jit", "showcase" };
+
     private static void Main(string[] args)
     {
         var scale = 1.0;
-        if (args.Length > 0 && double.TryParse(args[0], NumberStyles.Any, CultureInfo.InvariantCulture, out var s) && s > 0)
-            scale = s;
+        var filters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var a = args[i];
+            if (a == "--filter" || a == "-f")
+            {
+                // Consume the following comma/space-separated tokens (until the next flag).
+                while (i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
+                    AddFilterTokens(filters, args[++i]);
+            }
+            else if (a.StartsWith("--filter=", StringComparison.Ordinal))
+            {
+                AddFilterTokens(filters, a.Substring("--filter=".Length));
+            }
+            else if (a == "--help" || a == "-h")
+            {
+                Console.WriteLine("Usage: dotnet run --project DScript.Benchmark -c Release -- [scale] [--filter a,b,c]");
+                Console.WriteLine("  scale     optional positive number scaling workload sizes (e.g. 0.25)");
+                Console.WriteLine("  --filter  comma-separated section names to run; default runs all.");
+                Console.WriteLine("            sections: " + string.Join(", ", SectionKeys));
+                Console.WriteLine("            tokens also match individual workload names (e.g. --filter fib).");
+                return;
+            }
+            else if (double.TryParse(a, NumberStyles.Any, CultureInfo.InvariantCulture, out var s) && s > 0)
+            {
+                scale = s;
+            }
+        }
+
+        // A section/workload runs when no filter is given, or when any filter token
+        // is a case-insensitive substring of one of the supplied keys.
+        bool Selected(params string[] keys)
+        {
+            if (filters.Count == 0) return true;
+            foreach (var k in keys)
+                foreach (var f in filters)
+                    if (k.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        if (filters.Count > 0)
+            Console.WriteLine("filter: " + string.Join(", ", filters));
 
         var loopN    = (int)(500_000 * scale);
         var callN    = (int)(200_000 * scale);
@@ -82,38 +134,56 @@ internal static class Program
         };
 
         Console.WriteLine($"DScript benchmark  (scale={scale.ToString(CultureInfo.InvariantCulture)}, .NET {System.Environment.Version})");
-        Console.WriteLine(new string('-', 78));
-        Console.WriteLine($"{"workload",-34}{"best ms",12}{"alloc MB",12}{"result",20}");
-        Console.WriteLine(new string('-', 78));
 
-        var total = 0.0;
-        foreach (var (name, code) in benchmarks)
+        // The workloads section runs whole when "workloads" is selected, or partially
+        // when a filter token matches individual workload names (e.g. --filter fib).
+        var selectedWorkloads = new List<(string name, string code)>();
+        foreach (var w in benchmarks)
+            if (Selected("workloads") || Selected(w.name))
+                selectedWorkloads.Add(w);
+
+        if (selectedWorkloads.Count > 0)
         {
-            TimeExecute(code, out _, out _); // warm up
+            Console.WriteLine(new string('-', 78));
+            Console.WriteLine($"{"workload",-34}{"best ms",12}{"alloc MB",12}{"result",20}");
+            Console.WriteLine(new string('-', 78));
 
-            var best = double.MaxValue;
-            var bestAlloc = long.MaxValue;
-            string result = null;
-            for (var run = 0; run < 5; run++)
+            var total = 0.0;
+            foreach (var (name, code) in selectedWorkloads)
             {
-                var ms = TimeExecute(code, out result, out var allocated);
-                if (ms < best) best = ms;
-                if (allocated < bestAlloc) bestAlloc = allocated;
+                TimeExecute(code, out _, out _); // warm up
+
+                var best = double.MaxValue;
+                var bestAlloc = long.MaxValue;
+                string result = null;
+                for (var run = 0; run < 5; run++)
+                {
+                    var ms = TimeExecute(code, out result, out var allocated);
+                    if (ms < best) best = ms;
+                    if (allocated < bestAlloc) bestAlloc = allocated;
+                }
+
+                total += best;
+                var allocMb = bestAlloc / (1024.0 * 1024.0);
+                Console.WriteLine($"{name,-34}{best,12:F2}{allocMb,12:F1}{result,20}");
             }
 
-            total += best;
-            var allocMb = bestAlloc / (1024.0 * 1024.0);
-            Console.WriteLine($"{name,-34}{best,12:F2}{allocMb,12:F1}{result,20}");
+            Console.WriteLine(new string('-', 78));
+            Console.WriteLine($"{"total (best of each)",-34}{total,12:F2}");
         }
 
-        Console.WriteLine(new string('-', 78));
-        Console.WriteLine($"{"total (best of each)",-34}{total,12:F2}");
+        if (Selected("compile-once")) CompileOnceDemo();
+        if (Selected("optimizer")) OptimizerImpactSection(scale);
+        if (Selected("candidates")) OptimisationCandidatesSection(scale);
+        if (Selected("jit")) JitSection(scale);
+        if (Selected("showcase")) BytecodeShowcase();
+    }
 
-        CompileOnceDemo();
-        OptimizerImpactSection(scale);
-        OptimisationCandidatesSection(scale);
-        JitSection(scale);
-        BytecodeShowcase();
+    // Split a comma/space-separated argument into individual filter tokens.
+    private static void AddFilterTokens(HashSet<string> filters, string raw)
+    {
+        foreach (var t in raw.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            filters.Add(t.Trim());
     }
 
     // -------------------------------------------------------------------------
