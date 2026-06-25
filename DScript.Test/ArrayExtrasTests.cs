@@ -36,6 +36,40 @@ namespace DScript.Test
             return engine.Root.GetParameter("__result__");
         }
 
+        // ── sort: reference identity (elements are reordered, not copied) ───────
+
+        [Test]
+        public void Sort_PreservesElementReferenceIdentity()
+        {
+            // After sorting, the array must hold the SAME object references (reordered),
+            // not deep copies — `sorted[i] === original` must hold.
+            var result = RunScript(
+                "var o = { x: 1 }; var a = [o, { x: 0 }];" +
+                "a.sort(function(p, q){ return p.x - q.x; });" +
+                "var __result__ = (a[1] === o);");
+            Assert.That(result.Bool, Is.True);
+        }
+
+        [Test]
+        public void Sort_MutationThroughSortedElementAffectsOriginal()
+        {
+            var result = RunScript(
+                "var o = { x: 5 }; var a = [o, { x: 1 }];" +
+                "a.sort(function(p, q){ return p.x - q.x; });" +
+                "a[1].x = 99;" +              // a[1] is o
+                "var __result__ = o.x;");
+            Assert.That(result.Int, Is.EqualTo(99));
+        }
+
+        [Test]
+        public void Sort_OrdersByComparator()
+        {
+            var result = RunScript(
+                "var a = [3, 1, 2]; a.sort(function(x, y){ return x - y; });" +
+                "var __result__ = a[0] * 100 + a[1] * 10 + a[2];");
+            Assert.That(result.Int, Is.EqualTo(123));
+        }
+
         // ── find ──────────────────────────────────────────────────────────────
 
         [Test]

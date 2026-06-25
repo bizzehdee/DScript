@@ -269,10 +269,13 @@ namespace DScript.Extras.FunctionProviders
             var compare = var.GetParameter("compare");
             var len = arr.GetArrayLength();
 
-            var values = new List<ScriptVar>();
+            // Snapshot the element references (not deep copies): sorting reorders
+            // references in place, exactly as JS does — copying would be slow and would
+            // break reference identity (a[i] === the original object must still hold).
+            var values = new List<ScriptVar>(len);
             for (var x = 0; x < len; x++)
             {
-                values.Add(arr.GetArrayIndex(x).DeepCopy());
+                values.Add(arr.GetArrayIndex(x));
             }
 
             if (compare.IsFunction)
@@ -733,9 +736,11 @@ namespace DScript.Extras.FunctionProviders
             var compare = var.GetParameter("compare");
             var len = arr.GetArrayLength();
 
-            var values = new List<ScriptVar>();
+            // toSorted returns a new array sharing the same element references (a
+            // shallow copy), so snapshot references rather than deep-copying.
+            var values = new List<ScriptVar>(len);
             for (var x = 0; x < len; x++)
-                values.Add(arr.GetArrayIndex(x).DeepCopy());
+                values.Add(arr.GetArrayIndex(x));
 
             if (compare.IsFunction)
                 values.Sort((a, b) => engine.CallFunction(compare, null, a, b).Int);
