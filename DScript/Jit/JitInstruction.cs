@@ -68,6 +68,20 @@ namespace DScript.Jit
         JumpIfTrue,
         /// <summary>Logical NOT of the top operand.</summary>
         Not,
+        /// <summary>Pop object + key, read the indexed element, push it.</summary>
+        GetIndex,
+        /// <summary>Pop object + key + value, set the indexed element, push value.</summary>
+        SetIndex,
+        /// <summary>Arithmetic negation of the top operand.</summary>
+        Negate,
+        /// <summary>Bitwise NOT of the top operand.</summary>
+        BitNot,
+        /// <summary>typeof of the top operand.</summary>
+        Typeof,
+        /// <summary>Numeric coercion of the top operand.</summary>
+        ToNumber,
+        /// <summary>Pop two operands, apply a shift operator, push the result.</summary>
+        Shift,
         /// <summary>Pop callee + N args, dispatch, push the result.</summary>
         Call,
         /// <summary>Discard the top operand (its side effects still run).</summary>
@@ -137,6 +151,20 @@ namespace DScript.Jit
             new(JitOpKind.JumpIfTrue, null, targetIndex, null, default, null);
         public static JitInstruction Not() =>
             new(JitOpKind.Not, null, 0, null, default, null);
+        public static JitInstruction GetIndex() =>
+            new(JitOpKind.GetIndex, null, 0, null, default, null);
+        public static JitInstruction SetIndex() =>
+            new(JitOpKind.SetIndex, null, 0, null, default, null);
+        public static JitInstruction Negate() =>
+            new(JitOpKind.Negate, null, 0, null, default, null);
+        public static JitInstruction BitNot() =>
+            new(JitOpKind.BitNot, null, 0, null, default, null);
+        public static JitInstruction Typeof() =>
+            new(JitOpKind.Typeof, null, 0, null, default, null);
+        public static JitInstruction ToNumber() =>
+            new(JitOpKind.ToNumber, null, 0, null, default, null);
+        public static JitInstruction Shift(ScriptLex.LexTypes op) =>
+            new(JitOpKind.Shift, null, 0, null, op, null);
         public static JitInstruction Call(int argc, ScriptVar monoCallee) =>
             new(JitOpKind.Call, null, argc, null, default, monoCallee);
         public static JitInstruction Pop() =>

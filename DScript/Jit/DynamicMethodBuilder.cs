@@ -74,6 +74,20 @@ namespace DScript.Jit
             "JitSetVar", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitSetPropMethod = typeof(VirtualMachine).GetMethod(
             "JitSetProp", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitGetIndexMethod = typeof(VirtualMachine).GetMethod(
+            "JitGetIndex", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitSetIndexMethod = typeof(VirtualMachine).GetMethod(
+            "JitSetIndex", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitNegateMethod = typeof(VirtualMachine).GetMethod(
+            "JitNegate", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitBitNotMethod = typeof(VirtualMachine).GetMethod(
+            "JitBitNot", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitTypeofMethod = typeof(VirtualMachine).GetMethod(
+            "JitTypeof", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitToNumberMethod = typeof(VirtualMachine).GetMethod(
+            "JitToNumber", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitShiftMethod = typeof(VirtualMachine).GetMethod(
+            "JitShift", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitDeclareVarMethod = typeof(VirtualMachine).GetMethod(
             "JitDeclareVar", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitDeclareLocalMethod = typeof(VirtualMachine).GetMethod(
@@ -296,6 +310,51 @@ namespace DScript.Jit
         /// <summary>Replace the <see cref="ScriptVar"/> on top of the stack with its
         /// truthiness (<c>a.Bool</c>) as an int 0/1 — used for conditional branches.</summary>
         public void EmitToBool() => IL.EmitCall(OpCodes.Callvirt, BoolGetter, null);
+
+        // ── extra opcodes (delegate to interpreter-identical helpers) ─────────────
+
+        /// <summary>Arithmetic negation of the operand on top of the stack.</summary>
+        public void EmitNegate() => IL.EmitCall(OpCodes.Call, JitNegateMethod, null);
+        /// <summary>Bitwise NOT of the operand on top of the stack.</summary>
+        public void EmitBitNot() => IL.EmitCall(OpCodes.Call, JitBitNotMethod, null);
+        /// <summary>typeof of the operand on top of the stack.</summary>
+        public void EmitTypeof() => IL.EmitCall(OpCodes.Call, JitTypeofMethod, null);
+        /// <summary>Numeric coercion of the operand on top of the stack.</summary>
+        public void EmitToNumber() => IL.EmitCall(OpCodes.Call, JitToNumberMethod, null);
+
+        /// <summary>Shift the two operands on the stack ([a, b]) by <paramref name="op"/>.</summary>
+        public void EmitShift(ScriptLex.LexTypes op)
+        {
+            EmitLdcI4((int)op);
+            IL.EmitCall(OpCodes.Call, JitShiftMethod, null);
+        }
+
+        /// <summary>Indexed read of <c>[obj, key]</c> on the stack: <c>vm.JitGetIndex(obj, key)</c>.</summary>
+        public void EmitGetIndex(LocalBuilder keyTmp, LocalBuilder objTmp)
+        {
+            EmitStoreLocal(keyTmp);   // pop key
+            EmitStoreLocal(objTmp);   // pop obj
+            EmitLoadVm();
+            EmitLoadLocal(objTmp);
+            EmitLoadLocal(keyTmp);
+            IL.EmitCall(OpCodes.Callvirt, JitGetIndexMethod, null);
+        }
+
+        /// <summary>Indexed write of <c>[obj, key, value]</c> on the stack:
+        /// <c>vm.JitSetIndex(obj, key, value, strict)</c>; leaves the value if asked.</summary>
+        public void EmitSetIndex(bool strict, bool leaveValue, LocalBuilder valTmp, LocalBuilder keyTmp, LocalBuilder objTmp)
+        {
+            EmitStoreLocal(valTmp);   // pop value
+            EmitStoreLocal(keyTmp);   // pop key
+            EmitStoreLocal(objTmp);   // pop obj
+            EmitLoadVm();
+            EmitLoadLocal(objTmp);
+            EmitLoadLocal(keyTmp);
+            EmitLoadLocal(valTmp);
+            IL.Emit(strict ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+            IL.EmitCall(OpCodes.Callvirt, JitSetIndexMethod, null);
+            if (leaveValue) EmitLoadLocal(valTmp);
+        }
 
         /// <summary>Push a fresh undefined <see cref="ScriptVar"/>.</summary>
         public void EmitPushUndefined() => IL.EmitCall(OpCodes.Call, CreateUndefinedMethod, null);

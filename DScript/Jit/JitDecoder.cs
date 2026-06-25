@@ -169,6 +169,16 @@ namespace DScript.Jit
 
                     case OpCode.Pop:           instrs.Add(JitInstruction.Pop()); break;
                     case OpCode.Not:           instrs.Add(JitInstruction.Not()); break;
+                    case OpCode.GetIndex:      instrs.Add(JitInstruction.GetIndex()); break;
+                    case OpCode.SetIndex:      instrs.Add(JitInstruction.SetIndex()); break;
+                    case OpCode.Negate:        instrs.Add(JitInstruction.Negate()); break;
+                    case OpCode.BitNot:        instrs.Add(JitInstruction.BitNot()); break;
+                    case OpCode.Typeof:        instrs.Add(JitInstruction.Typeof()); break;
+                    case OpCode.ToNumber:      instrs.Add(JitInstruction.ToNumber()); break;
+                    case OpCode.Shift:
+                        instrs.Add(JitInstruction.Shift((ScriptLex.LexTypes)chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
 
                     case OpCode.Binary:
                         instrs.Add(JitInstruction.Binary((ScriptLex.LexTypes)chunk.ReadInt(ip)));

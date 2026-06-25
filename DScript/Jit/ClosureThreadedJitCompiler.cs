@@ -73,6 +73,32 @@ namespace DScript.Jit
                     case JitOpKind.PushNull:       stack.Push(NullNode()); break;
                     case JitOpKind.PushUndefined:  stack.Push(UndefinedNode()); break;
                     case JitOpKind.Not:            stack.Push(NotNode(stack.Pop())); break;
+                    case JitOpKind.Negate:         stack.Push(UnaryNode(stack.Pop(), VirtualMachine.JitNegate)); break;
+                    case JitOpKind.BitNot:         stack.Push(UnaryNode(stack.Pop(), VirtualMachine.JitBitNot)); break;
+                    case JitOpKind.Typeof:         stack.Push(UnaryNode(stack.Pop(), VirtualMachine.JitTypeof)); break;
+                    case JitOpKind.ToNumber:       stack.Push(UnaryNode(stack.Pop(), VirtualMachine.JitToNumber)); break;
+                    case JitOpKind.GetIndex:
+                    {
+                        var key = stack.Pop();
+                        var obj = stack.Pop();
+                        stack.Push(GetIndexNode(obj, key));
+                        break;
+                    }
+                    case JitOpKind.SetIndex:
+                    {
+                        var value = stack.Pop();
+                        var key = stack.Pop();
+                        var obj = stack.Pop();
+                        stack.Push(SetIndexNode(obj, key, value, strict));
+                        break;
+                    }
+                    case JitOpKind.Shift:
+                    {
+                        var right = stack.Pop();
+                        var left = stack.Pop();
+                        stack.Push(ShiftNode(left, right, instr.Op));
+                        break;
+                    }
                     case JitOpKind.Binary:
                     {
                         var right = stack.Pop();
@@ -166,6 +192,25 @@ namespace DScript.Jit
 
         private static JitDelegate NotNode(JitDelegate operand) =>
             (vm, args, env) => ScriptVar.FromInt(operand(vm, args, env).Bool ? 0 : 1);
+
+        private static JitDelegate UnaryNode(JitDelegate operand, System.Func<ScriptVar, ScriptVar> op) =>
+            (vm, args, env) => op(operand(vm, args, env));
+
+        private static JitDelegate GetIndexNode(JitDelegate obj, JitDelegate key) =>
+            (vm, args, env) => vm.JitGetIndex(obj(vm, args, env), key(vm, args, env));
+
+        private static JitDelegate SetIndexNode(JitDelegate obj, JitDelegate key, JitDelegate value, bool strict) =>
+            (vm, args, env) =>
+            {
+                var o = obj(vm, args, env);
+                var k = key(vm, args, env);
+                var v = value(vm, args, env);
+                vm.JitSetIndex(o, k, v, strict);
+                return v; // SetIndex is an expression
+            };
+
+        private static JitDelegate ShiftNode(JitDelegate left, JitDelegate right, ScriptLex.LexTypes op) =>
+            (vm, args, env) => VirtualMachine.JitShift(left(vm, args, env), right(vm, args, env), op);
 
         private static JitDelegate BinaryNode(JitDelegate left, JitDelegate right, ScriptLex.LexTypes op) =>
             (vm, args, env) => VirtualMachine.JitBinary(left(vm, args, env), right(vm, args, env), op);

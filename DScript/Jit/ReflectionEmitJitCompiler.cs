@@ -134,6 +134,13 @@ namespace DScript.Jit
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:
+                    case JitOpKind.GetIndex:
+                    case JitOpKind.SetIndex:
+                    case JitOpKind.Negate:
+                    case JitOpKind.BitNot:
+                    case JitOpKind.Typeof:
+                    case JitOpKind.ToNumber:
+                    case JitOpKind.Shift:
                         return false; // not pure / not int-typed / control flow / mutation
                     case JitOpKind.PushConst:
                         if (instr.Constant.Kind != ConstantKind.Int) return false;
@@ -253,6 +260,13 @@ namespace DScript.Jit
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:
+                    case JitOpKind.GetIndex:
+                    case JitOpKind.SetIndex:
+                    case JitOpKind.Negate:
+                    case JitOpKind.BitNot:
+                    case JitOpKind.Typeof:
+                    case JitOpKind.ToNumber:
+                    case JitOpKind.Shift:
                         return false; // not pure / non-double / control flow / mutation
                     case JitOpKind.PushConst:
                         if (instr.Constant.Kind != ConstantKind.Int && instr.Constant.Kind != ConstantKind.Double)
@@ -329,6 +343,13 @@ namespace DScript.Jit
                     case JitOpKind.PushNull:      b.EmitPushNull(); break;
                     case JitOpKind.Pop:           b.IL.Emit(OpCodes.Pop); break;
                     case JitOpKind.Not:           b.EmitLogicalNot(); break;
+                    case JitOpKind.GetIndex:      b.EmitGetIndex(aSlot, bSlot); break;
+                    case JitOpKind.SetIndex:      b.EmitSetIndex(chunk.IsStrict, leaveValue: true, valTmp: aSlot, keyTmp: bSlot, objTmp: rSlot); break;
+                    case JitOpKind.Negate:        b.EmitNegate(); break;
+                    case JitOpKind.BitNot:        b.EmitBitNot(); break;
+                    case JitOpKind.Typeof:        b.EmitTypeof(); break;
+                    case JitOpKind.ToNumber:      b.EmitToNumber(); break;
+                    case JitOpKind.Shift:         b.EmitShift(instr.Op); break;
                     case JitOpKind.Binary:        EmitBinary(b, instr.Op, aSlot, bSlot, rSlot); break;
                     case JitOpKind.Call:          EmitCall(b, instr.MonoCallee, instr.IntValue, aSlot, bSlot, argArr, rSlot); break;
                     case JitOpKind.Jump:
@@ -403,12 +424,13 @@ namespace DScript.Jit
         {
             JitOpKind.PushConst or JitOpKind.PushIntLiteral or JitOpKind.PushVar
                 or JitOpKind.PushNull or JitOpKind.PushUndefined => 1,
-            JitOpKind.GetProp or JitOpKind.Not or JitOpKind.SetVar => 0,
-            JitOpKind.Binary or JitOpKind.SetProp => -1,
+            JitOpKind.GetProp or JitOpKind.Not or JitOpKind.SetVar
+                or JitOpKind.Negate or JitOpKind.BitNot or JitOpKind.Typeof or JitOpKind.ToNumber => 0,
+            JitOpKind.Binary or JitOpKind.SetProp or JitOpKind.GetIndex or JitOpKind.Shift => -1,
             JitOpKind.Call => -instr.IntValue,               // pop callee + argc, push result
             JitOpKind.Pop or JitOpKind.Return or JitOpKind.SetVarPop
                 or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue => -1,
-            JitOpKind.SetPropPop => -2,
+            JitOpKind.SetPropPop or JitOpKind.SetIndex => -2,
             JitOpKind.Jump or JitOpKind.DeclareVar or JitOpKind.DeclareLocal or JitOpKind.DeclareConst => 0,
             _ => 0,
         };

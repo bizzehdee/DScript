@@ -3048,6 +3048,32 @@ namespace DScript.Vm
             return SharedUndefined;
         }
 
+        // ── extra opcode helpers for JIT-compiled code (mirror the opcode handlers) ──
+
+        internal ScriptVar JitGetIndex(ScriptVar obj, ScriptVar key) => GetMember(obj, KeyName(key));
+
+        // void, mirroring JitSetProp: the emitter re-pushes the value when the
+        // expression form needs it.
+        internal void JitSetIndex(ScriptVar obj, ScriptVar key, ScriptVar value, bool strict)
+            => SetMember(obj, KeyName(key), value, strict);
+
+        internal static ScriptVar JitNegate(ScriptVar a)
+        {
+            if (a.IsInt) return ScriptVar.FromInt(-a.Int);
+            if (a.IsDouble) return ScriptVar.FromDouble(-a.Float);
+            if (a.IsBigInt) return ScriptVar.CreateBigInt(-a.BigIntData);
+            return Zero.MathsOp(a, (ScriptLex.LexTypes)'-');
+        }
+
+        internal static ScriptVar JitBitNot(ScriptVar a)
+            => a.IsBigInt ? ScriptVar.CreateBigInt(~a.BigIntData) : ScriptVar.FromInt(~a.Int);
+
+        internal static ScriptVar JitTypeof(ScriptVar a) => ScriptVar.FromString(a.GetObjectType());
+
+        internal static ScriptVar JitToNumber(ScriptVar a) => CoerceToNumber(a);
+
+        internal static ScriptVar JitShift(ScriptVar a, ScriptVar b, ScriptLex.LexTypes op) => ApplyShift(a, b, op);
+
         // Full binary-operator semantics for JIT back-ends that do not inline
         // arithmetic (e.g. the closure-threaded compiler): identical to the Binary
         // opcode handler — integer fast path, else MathsOp.
