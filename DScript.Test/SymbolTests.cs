@@ -46,6 +46,31 @@ namespace DScript.Test
             return engine.Root.GetParameter("r").String;
         }
 
+        // --- computed keys ---
+
+        [Test]
+        public void Symbol_ComputedKeyInObjectLiteral_RoundTrips()
+        {
+            // { [s]: 123 } stored under key.String instead of the symbol's identity
+            // key, so o[s] (which reads via the identity key) returned undefined.
+            var r = Run("var s = Symbol(); var o = { [s]: 123 }; var r = o[s];").Int;
+            Assert.That(r, Is.EqualTo(123));
+        }
+
+        [Test]
+        public void ComputedKey_IntegerInObjectLiteral_RoundTrips()
+        {
+            var r = Run("var o = { [1 + 1]: 7 }; var r = o[2];").Int;
+            Assert.That(r, Is.EqualTo(7));
+        }
+
+        [Test]
+        public void ComputedKey_DuplicateOverwrites()
+        {
+            var r = Run("var k = 'x'; var o = { [k]: 1, [k]: 2 }; var r = o.x;").Int;
+            Assert.That(r, Is.EqualTo(2));
+        }
+
         // --- uniqueness ---
 
         [Test]

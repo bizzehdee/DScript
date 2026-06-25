@@ -87,6 +87,29 @@ namespace DScript.Test
         }
 
         [Test]
+        public void SpreadString_IntoArray_YieldsCharacters()
+        {
+            // [..."abc"] iterates the string's code points; previously gave 0 elements.
+            Assert.That(RunInt("var a = [...\"abc\"]; var r = a.length;"), Is.EqualTo(3));
+            Assert.That(RunInt("var a = [...\"abc\"]; var r = (a[0] == 'a' && a[2] == 'c') ? 1 : 0;"), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void SpreadString_AstralCharIsSingleElement()
+        {
+            // A surrogate pair (😀 = U+1F600) is one code point → one element, though
+            // the string's .length is 2. Raw emoji avoids Extras/source-escape deps.
+            Assert.That(RunInt("var a = [...\"\U0001F600\"]; var r = a.length;"), Is.EqualTo(1));
+            Assert.That(RunInt("var r = \"\U0001F600\".length;"), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void SpreadString_IntoCall()
+        {
+            Assert.That(RunInt("function f() { return arguments.length; } var r = f(...\"hello\");"), Is.EqualTo(5));
+        }
+
+        [Test]
         public void SpreadArray_AppendedElement()
         {
             Assert.That(RunInt("var a = [1, 2]; var b = [...a, 3]; var r = b[2];"), Is.EqualTo(3));

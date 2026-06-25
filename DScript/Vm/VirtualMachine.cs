@@ -922,7 +922,10 @@ namespace DScript.Vm
                     {
                         var value = Pop();
                         var key = Pop();
-                        Peek().AddChild(key.String, value); // object kept on stack
+                        // Use KeyName so a Symbol computed key ({ [sym]: v }) stores under
+                        // its unique identity key — the same key o[sym] reads — and an int
+                        // key uses the array index name. key.String alone mismatched both.
+                        Peek().AddChildNoDup(KeyName(key), value); // object kept on stack
                         break;
                     }
 
@@ -2936,6 +2939,21 @@ namespace DScript.Vm
         // was O(n²) because each FindChild walk scans from the head of the list.
         private static ScriptVar[] ExtractArrayElements(ScriptVar arr)
         {
+            // Spreading a string iterates its code points (so [..."😀"] is one element,
+            // not two), matching JS's string iterator.
+            if (arr.IsString)
+            {
+                var s = arr.String;
+                var chars = new List<ScriptVar>(s.Length);
+                for (var i = 0; i < s.Length;)
+                {
+                    var adv = char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]) ? 2 : 1;
+                    chars.Add(ScriptVar.FromString(s.Substring(i, adv)));
+                    i += adv;
+                }
+                return chars.ToArray();
+            }
+
             var len = arr.IsArray ? arr.GetArrayLength() : 0;
             if (len == 0) return Array.Empty<ScriptVar>();
             var result = new ScriptVar[len];
