@@ -1280,7 +1280,7 @@ namespace DScript
                 {
                     if (!first) sb.Append(',');
                     first = false;
-                    sb.Append(link.Name.GetJSString());
+                    sb.AppendJsString(link.Name);   // append directly, no temp string
                     sb.Append(':');
                     link.Var.AppendJson(sb);
                     link = link.Next;
@@ -1297,6 +1297,10 @@ namespace DScript
                     GetArrayIndex(x).AppendJson(sb);
                 }
                 sb.Append(']');
+            }
+            else if (IsString)
+            {
+                sb.AppendJsString(GetString());   // append directly, no temp string
             }
             else
             {

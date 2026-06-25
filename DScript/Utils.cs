@@ -70,39 +70,33 @@ namespace DScript
         internal static string GetJSString(this string str)
         {
             var builder = new StringBuilder(str.Length + 10);
+            builder.AppendJsString(str);
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// Append <paramref name="str"/> as a quoted, escaped JS/JSON string directly
+        /// to <paramref name="builder"/> — avoids allocating an intermediate string
+        /// (and a per-call StringBuilder) the way <see cref="GetJSString"/> does, which
+        /// matters when serialising many strings (e.g. JSON.stringify).
+        /// </summary>
+        internal static void AppendJsString(this StringBuilder builder, string str)
+        {
             builder.Append('"');
 
             foreach (var ch in str)
             {
                 switch (ch)
                 {
-                    case '\\':
-                        builder.Append(@"\\");
-                        break;
-                    case '\n':
-                        builder.Append("\\n");
-                        break;
-                    case '\r':
-                        builder.Append("\\r");
-                        break;
-                    case '\a':
-                        builder.Append("\\a");
-                        break;
-                    case '\b':
-                        builder.Append("\\b");
-                        break;
-                    case '\f':
-                        builder.Append("\\f");
-                        break;
-                    case '\t':
-                        builder.Append("\\t");
-                        break;
-                    case '\v':
-                        builder.Append("\\v");
-                        break;
-                    case '"':
-                        builder.Append("\\\"");
-                        break;
+                    case '\\': builder.Append(@"\\"); break;
+                    case '\n': builder.Append("\\n"); break;
+                    case '\r': builder.Append("\\r"); break;
+                    case '\a': builder.Append("\\a"); break;
+                    case '\b': builder.Append("\\b"); break;
+                    case '\f': builder.Append("\\f"); break;
+                    case '\t': builder.Append("\\t"); break;
+                    case '\v': builder.Append("\\v"); break;
+                    case '"': builder.Append("\\\""); break;
                     default:
                     {
                         var nCh = ch & 0xFF;
@@ -121,7 +115,6 @@ namespace DScript
             }
 
             builder.Append('"');
-            return builder.ToString();
         }
     }
 }
