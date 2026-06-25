@@ -51,14 +51,14 @@ namespace DScript.Test
         [Test]
         public void NewMap_SizeIsZero()
         {
-            var result = RunScript("var m = new Map(); __result__ = m.size();");
+            var result = RunScript("var m = new Map(); __result__ = m.size;");
             Assert.That(result.Int, Is.EqualTo(0));
         }
 
         [Test]
         public void NewMap_WithInitialEntries_SizeMatchesEntryCount()
         {
-            var result = RunScript("var m = new Map([[\"a\", 1], [\"b\", 2]]); __result__ = m.size();");
+            var result = RunScript("var m = new Map([[\"a\", 1], [\"b\", 2]]); __result__ = m.size;");
             Assert.That(result.Int, Is.EqualTo(2));
         }
 
@@ -163,7 +163,7 @@ namespace DScript.Test
         [Test]
         public void Delete_RemovesEntry_SizeDecreases()
         {
-            var result = RunScript("var m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.delete(\"a\"); __result__ = m.size();");
+            var result = RunScript("var m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.delete(\"a\"); __result__ = m.size;");
             Assert.That(result.Int, Is.EqualTo(1));
         }
 
@@ -181,7 +181,7 @@ namespace DScript.Test
         [Test]
         public void Clear_EmptiesMap_SizeBecomesZero()
         {
-            var result = RunScript("var m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.clear(); __result__ = m.size();");
+            var result = RunScript("var m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.clear(); __result__ = m.size;");
             Assert.That(result.Int, Is.EqualTo(0));
         }
 
@@ -195,7 +195,7 @@ namespace DScript.Test
         [Test]
         public void Clear_OnEmptyMap_SizeRemainsZero()
         {
-            var result = RunScript("var m = new Map(); m.clear(); __result__ = m.size();");
+            var result = RunScript("var m = new Map(); m.clear(); __result__ = m.size;");
             Assert.That(result.Int, Is.EqualTo(0));
         }
 
@@ -207,15 +207,24 @@ namespace DScript.Test
         public void Size_ReflectsCurrentCount_AfterMultipleSets()
         {
             var result = RunScript(
-                "var m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.set(\"c\", 3); __result__ = m.size();");
+                "var m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.set(\"c\", 3); __result__ = m.size;");
             Assert.That(result.Int, Is.EqualTo(3));
         }
 
         [Test]
         public void Size_DoesNotDoubleCount_DuplicateKey()
         {
-            var result = RunScript("var m = new Map(); m.set(\"k\", 1); m.set(\"k\", 2); __result__ = m.size();");
+            var result = RunScript("var m = new Map(); m.set(\"k\", 1); m.set(\"k\", 2); __result__ = m.size;");
             Assert.That(result.Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Size_IsANumberProperty_NotAFunction()
+        {
+            // `map.size` must be the count (a getter property, like JS), not a method —
+            // otherwise `n + map.size` concatenates the function instead of adding.
+            var result = RunScript("var m = new Map(); m.set(\"a\", 1); __result__ = typeof m.size;");
+            Assert.That(result.String, Is.EqualTo("number"));
         }
 
         // -----------------------------------------------------------------------

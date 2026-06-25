@@ -84,10 +84,12 @@ namespace DScript.Extras.FunctionProviders
             GetMap(var.GetParameter("this")).Data.Clear();
         }
 
-        [ScriptMethod("size")]
+        // size is surfaced as a dynamic property by INativeContainer.GetSize() in
+        // VirtualMachine (matching Set) — registering it as a [ScriptMethod] would
+        // make `map.size` return the function instead of the count.
         public static void MapSizeImpl(ScriptVar var, object userData)
         {
-            var.ReturnVar.Int = GetMap(var.GetParameter("this")).Data.Count;
+            var.Int = GetMap(var).Data.Count;
         }
 
         [ScriptMethod("keys")]
