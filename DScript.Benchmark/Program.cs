@@ -390,6 +390,12 @@ internal static class Program
                 $"function sq(x){{return x*x;}} " +
                 $"function run(m){{ var s=0; var j=0; while(j<m){{ s=s+sq(j); j=j+1; }} return s; }} " +
                 $"var t=0; for(var i=0;i<{propN};i=i+1){{ t=run(20); }} result=t;"),
+
+            // Bimorphic property cache: one read site sees two objects each iteration;
+            // the 2-way inline cache keeps both warm (a monomorphic cache would thrash).
+            ($"bimorphic prop read (n={propN})",
+                $"function get(o){{return o.x;}} var a={{x:3,y:9}}; var b={{x:4}}; var s=0; " +
+                $"for(var i=0;i<{propN};i=i+1){{s=get(a)+get(b);}} result=s;"),
         };
 
         Console.WriteLine();

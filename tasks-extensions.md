@@ -207,11 +207,16 @@ Parity tests both back-ends; benchmark.
 (helpers), template literals. Decoder + both back-ends + parity tests per opcode.
 **Depends on:** T32, T38
 
-### T51 — Polymorphic (bimorphic) inline caches
-**File:** `DScript/Jit/ReflectionEmitJitCompiler.cs`, `DScript/Vm/PropCacheCell.cs`
-**Work:** Two baked entries for call sites (T14) and property sites (T28) before
-megamorphic fallback, driven by the morphism profiles. Tests + benchmark on
-2-callee / 2-shape workloads.
+### T51 — Polymorphic (bimorphic) inline caches — **property cache done**
+**File:** `DScript/Vm/PropCacheCell.cs`, `DScript/Vm/VirtualMachine.cs`
+**Done:** `PropCacheCell` is now a 2-way LRU (two object/shape/link entries); a site
+alternating between two objects/shapes hits instead of thrashing. Bimorphic tests +
+a benchmark workload (`bimorphic prop read` ~1.21× ReflEmit) added.
+**Scoped out:** bimorphic *call* dispatch. Without inlining, baked-callee dispatch is
+near-identical to general dispatch (both call `InvokeCallable`), so a two-callee
+guard adds branches for negligible benefit; bi/megamorphic calls already route
+through general dispatch correctly. Worthwhile only alongside bimorphic *inlining*
+(future work).
 **Depends on:** T14, T28
 
 ### T52 — Background compilation

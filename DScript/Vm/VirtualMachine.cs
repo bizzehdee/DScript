@@ -3005,10 +3005,11 @@ namespace DScript.Vm
         // the JIT emitter / closure back-end can call it.
         internal ScriptVar JitGetPropCached(ScriptVar obj, string name, PropCacheCell cell)
         {
-            if (ReferenceEquals(cell.Object, obj) && cell.Version == obj.ShapeVersion && cell.Link != null)
-                return cell.Link.Getter != null
-                    ? InvokeCallable(cell.Link.Getter, obj, System.Array.Empty<ScriptVar>())
-                    : cell.Link.Var;
+            var cached = cell.Lookup(obj);
+            if (cached != null)
+                return cached.Getter != null
+                    ? InvokeCallable(cached.Getter, obj, System.Array.Empty<ScriptVar>())
+                    : cached.Var;
 
             if (obj.IsProxy) return GetMember(obj, name);
 
@@ -3019,11 +3020,7 @@ namespace DScript.Vm
             if (link != null)
             {
                 if (obj.IsObject || obj.IsArray)
-                {
-                    cell.Object = obj;
-                    cell.Version = obj.ShapeVersion;
-                    cell.Link = link;
-                }
+                    cell.Insert(obj, link);
                 return link.Getter != null
                     ? InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>())
                     : link.Var;

@@ -78,6 +78,41 @@ namespace DScript.Test
         }
 
         [Test]
+        public void TwoShapesAlternatingBimorphic()
+        {
+            // The site reads two objects of different shapes each iteration — the
+            // bimorphic (2-way) cache keeps both warm. Correctness must hold.
+            AssertBothBackendsMatchInterpreter(
+                "function get(o){ return o.x; }\n" +
+                "var a = {}; a.x = 3; a.y = 9; var b = {}; b.x = 100;\n" +
+                "var r=0; var i=0; while(i<1200){ r = get(a) + get(b); i = i + 1; }\n__result__ = r;");
+        }
+
+        [Test]
+        public void ThreeObjectsExceedBimorphic()
+        {
+            // Three objects at one site exceed the 2-way cache (it evicts) but must
+            // remain correct.
+            AssertBothBackendsMatchInterpreter(
+                "function get(o){ return o.x; }\n" +
+                "var a={}; a.x=1; var b={}; b.x=2; var c={}; c.x=3;\n" +
+                "var r=0; var i=0; while(i<1200){ r = get(a) + get(b) + get(c); i = i + 1; }\n__result__ = r;");
+        }
+
+        [Test]
+        public void BimorphicThenShapeChange()
+        {
+            // Warm two objects, then change one's shape — its cache entry must
+            // invalidate while the other stays valid.
+            AssertBothBackendsMatchInterpreter(
+                "function get(o){ return o.x; }\n" +
+                "var a={}; a.x=1; var b={}; b.x=2;\n" +
+                "var r=0; var i=0; while(i<1200){ r = get(a) + get(b); i = i + 1; }\n" +
+                "a.z = 99;\n" +
+                "r = get(a) + get(b);\n__result__ = r;");
+        }
+
+        [Test]
         public void GetterProperty()
         {
             // A property backed by a getter must invoke it through the cache.
