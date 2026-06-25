@@ -265,6 +265,40 @@ namespace DScript.Jit
                         break;
                     }
 
+                    case OpCode.TailCall:
+                    {
+                        // `return f(x)` in tail position. The interpreter routes VM
+                        // callees through a trampoline that gives unbounded tail
+                        // recursion; compiled code can't reproduce that, so a
+                        // self-tail-recursive function would grow the C# stack and
+                        // overflow. We therefore decline when any profiled callee is
+                        // this very chunk, and otherwise lower the tail call to an
+                        // ordinary Call + Return (correct for bounded depth, and it
+                        // reuses the existing inlining/dispatch machinery).
+                        var site = ip;
+                        var argc = chunk.ReadInt(ip);
+                        var profile = chunk.CallProfiles[site];
+                        ScriptVar callee0 = null, callee1 = null;
+                        if (profile.State == Chunk.CallSiteMorphism.Monomorphic)
+                        {
+                            callee0 = profile.Callee0;
+                        }
+                        else if (profile.State == Chunk.CallSiteMorphism.Bimorphic)
+                        {
+                            callee0 = profile.Callee0;
+                            callee1 = profile.Callee1;
+                        }
+                        if (IsSelfCallee(callee0, chunk) || IsSelfCallee(callee1, chunk))
+                        {
+                            declineReason = "self tail-recursion (relies on the interpreter trampoline)";
+                            return null;
+                        }
+                        instrs.Add(JitInstruction.Call(argc, callee0, callee1));
+                        instrs.Add(JitInstruction.Return());
+                        ip += 4;
+                        break;
+                    }
+
                     // Structured branches (if/while/for). The conditional variants pop
                     // their condition, so the operand stack is empty at every jump
                     // point — which keeps the emitter's flat model valid. The
@@ -354,6 +388,15 @@ namespace DScript.Jit
             }
 
             return instrs;
+        }
+
+        /// <summary>True if <paramref name="callee"/> is a VM function whose body is
+        /// <paramref name="chunk"/> itself — i.e. a self (tail-)recursive call.</summary>
+        private static bool IsSelfCallee(ScriptVar callee, Chunk chunk)
+        {
+            if (callee == null || !callee.IsFunction || callee.IsNative)
+                return false;
+            return callee.GetData() is VmFunction fn && fn.Body == chunk;
         }
     }
 }
