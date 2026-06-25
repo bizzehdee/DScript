@@ -179,22 +179,33 @@ return on exit (no stale child links — honour the repo's cycle-safety rules).
 ref otherwise) with From/ToScriptVar conversions + queries; 12 unit tests covering
 edge values (NaN, -0, ±Infinity, ref round-trip). Not wired into the VM.
 
-### T48 — Migrate interpreter operand stack + arithmetic to `Value` — **DEFERRED**
+### T48 — Migrate interpreter operand stack + arithmetic to `Value` — **ATTEMPTED, ABANDONED (measured regression)**
 **File:** `DScript/Vm/VirtualMachine.cs`
-**Why deferred:** this is a whole-interpreter refactor (the `ScriptVar[]` operand
-stack is threaded through ~100 opcode handlers). It cannot be landed safely as one
-change, and a naive `Value[]`-with-conversion shim would be *slower* (extra
-conversions) and *change identity semantics* — `ToScriptVar()` reallocates
-primitives, breaking reference-equality invariants the VM relies on (`SharedTrue`/
-`SharedFalse`, the inline caches). It must be done incrementally, opcode-by-opcode,
-keeping the suite green at each step — a dedicated multi-session effort. The T47
-spike is the abandon-safe foundation; the migration is the open work.
+**What was tried (abandon-safe, working-tree only):** flipped the operand stack to
+`Value[]` with identity-preserving `Push`/`Pop`/`Peek` shims (`Value.From` retains the
+original `ScriptVar`, so `ToScriptVar` returns it — no reallocation, no identity
+change). **Result: correctness held (all 1802 tests green), but the interpreter
+regressed ~55%** (benchmark total 323 ms → 500 ms; every workload 40–70% slower).
+**Root cause:** the operand stack is the hottest structure (touched by every opcode);
+the tagged `Value` struct is ~24–32 bytes (kind + int + double + ref) vs an 8-byte
+`ScriptVar` reference, so every push/pop copies 3–4× the memory, plus `From`
+classification / `ToScriptVar` per op. The arithmetic-allocation saving applies to
+only *some* ops while the struct-copy tax is paid on *all* of them, so it cannot
+offset — and migrating hot handlers to Value-native wouldn't change the struct-size
+penalty. **The only size-neutral representation is NaN-boxing into 8 bytes, which C#
+can't do for managed references (the GC can't track a ref packed into a `double`); it
+would require a handle/side-table for objects, adding indirection that regresses
+object-heavy code.** Conclusion: not worth pursuing with a tagged struct; reverted.
+The T47 spike remains for reference. (Exactly the outcome the spike-first framing was
+meant to surface.)
 **Depends on:** T47
 
-### T49 — Migrate JIT speculative tiers to `Value` — **DEFERRED** (after T48)
+### T49 — Migrate JIT speculative tiers to `Value` — **MOOT** (depends on T48)
 **File:** `DScript/Jit/*`
-**Work:** Flow `Value` through compiled code (subsumes the unboxed int/double tiers).
-Parity tests both back-ends; benchmark.
+T48 was abandoned (interpreter regression), so this does not proceed. The JIT
+speculative tiers already flow raw `int`/`double` through IL and allocate nothing for
+arithmetic intermediates, so they would gain little from a `Value` representation
+regardless.
 **Depends on:** T48, T31
 
 ---
@@ -315,11 +326,13 @@ switch is already a jump table) and fusion is already extensive; the one remaini
 lever (a compound-assign superinstruction) is deferred as high-risk/low-reward in
 the hot path.
 
-**Tier 2 partial:** Phase 10 (frame pooling) — env pooling not viable (inline-cache
-identity conflict); vars pooling already in place. Phase 11 — `Value` spike (T47)
-done; the full operand-stack/arithmetic migration (T48/T49) is deferred as a
-dedicated incremental refactor (a single-leap migration would break identity
-invariants and the green suite).
+**Tier 2 closed (negative results, both documented):** Phase 10 (frame pooling) —
+env pooling not viable (inline-cache identity conflict); vars pooling already in
+place. Phase 11 — `Value` spike (T47) done; the operand-stack migration (T48) was
+**attempted and abandoned** — it held correctness (1802 green) but regressed the
+interpreter ~55% because a tagged `Value` struct is 3–4× the size of a `ScriptVar`
+reference on the hottest data structure (size-neutral would need NaN-boxing, which
+C# can't do for managed refs). T49 is moot in consequence.
 
 **Deferred:** OSR (sequenced behind the live-frame-transfer mechanism, T34/T35 →
 T35a/T35b — narrow ROI); Phase 11 migration (T48/T49); the T56 compound-assign
