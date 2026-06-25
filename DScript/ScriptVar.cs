@@ -936,8 +936,14 @@ namespace DScript
             {
                 if (value.IsUndefined) return;
 
+                // AddChild invalidates the length cache (it can't know the index), but
+                // here we do: keep the cache valid so repeated appends (push, building
+                // arrays) stay O(1) instead of O(n) per element / O(n^2) overall.
+                var prevLen = cachedArrayLength;
                 AddChild(name, value);
-                cachedArrayLength = -1;  // Invalidate cache on addition
+                cachedArrayLength = prevLen < 0 ? -1
+                                  : idx >= prevLen ? idx + 1   // extends the array
+                                  : prevLen;                   // filled an interior hole
             }
         }
 

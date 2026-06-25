@@ -36,6 +36,44 @@ namespace DScript.Test
             return engine.Root.GetParameter("__result__");
         }
 
+        // ── push / length cache (kept valid across appends) ────────────────────
+
+        [Test]
+        public void Push_BuildsArrayWithCorrectLengthAndElements()
+        {
+            var result = RunScript(
+                "var a = []; for (var i = 0; i < 100; i = i + 1) a.push(i * 2);" +
+                "var __result__ = a.length * 1000000 + a[0] * 1000 + a[99];");
+            Assert.That(result.Int, Is.EqualTo(100 * 1000000 + 0 + 198));
+        }
+
+        [Test]
+        public void Push_ReturnsNewLength()
+        {
+            var result = RunScript("var a = [1, 2]; var __result__ = a.push(3);");
+            Assert.That(result.Int, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void Push_AfterSparseAssignment_ExtendsBeyondHighestIndex()
+        {
+            // a[5] makes length 6; push then lands at index 6 (length 7).
+            var result = RunScript(
+                "var a = [1, 2]; a[5] = 99; a.push(7);" +
+                "var __result__ = a.length * 100 + a[6];");
+            Assert.That(result.Int, Is.EqualTo(7 * 100 + 7));
+        }
+
+        [Test]
+        public void Length_StableAcrossInteriorFill()
+        {
+            // Filling an interior hole must not change length.
+            var result = RunScript(
+                "var a = []; a[4] = 1; var before = a.length; a[2] = 9;" +
+                "var __result__ = before * 100 + a.length;");
+            Assert.That(result.Int, Is.EqualTo(5 * 100 + 5));
+        }
+
         // ── nested callbacks: reentrant CallFunction (VM pooling correctness) ───
 
         [Test]

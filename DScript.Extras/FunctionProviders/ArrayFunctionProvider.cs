@@ -119,9 +119,11 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var val = var.GetParameter("val");
 
-            arr.SetArrayIndex(arr.GetArrayLength(), val);
-
-            var.ReturnVar.Int = arr.GetArrayLength();
+            // Compute the length once (GetArrayLength can be O(n)); the new length is
+            // simply len + 1.
+            var len = arr.GetArrayLength();
+            arr.SetArrayIndex(len, val);
+            var.ReturnVar.Int = len + 1;
         }
 
         [ScriptMethod("pop")]
