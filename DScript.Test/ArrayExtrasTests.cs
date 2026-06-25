@@ -36,6 +36,32 @@ namespace DScript.Test
             return engine.Root.GetParameter("__result__");
         }
 
+        // ── nested callbacks: reentrant CallFunction (VM pooling correctness) ───
+
+        [Test]
+        public void NestedCallbacks_MapOfFilterReduce()
+        {
+            // A map callback that itself calls filter + reduce — each callback rents a
+            // distinct pooled VM; results must be correct under that nesting.
+            var result = RunScript(
+                "var data = [[1,2,3],[4,5,6],[7,8,9]];" +
+                "var r = data.map(function(row){" +
+                "  return row.filter(function(x){ return x % 2 === 1; })" +
+                "            .reduce(function(a,b){ return a + b; }, 0); });" +
+                "var __result__ = r[0] * 10000 + r[1] * 100 + r[2];"); // 4, 5, 16
+            Assert.That(result.Int, Is.EqualTo(40516));
+        }
+
+        [Test]
+        public void NestedCallbacks_SortInsideMap()
+        {
+            var result = RunScript(
+                "var r = [[3,1,2],[6,4,5]].map(function(a){" +
+                "  var c = a.slice(); c.sort(function(x,y){ return x - y; }); return c[0]; });" +
+                "var __result__ = r[0] * 10 + r[1];"); // 1, 4
+            Assert.That(result.Int, Is.EqualTo(14));
+        }
+
         // ── sort: reference identity (elements are reordered, not copied) ───────
 
         [Test]
