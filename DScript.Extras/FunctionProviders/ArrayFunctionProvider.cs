@@ -94,7 +94,9 @@ namespace DScript.Extras.FunctionProviders
         {
             var builder = new StringBuilder();
 
-            var separator = var.GetParameter("separator").String;
+            // An omitted separator defaults to "," (not the literal "undefined").
+            var sepVar = var.GetParameter("separator");
+            var separator = sepVar.IsUndefined ? "," : sepVar.String;
             var arr = var.GetParameter("this");
 
             var arrayLength = arr.GetArrayLength();
@@ -105,8 +107,10 @@ namespace DScript.Extras.FunctionProviders
                     builder.Append(separator);
                 }
 
-                var str = arr.GetArrayIndex(x).String;
-                builder.Append(str);
+                // undefined / null elements join as empty string (JS semantics).
+                var elem = arr.GetArrayIndex(x);
+                if (!elem.IsUndefined && !elem.IsNull)
+                    builder.Append(elem.String);
 
             }
 

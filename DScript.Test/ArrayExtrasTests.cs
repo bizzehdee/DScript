@@ -36,6 +36,28 @@ namespace DScript.Test
             return engine.Root.GetParameter("__result__");
         }
 
+        // ── join ───────────────────────────────────────────────────────────────
+
+        [Test]
+        public void Join_NoSeparator_DefaultsToComma()
+        {
+            // join() with no argument must use "," — not the literal "undefined".
+            Assert.That(RunScript("var __result__ = [1, 2, 3].join();").String, Is.EqualTo("1,2,3"));
+        }
+
+        [Test]
+        public void Join_ExplicitSeparator()
+        {
+            Assert.That(RunScript("var __result__ = [1, 2, 3].join('-');").String, Is.EqualTo("1-2-3"));
+            Assert.That(RunScript("var __result__ = [1, 2, 3].join('');").String, Is.EqualTo("123"));
+        }
+
+        [Test]
+        public void Join_UndefinedAndNullElements_AreEmpty()
+        {
+            Assert.That(RunScript("var __result__ = [1, undefined, null, 3].join();").String, Is.EqualTo("1,,,3"));
+        }
+
         // ── Array.from (arrays, strings, array-like objects) ───────────────────
 
         [Test]
