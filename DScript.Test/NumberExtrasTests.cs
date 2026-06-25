@@ -270,6 +270,45 @@ namespace DScript.Test
         }
 
         [Test]
+        public void ToString_Radix36_ProducesBase36String()
+        {
+            // Base 36 uses 0-9a-z; 35 -> "z", 1000 -> "rs". .NET's Convert.ToString
+            // only supports 2/8/10/16, so this exercises the custom converter.
+            var frame = MakeCallFrame(35.0, ("radix", ScriptVar.FromInt(36)));
+            NumberFunctionProvider.NumberToStringImpl(frame, null);
+            Assert.That(frame.ReturnVar.String, Is.EqualTo("z"));
+
+            frame = MakeCallFrame(1000.0, ("radix", ScriptVar.FromInt(36)));
+            NumberFunctionProvider.NumberToStringImpl(frame, null);
+            Assert.That(frame.ReturnVar.String, Is.EqualTo("rs"));
+        }
+
+        [Test]
+        public void ToString_Radix12_ProducesBase12String()
+        {
+            // 12 (non-power-of-two, unsupported by Convert.ToString) -> "10".
+            var frame = MakeCallFrame(12.0, ("radix", ScriptVar.FromInt(12)));
+            NumberFunctionProvider.NumberToStringImpl(frame, null);
+            Assert.That(frame.ReturnVar.String, Is.EqualTo("10"));
+        }
+
+        [Test]
+        public void ToString_NegativeRadix36_KeepsSign()
+        {
+            var frame = MakeCallFrame(-255.0, ("radix", ScriptVar.FromInt(16)));
+            NumberFunctionProvider.NumberToStringImpl(frame, null);
+            Assert.That(frame.ReturnVar.String, Is.EqualTo("-ff"));
+        }
+
+        [Test]
+        public void ToString_Zero_Base36_ProducesZero()
+        {
+            var frame = MakeCallFrame(0.0, ("radix", ScriptVar.FromInt(36)));
+            NumberFunctionProvider.NumberToStringImpl(frame, null);
+            Assert.That(frame.ReturnVar.String, Is.EqualTo("0"));
+        }
+
+        [Test]
         public void ToString_InvalidRadix_ReturnsNaN()
         {
             var frame = MakeCallFrame(10.0, ("radix", ScriptVar.FromInt(1)));

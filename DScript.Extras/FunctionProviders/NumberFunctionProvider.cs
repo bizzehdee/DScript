@@ -144,7 +144,25 @@ namespace DScript.Extras.FunctionProviders
                 return;
             }
             if (radix < 2 || radix > 36) { var.ReturnVar.String = "NaN"; return; }
-            var.ReturnVar.String = Convert.ToString((long)d, radix);
+            var.ReturnVar.String = ToRadixString((long)d, radix);
+        }
+
+        // Convert an integer to a string in any base 2..36 (JS supports the full
+        // range; .NET's Convert.ToString only handles 2/8/10/16).
+        private static string ToRadixString(long value, int radix)
+        {
+            if (value == 0) return "0";
+            const string digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+            var negative = value < 0;
+            var n = negative ? -value : value;
+            var sb = new System.Text.StringBuilder();
+            while (n > 0)
+            {
+                sb.Insert(0, digits[(int)(n % radix)]);
+                n /= radix;
+            }
+            if (negative) sb.Insert(0, '-');
+            return sb.ToString();
         }
 
         [ScriptMethod("toExponential", "digits")]
