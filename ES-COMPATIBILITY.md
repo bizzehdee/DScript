@@ -54,7 +54,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Named capture groups in RegExp | ✅ | `(?<name>...)` syntax; `.groups` on exec/match result |
 | Lookahead / lookbehind assertions | ✅ | `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)` all supported |
 | `Math` object (all standard methods and constants) | ✅ | |
-| `JSON.parse` / `JSON.stringify` | ✅ | |
+| `JSON.parse` / `JSON.stringify` | ✅ | `parse` is a strict recursive-descent parser (not `eval`-based) — rejects non-JSON input and does not reconstruct functions |
 | `parseInt` / `parseFloat` | ✅ | |
 | `isNaN` / `isFinite` | ✅ | |
 | `Number.isNaN` / `Number.isFinite` / `Number.isInteger` | ✅ | |

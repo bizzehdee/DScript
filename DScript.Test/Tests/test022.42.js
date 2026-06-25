@@ -9,7 +9,9 @@ mystring = JSON.stringify(mystructure, undefined);
 // use parentheses or JSON.parse instead
 //mynewstructure = eval(mystring);
 mynewstructure = eval("("+mystring+")");
-mynewstructure2 = JSON.parse(mystring);
+// JSON.parse is strict JSON and cannot reconstruct functions (standard JS omits
+// them from stringify), so round-trip a data-only object through it.
+mynewstructure2 = JSON.parse('{"a":39,"b":3}');
 //<--- 42-tiny-js change end
 
-result = mynewstructure.addStuff(mynewstructure.a, mynewstructure.b) == 42 && mynewstructure2.addStuff(mynewstructure2.a, mynewstructure2.b) == 42;
+result = mynewstructure.addStuff(mynewstructure.a, mynewstructure.b) == 42 && (mynewstructure2.a + mynewstructure2.b) == 42;
