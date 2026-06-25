@@ -102,6 +102,14 @@ namespace DScript.Jit
         GetPropCall0,
         /// <summary>Pop receiver + callee + N args, dispatch with the receiver as `this`, push the result.</summary>
         CallMethod,
+        /// <summary>Push a fresh empty object (object-literal start).</summary>
+        NewObject,
+        /// <summary>Push a fresh empty array (array-literal start).</summary>
+        NewArray,
+        /// <summary>Pop a value, add it as a named property of the peeked object, keep the object.</summary>
+        InitProp,
+        /// <summary>Pop a value, store it at the given index of the peeked array, keep the array.</summary>
+        InitElem,
         /// <summary>Discard the top operand (its side effects still run).</summary>
         Pop,
         /// <summary>Return the top operand.</summary>
@@ -205,6 +213,14 @@ namespace DScript.Jit
             new(JitOpKind.GetPropCall0, null, 0, name, default, null);
         public static JitInstruction CallMethod(int argc) =>
             new(JitOpKind.CallMethod, null, argc, null, default, null);
+        public static JitInstruction NewObject() =>
+            new(JitOpKind.NewObject, null, 0, null, default, null);
+        public static JitInstruction NewArray() =>
+            new(JitOpKind.NewArray, null, 0, null, default, null);
+        public static JitInstruction InitProp(string name) =>
+            new(JitOpKind.InitProp, null, 0, name, default, null);
+        public static JitInstruction InitElem(int index) =>
+            new(JitOpKind.InitElem, null, index, null, default, null);
         public static JitInstruction Pop() =>
             new(JitOpKind.Pop, null, 0, null, default, null);
         public static JitInstruction Return() =>

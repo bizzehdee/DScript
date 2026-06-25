@@ -101,6 +101,14 @@ namespace DScript.Jit
             "JitDeclareLocal", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitDeclareConstMethod = typeof(VirtualMachine).GetMethod(
             "JitDeclareConst", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitNewObjectMethod = typeof(VirtualMachine).GetMethod(
+            "JitNewObject", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitNewArrayMethod = typeof(VirtualMachine).GetMethod(
+            "JitNewArray", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitInitPropMethod = typeof(VirtualMachine).GetMethod(
+            "JitInitProp", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitInitElemMethod = typeof(VirtualMachine).GetMethod(
+            "JitInitElem", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo MaterializeMethod = typeof(ConstantValue).GetMethod("Materialize", Type.EmptyTypes);
         private static readonly MethodInfo IntBinaryMethod  = typeof(VirtualMachine).GetMethod(
             "IntBinary", BindingFlags.NonPublic | BindingFlags.Static);
@@ -180,6 +188,33 @@ namespace DScript.Jit
             EmitLoadLocal(currentEnv);
             IL.EmitCall(OpCodes.Callvirt, EnvParentGetter, null);
             EmitStoreLocal(currentEnv);
+        }
+
+        /// <summary>Push a fresh empty object (object-literal start).</summary>
+        public void EmitNewObject() => IL.EmitCall(OpCodes.Call, JitNewObjectMethod, null);
+
+        /// <summary>Push a fresh empty array (array-literal start).</summary>
+        public void EmitNewArray() => IL.EmitCall(OpCodes.Call, JitNewArrayMethod, null);
+
+        /// <summary>
+        /// Add a named property to the object-literal under construction. The stack
+        /// holds [obj, value]; emits <c>JitInitProp(obj, value, name)</c>, which leaves
+        /// the object on the stack for the next initialiser.
+        /// </summary>
+        public void EmitInitProp(string name)
+        {
+            EmitLoadData(AddData(name), typeof(string));   // [obj, value, name]
+            IL.EmitCall(OpCodes.Call, JitInitPropMethod, null);
+        }
+
+        /// <summary>
+        /// Store an element into the array-literal under construction. The stack holds
+        /// [arr, value]; emits <c>JitInitElem(arr, value, index)</c>, leaving the array.
+        /// </summary>
+        public void EmitInitElem(int index)
+        {
+            EmitLdcI4(index);                              // [arr, value, index]
+            IL.EmitCall(OpCodes.Call, JitInitElemMethod, null);
         }
 
         /// <summary>Push the <c>vm</c> argument (a <see cref="VirtualMachine"/>).</summary>

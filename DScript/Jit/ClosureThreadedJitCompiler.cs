@@ -135,6 +135,22 @@ namespace DScript.Jit
                         effects.Add(SetPropNode(obj, instr.Name, value, strict));
                         break;
                     }
+                    case JitOpKind.NewObject:     stack.Push(NewObjectNode()); break;
+                    case JitOpKind.NewArray:      stack.Push(NewArrayNode()); break;
+                    case JitOpKind.InitProp:
+                    {
+                        var value = stack.Pop();
+                        var obj = stack.Pop();
+                        stack.Push(InitPropNode(obj, value, instr.Name));
+                        break;
+                    }
+                    case JitOpKind.InitElem:
+                    {
+                        var value = stack.Pop();
+                        var arr = stack.Pop();
+                        stack.Push(InitElemNode(arr, value, instr.IntValue));
+                        break;
+                    }
                     case JitOpKind.DeclareVar:    effects.Add(DeclareNode(instr.Name, JitDeclareKind.Var)); break;
                     case JitOpKind.DeclareLocal:  effects.Add(DeclareNode(instr.Name, JitDeclareKind.Local)); break;
                     case JitOpKind.DeclareConst:  effects.Add(DeclareNode(instr.Name, JitDeclareKind.Const)); break;
@@ -188,6 +204,29 @@ namespace DScript.Jit
                     default:                   VirtualMachine.JitDeclareConst(env, name); break;
                 }
                 return ScriptVar.CreateUndefined(); // discarded by the effects runner
+            };
+
+        // Object/array literals. NewObject/NewArray create a fresh instance; each
+        // Init* node evaluates the construction-so-far (a single instance, since the
+        // chain is linear — each consumes its predecessor), mutates it, and returns it.
+        private static JitDelegate NewObjectNode() => (vm, args, env) => ScriptVar.CreateObject();
+
+        private static JitDelegate NewArrayNode() => (vm, args, env) => ScriptVar.CreateArray();
+
+        private static JitDelegate InitPropNode(JitDelegate objNode, JitDelegate valueNode, string name) =>
+            (vm, args, env) =>
+            {
+                var o = objNode(vm, args, env);
+                o.AddChild(name, valueNode(vm, args, env));
+                return o;
+            };
+
+        private static JitDelegate InitElemNode(JitDelegate arrNode, JitDelegate valueNode, int index) =>
+            (vm, args, env) =>
+            {
+                var a = arrNode(vm, args, env);
+                a.SetArrayIndex(index, valueNode(vm, args, env));
+                return a;
             };
 
         private static JitDelegate NullNode() => (vm, args, env) => ScriptVar.CreateNull();

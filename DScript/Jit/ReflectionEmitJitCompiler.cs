@@ -145,6 +145,10 @@ namespace DScript.Jit
                     case JitOpKind.DeclareConst:
                     case JitOpKind.EnterBlock:
                     case JitOpKind.LeaveBlock:
+                    case JitOpKind.NewObject:
+                    case JitOpKind.NewArray:
+                    case JitOpKind.InitProp:
+                    case JitOpKind.InitElem:
                     case JitOpKind.GetIndex:
                     case JitOpKind.SetIndex:
                     case JitOpKind.Negate:
@@ -419,6 +423,10 @@ namespace DScript.Jit
                     case JitOpKind.DeclareConst:
                     case JitOpKind.EnterBlock:
                     case JitOpKind.LeaveBlock:
+                    case JitOpKind.NewObject:
+                    case JitOpKind.NewArray:
+                    case JitOpKind.InitProp:
+                    case JitOpKind.InitElem:
                     case JitOpKind.GetIndex:
                     case JitOpKind.SetIndex:
                     case JitOpKind.Negate:
@@ -516,6 +524,10 @@ namespace DScript.Jit
                     case JitOpKind.DeclareConst:  b.EmitDeclare(instr.Name, JitDeclareKind.Const); break;
                     case JitOpKind.EnterBlock:    b.EmitEnterBlock(currentEnv); break;
                     case JitOpKind.LeaveBlock:    b.EmitLeaveBlock(currentEnv); break;
+                    case JitOpKind.NewObject:     b.EmitNewObject(); break;
+                    case JitOpKind.NewArray:      b.EmitNewArray(); break;
+                    case JitOpKind.InitProp:      b.EmitInitProp(instr.Name); break;
+                    case JitOpKind.InitElem:      b.EmitInitElem(instr.IntValue); break;
                     case JitOpKind.PushUndefined: b.EmitPushUndefined(); break;
                     case JitOpKind.PushNull:      b.EmitPushNull(); break;
                     case JitOpKind.Pop:           b.IL.Emit(OpCodes.Pop); break;
@@ -673,7 +685,9 @@ namespace DScript.Jit
         private static int StackEffect(JitInstruction instr) => instr.Kind switch
         {
             JitOpKind.PushConst or JitOpKind.PushIntLiteral or JitOpKind.PushVar
-                or JitOpKind.PushNull or JitOpKind.PushUndefined => 1,
+                or JitOpKind.PushNull or JitOpKind.PushUndefined
+                or JitOpKind.NewObject or JitOpKind.NewArray => 1,
+            JitOpKind.InitProp or JitOpKind.InitElem => -1,    // pop value, keep object/array
             JitOpKind.GetProp or JitOpKind.Not or JitOpKind.SetVar or JitOpKind.GetPropCall0
                 or JitOpKind.Negate or JitOpKind.BitNot or JitOpKind.Typeof or JitOpKind.ToNumber => 0,
             JitOpKind.GetPropMethod => 1,                    // peek receiver (kept), push method

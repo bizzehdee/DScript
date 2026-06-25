@@ -299,6 +299,27 @@ namespace DScript.Jit
                         break;
                     }
 
+                    // Object & array literals. Computed keys (SetPropDynamic),
+                    // spread, getters/setters are separate opcodes left declined.
+                    case OpCode.NewObject:
+                        instrs.Add(JitInstruction.NewObject());
+                        break;
+                    case OpCode.NewArray:
+                        instrs.Add(JitInstruction.NewArray());
+                        break;
+                    case OpCode.InitProp:
+                        instrs.Add(JitInstruction.InitProp(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.InitPropN:
+                        instrs.Add(JitInstruction.InitProp(chunk.Names[code[ip]]));
+                        ip += 1;
+                        break;
+                    case OpCode.InitElem:
+                        instrs.Add(JitInstruction.InitElem(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+
                     // Structured branches (if/while/for). The conditional variants pop
                     // their condition, so the operand stack is empty at every jump
                     // point — which keeps the emitter's flat model valid. The

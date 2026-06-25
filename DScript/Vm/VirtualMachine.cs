@@ -3093,6 +3093,27 @@ namespace DScript.Vm
 
         internal static ScriptVar JitShift(ScriptVar a, ScriptVar b, ScriptLex.LexTypes op) => ApplyShift(a, b, op);
 
+        // Object/array literal construction for JIT-compiled code, mirroring the
+        // NewObject/NewArray/InitProp/InitElem opcodes. Init* take the object/array
+        // (kept on the stack by the interpreter via Peek) plus the value, mutate it,
+        // and return it so the emitter can thread the single instance through the
+        // remaining initialisers without re-creating it.
+        internal static ScriptVar JitNewObject() => ScriptVar.CreateObject();
+
+        internal static ScriptVar JitNewArray() => ScriptVar.CreateArray();
+
+        internal static ScriptVar JitInitProp(ScriptVar obj, ScriptVar value, string name)
+        {
+            obj.AddChild(name, value);
+            return obj;
+        }
+
+        internal static ScriptVar JitInitElem(ScriptVar arr, ScriptVar value, int index)
+        {
+            arr.SetArrayIndex(index, value);
+            return arr;
+        }
+
         // Full binary-operator semantics for JIT back-ends that do not inline
         // arithmetic (e.g. the closure-threaded compiler): identical to the Binary
         // opcode handler — integer fast path, else MathsOp.
