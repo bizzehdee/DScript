@@ -409,6 +409,13 @@ internal static class Program
                 $"function sq(x){{return x*x;}} function dbl(x){{return x+x;}} " +
                 $"function f(fn,x){{ return fn(x) + 0; }} var fns=[sq,dbl]; var s=0; " +
                 $"for(var i=0;i<{propN};i=i+1){{ s=s+f(fns[i%2], i%100); }} result=s;"),
+
+            // Speculative unboxed-int LOOP tier: a hot integer loop with an
+            // accumulator + counter, compiled with raw-int registers (no per-iteration
+            // boxing) instead of the boxed conservative tier.
+            ($"unboxed int loop (n={propN})",
+                $"function sum(m){{ var s=0; var j=0; while(j<m){{ s=s+j*2-1; j=j+1; }} return s; }} " +
+                $"var t=0; for(var i=0;i<{propN};i=i+1){{ t=sum(40); }} result=t;"),
         };
 
         Console.WriteLine();

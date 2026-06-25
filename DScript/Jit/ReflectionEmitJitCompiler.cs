@@ -53,6 +53,8 @@ namespace DScript.Jit
                 if (asInt != null) return asInt;
                 var asDouble = TryCompileSpeculativeDouble(chunk, instrs);
                 if (asDouble != null) return asDouble;
+                var asIntLoop = TryCompileSpeculativeIntLoop(chunk, instrs);
+                if (asIntLoop != null) return asIntLoop;
             }
 
             return CompileConservative(chunk, instrs);
@@ -190,6 +192,145 @@ namespace DScript.Jit
             (char)op == '<' || (char)op == '>' ||
             op == ScriptLex.LexTypes.LEqual || op == ScriptLex.LexTypes.GEqual ||
             op == ScriptLex.LexTypes.Equal || op == ScriptLex.LexTypes.NEqual;
+
+        // ── speculative unboxed-int LOOP tier ────────────────────────────────────
+        // For a pure (call-free) function whose binary sites are all profiled Int-only,
+        // compile control flow + assignments with variables promoted to raw-int IL
+        // registers — no per-iteration boxing. Because every value that flows is
+        // provably int (int constants, int-guarded params, int arithmetic, 0/1
+        // comparisons), the only guards are the entry parameter guards (clean-stack
+        // deopt); the loop body runs fully unboxed and boxes only at the return.
+        //
+        // Soundness of register promotion: a parameter is guarded int at entry; a local
+        // is promoted only when its first reference is an assignment in the straight-line
+        // prologue (before any jump), so it is unconditionally initialised before any
+        // read — its initialiser dominates all uses. Otherwise the chunk is declined.
+        private static JitDelegate TryCompileSpeculativeIntLoop(Chunk chunk, List<JitInstruction> instrs)
+        {
+            if (!IsIntLoopSpeculable(chunk, instrs))
+                return null;
+
+            var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
+            var svTemp = b.DeclareLocal(typeof(ScriptVar));
+            var deopt = b.IL.DefineLabel();
+            var chunkIndex = b.AddData(chunk);
+            var il = b.IL;
+
+            // One raw-int register per variable.
+            var regs = new Dictionary<string, LocalBuilder>();
+            foreach (var instr in instrs)
+                if (instr.Name != null && IsVarRef(instr.Kind) && !regs.ContainsKey(instr.Name))
+                    regs[instr.Name] = b.DeclareLocal(typeof(int));
+
+            // Prologue: guard each parameter int and load it into its register. Locals
+            // are left at the IL default (0) and set by their prologue assignment before
+            // any read (guaranteed by eligibility), so they need no entry guard.
+            foreach (var kv in regs)
+                if (chunk.Parameters.Contains(kv.Key))
+                    b.EmitResolveGuardedInt(kv.Key, kv.Value, svTemp, deopt);
+
+            var labels = new Dictionary<int, Label>();
+            foreach (var instr in instrs)
+                if (IsJump(instr.Kind))
+                    labels[instr.IntValue] = il.DefineLabel();
+
+            for (var i = 0; i < instrs.Count; i++)
+            {
+                if (labels.TryGetValue(i, out var here)) il.MarkLabel(here);
+                var instr = instrs[i];
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:      b.EmitLdcI4(instr.Constant.IntValue); break;
+                    case JitOpKind.PushIntLiteral: b.EmitLdcI4(instr.IntValue); break;
+                    case JitOpKind.PushVar:        b.EmitLoadLocal(regs[instr.Name]); break;
+                    case JitOpKind.SetVar:         il.Emit(OpCodes.Dup); b.EmitStoreLocal(regs[instr.Name]); break; // expression
+                    case JitOpKind.SetVarPop:      b.EmitStoreLocal(regs[instr.Name]); break;
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:   break; // register already exists
+                    case JitOpKind.Not:            il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); break;
+                    case JitOpKind.Binary:         EmitIntBinaryRaw(b, instr.Op); break;
+                    case JitOpKind.Jump:           il.Emit(OpCodes.Br, labels[instr.IntValue]); break;
+                    case JitOpKind.JumpIfFalse:    il.Emit(OpCodes.Brfalse, labels[instr.IntValue]); break; // raw int condition
+                    case JitOpKind.JumpIfTrue:     il.Emit(OpCodes.Brtrue, labels[instr.IntValue]); break;
+                    case JitOpKind.Return:         b.EmitFromInt(); il.Emit(OpCodes.Ret); break;
+                }
+            }
+
+            b.EmitDeoptReturn(deopt, chunkIndex);
+            return b.Finish(appendRet: false);
+        }
+
+        private static bool IsVarRef(JitOpKind k) =>
+            k is JitOpKind.PushVar or JitOpKind.SetVar or JitOpKind.SetVarPop;
+
+        private static bool IsJump(JitOpKind k) =>
+            k is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue;
+
+        private static bool IsIntLoopSpeculable(Chunk chunk, List<JitInstruction> instrs)
+        {
+            if (instrs.Count == 0 || instrs[instrs.Count - 1].Kind != JitOpKind.Return)
+                return false;
+
+            foreach (var instr in instrs)
+            {
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:
+                        if (instr.Constant.Kind != ConstantKind.Int) return false;
+                        break;
+                    case JitOpKind.Binary:
+                        if (InlineIntOp(instr.Op) == null && !IsIntComparison(instr.Op)) return false; // no /,%, etc.
+                        break;
+                    case JitOpKind.PushIntLiteral:
+                    case JitOpKind.PushVar:
+                    case JitOpKind.SetVar:
+                    case JitOpKind.SetVarPop:
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:
+                    case JitOpKind.Not:
+                    case JitOpKind.Jump:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                    case JitOpKind.Return:
+                        break;
+                    default:
+                        return false; // calls, props, indexing, conditional-pop jumps, shifts, etc.
+                }
+            }
+
+            // Evidence of integer arithmetic: at least one binary site, all Int-only.
+            var profiles = chunk.GetBinaryOpProfiles();
+            if (profiles.Count == 0) return false;
+            foreach (var (_, p) in profiles)
+                if (p.LeftTypes != Chunk.BinaryTypeFlags.Int || p.RightTypes != Chunk.BinaryTypeFlags.Int)
+                    return false;
+
+            // Register-promotion soundness: every non-parameter variable's first
+            // reference must be an assignment in the straight-line prologue (before any
+            // jump), so it is initialised unconditionally before any read.
+            var firstJump = instrs.Count;
+            for (var i = 0; i < instrs.Count; i++)
+                if (IsJump(instrs[i].Kind)) { firstJump = i; break; }
+
+            var firstRef = new Dictionary<string, (int index, bool isWrite)>();
+            for (var i = 0; i < instrs.Count; i++)
+            {
+                var instr = instrs[i];
+                if (instr.Name == null || !IsVarRef(instr.Kind)) continue;
+                if (firstRef.ContainsKey(instr.Name)) continue;
+                firstRef[instr.Name] = (i, instr.Kind is JitOpKind.SetVar or JitOpKind.SetVarPop);
+            }
+
+            foreach (var kv in firstRef)
+            {
+                if (chunk.Parameters.Contains(kv.Key)) continue;     // params guarded at entry
+                if (!kv.Value.isWrite || kv.Value.index >= firstJump) return false; // not unconditionally pre-assigned
+            }
+
+            return true;
+        }
 
         // ── speculative unboxed-double tier ──────────────────────────────────────
         // For a pure, straight-line function whose binary sites are numeric with at
