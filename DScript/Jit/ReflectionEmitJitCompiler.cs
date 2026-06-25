@@ -143,6 +143,8 @@ namespace DScript.Jit
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:
+                    case JitOpKind.EnterBlock:
+                    case JitOpKind.LeaveBlock:
                     case JitOpKind.GetIndex:
                     case JitOpKind.SetIndex:
                     case JitOpKind.Negate:
@@ -297,7 +299,7 @@ namespace DScript.Jit
                     case JitOpKind.JumpIfFalse:
                     case JitOpKind.JumpIfTrue:
                     case JitOpKind.Return:
-                        break;
+                        break; // EnterBlock/LeaveBlock deliberately absent — block scopes go to the conservative tier
                     default:
                         return false; // calls, props, indexing, conditional-pop jumps, shifts, etc.
                 }
@@ -415,6 +417,8 @@ namespace DScript.Jit
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:
+                    case JitOpKind.EnterBlock:
+                    case JitOpKind.LeaveBlock:
                     case JitOpKind.GetIndex:
                     case JitOpKind.SetIndex:
                     case JitOpKind.Negate:
@@ -466,6 +470,20 @@ namespace DScript.Jit
             var rSlot = b.DeclareLocal(typeof(ScriptVar));
             var argArr = b.DeclareLocal(typeof(ScriptVar[]));
 
+            // Block scopes: track the active environment in a local that variable ops
+            // resolve against (EnterBlock/LeaveBlock swap it). Only set up when the
+            // chunk actually has blocks, so non-block chunks keep using the env argument.
+            LocalBuilder currentEnv = null;
+            foreach (var instr in instrs)
+                if (instr.Kind == JitOpKind.EnterBlock)
+                {
+                    currentEnv = b.DeclareLocal(typeof(Environment));
+                    b.EmitLoadEnv();                 // ldarg env (CurrentEnvLocal still null)
+                    b.EmitStoreLocal(currentEnv);
+                    b.CurrentEnvLocal = currentEnv;  // subsequent var ops use the local
+                    break;
+                }
+
             // One IL label per jump-target instruction index, marked before that
             // instruction is emitted.
             var labels = new Dictionary<int, Label>();
@@ -496,6 +514,8 @@ namespace DScript.Jit
                     case JitOpKind.DeclareVar:    b.EmitDeclare(instr.Name, JitDeclareKind.Var); break;
                     case JitOpKind.DeclareLocal:  b.EmitDeclare(instr.Name, JitDeclareKind.Local); break;
                     case JitOpKind.DeclareConst:  b.EmitDeclare(instr.Name, JitDeclareKind.Const); break;
+                    case JitOpKind.EnterBlock:    b.EmitEnterBlock(currentEnv); break;
+                    case JitOpKind.LeaveBlock:    b.EmitLeaveBlock(currentEnv); break;
                     case JitOpKind.PushUndefined: b.EmitPushUndefined(); break;
                     case JitOpKind.PushNull:      b.EmitPushNull(); break;
                     case JitOpKind.Pop:           b.IL.Emit(OpCodes.Pop); break;
@@ -663,7 +683,8 @@ namespace DScript.Jit
             JitOpKind.Pop or JitOpKind.Return or JitOpKind.SetVarPop
                 or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue => -1,
             JitOpKind.SetPropPop or JitOpKind.SetIndex => -2,
-            JitOpKind.Jump or JitOpKind.DeclareVar or JitOpKind.DeclareLocal or JitOpKind.DeclareConst => 0,
+            JitOpKind.Jump or JitOpKind.DeclareVar or JitOpKind.DeclareLocal or JitOpKind.DeclareConst
+                or JitOpKind.EnterBlock or JitOpKind.LeaveBlock => 0,
             _ => 0,
         };
 

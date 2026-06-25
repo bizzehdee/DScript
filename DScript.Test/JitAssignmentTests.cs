@@ -65,15 +65,15 @@ namespace DScript.Test
         }
 
         [Test]
-        public void BlockScopedLetIsDeclined()
+        public void BlockScopedLetCompiles()
         {
-            // `let`/`const` introduce block scopes (EnterBlock/LeaveBlock), which are
-            // not supported — the function is declined but still runs (interpreted)
-            // with the correct result.
+            // `let`/`const` introduce block scopes (EnterBlock/LeaveBlock), now
+            // supported on the conservative tier — the function compiles and matches
+            // the interpreter. (See JitBlockScopeTests for fuller coverage.)
             var fn = "function f(n){ let s = 0; let i = 0; while (i < n) { let step = 2; s = s + step; i = i + 1; } return s; }";
             var interp = Run(fn, "f(i % 20)", null);
             var jit = Run(fn, "f(i % 20)", new ReflectionEmitJitCompiler());
-            Assert.That(jit.st, Is.EqualTo(Chunk.JitStatus.Failed), "block scopes are unsupported");
+            Assert.That(jit.st, Is.EqualTo(Chunk.JitStatus.Compiled), "block scopes are supported");
             Assert.That(jit.result, Is.EqualTo(interp.result));
         }
     }

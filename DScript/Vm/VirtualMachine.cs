@@ -2991,6 +2991,12 @@ namespace DScript.Vm
         internal void JitSetProp(ScriptVar obj, string name, ScriptVar value, bool strict)
             => SetMember(obj, name, value, strict);
 
+        // Enter a block scope for JIT-compiled code, mirroring EnterBlock: return a new
+        // block-scope environment whose parent is the current one. LeaveBlock is just
+        // `current = current.Parent`, so no explicit stack is needed.
+        internal static Environment JitEnterBlock(Environment env)
+            => new(ScriptVar.CreateObject(), env, isBlockScope: true);
+
         // Variable declarations for JIT-compiled code, mirroring the Declare* opcodes.
         internal static void JitDeclareVar(Environment env, string name)
         {

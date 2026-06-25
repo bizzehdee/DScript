@@ -54,6 +54,10 @@ namespace DScript.Jit
         DeclareLocal,
         /// <summary>Declare a block-scoped const (no stack effect).</summary>
         DeclareConst,
+        /// <summary>Enter a block scope (push a child environment).</summary>
+        EnterBlock,
+        /// <summary>Leave a block scope (restore the parent environment).</summary>
+        LeaveBlock,
         /// <summary>Push a fresh null.</summary>
         PushNull,
         /// <summary>Push a fresh undefined.</summary>
@@ -153,6 +157,10 @@ namespace DScript.Jit
             new(JitOpKind.DeclareLocal, null, 0, name, default, null);
         public static JitInstruction DeclareConst(string name) =>
             new(JitOpKind.DeclareConst, null, 0, name, default, null);
+        public static JitInstruction EnterBlock() =>
+            new(JitOpKind.EnterBlock, null, 0, null, default, null);
+        public static JitInstruction LeaveBlock() =>
+            new(JitOpKind.LeaveBlock, null, 0, null, default, null);
         public static JitInstruction PushNull() =>
             new(JitOpKind.PushNull, null, 0, null, default, null);
         public static JitInstruction PushUndefined() =>

@@ -70,6 +70,9 @@ namespace DScript.Jit
         private static readonly MethodInfo MathsOpMethod    = typeof(ScriptVar).GetMethod("MathsOp", new[] { typeof(ScriptVar), typeof(ScriptLex.LexTypes) });
         private static readonly MethodInfo JitGetVarMethod  = typeof(VirtualMachine).GetMethod(
             "JitGetVar", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitEnterBlockMethod = typeof(VirtualMachine).GetMethod(
+            "JitEnterBlock", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo EnvParentGetter   = Prop(typeof(Environment), "Parent");
         private static readonly MethodInfo JitGetPropCachedMethod = typeof(VirtualMachine).GetMethod(
             "JitGetPropCached", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo JitGetPropCall0Method = typeof(VirtualMachine).GetMethod(
@@ -149,8 +152,35 @@ namespace DScript.Jit
             IL.Emit(OpCodes.Castclass, asType);
         }
 
-        /// <summary>Push the <c>env</c> argument (an <see cref="Environment"/>).</summary>
-        public void EmitLoadEnv() => IL.Emit(OpCodes.Ldarg, ArgEnv);
+        /// <summary>
+        /// When set, variable operations resolve against this local (the "current
+        /// environment") instead of the <c>env</c> argument — used so block scopes can
+        /// swap the active environment on EnterBlock/LeaveBlock. Null = use the argument.
+        /// </summary>
+        public LocalBuilder CurrentEnvLocal { get; set; }
+
+        /// <summary>Push the current environment (the <see cref="CurrentEnvLocal"/> if set, else the <c>env</c> argument).</summary>
+        public void EmitLoadEnv()
+        {
+            if (CurrentEnvLocal != null) EmitLoadLocal(CurrentEnvLocal);
+            else IL.Emit(OpCodes.Ldarg, ArgEnv);
+        }
+
+        /// <summary>Enter a block scope: <c>currentEnv = JitEnterBlock(currentEnv)</c>.</summary>
+        public void EmitEnterBlock(LocalBuilder currentEnv)
+        {
+            EmitLoadLocal(currentEnv);
+            IL.EmitCall(OpCodes.Call, JitEnterBlockMethod, null);
+            EmitStoreLocal(currentEnv);
+        }
+
+        /// <summary>Leave a block scope: <c>currentEnv = currentEnv.Parent</c>.</summary>
+        public void EmitLeaveBlock(LocalBuilder currentEnv)
+        {
+            EmitLoadLocal(currentEnv);
+            IL.EmitCall(OpCodes.Callvirt, EnvParentGetter, null);
+            EmitStoreLocal(currentEnv);
+        }
 
         /// <summary>Push the <c>vm</c> argument (a <see cref="VirtualMachine"/>).</summary>
         public void EmitLoadVm() => IL.Emit(OpCodes.Ldarg, ArgVm);

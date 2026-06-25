@@ -202,6 +202,8 @@ namespace DScript.Jit
 
                     case OpCode.Pop:           instrs.Add(JitInstruction.Pop()); break;
                     case OpCode.Not:           instrs.Add(JitInstruction.Not()); break;
+                    case OpCode.EnterBlock:    instrs.Add(JitInstruction.EnterBlock()); break;
+                    case OpCode.LeaveBlock:    instrs.Add(JitInstruction.LeaveBlock()); break;
                     case OpCode.GetIndex:      instrs.Add(JitInstruction.GetIndex()); break;
                     case OpCode.SetIndex:      instrs.Add(JitInstruction.SetIndex()); break;
                     case OpCode.Negate:        instrs.Add(JitInstruction.Negate()); break;

@@ -55,7 +55,8 @@ namespace DScript.Jit
                 if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue
                     or JitOpKind.JumpIfFalseOrPop or JitOpKind.JumpIfTrueOrPop
                     or JitOpKind.JumpIfNullOrUndefined or JitOpKind.JumpIfDefined
-                    or JitOpKind.GetPropMethod or JitOpKind.GetPropCall0 or JitOpKind.CallMethod)
+                    or JitOpKind.GetPropMethod or JitOpKind.GetPropCall0 or JitOpKind.CallMethod
+                    or JitOpKind.EnterBlock or JitOpKind.LeaveBlock)
                     return null;
 
             // Build a tree of value-producing nodes. Expression statements (Pop) are
