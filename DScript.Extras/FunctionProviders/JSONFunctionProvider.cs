@@ -21,7 +21,6 @@ SOFTWARE.
 */
 
 using System.Globalization;
-using System.IO;
 using System.Text;
 
 namespace DScript.Extras.FunctionProviders
@@ -202,15 +201,9 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("stringify", "obj", "replacer")]
         public static void JsonStringifyImpl(ScriptVar var, object userData)
         {
-            var stream = new MemoryStream();
-            var.GetParameter("obj").GetJSON(stream, "");
-
-            stream.Seek(0, SeekOrigin.Begin);
-
-            var streamReader = new StreamReader(stream);
-            var json = streamReader.ReadToEnd();
-
-            var.ReturnVar.String = json;
+            var sb = new StringBuilder();
+            var.GetParameter("obj").AppendJson(sb);
+            var.ReturnVar.String = sb.ToString();
         }
     }
 }

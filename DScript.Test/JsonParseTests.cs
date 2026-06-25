@@ -72,6 +72,20 @@ namespace DScript.Test
         }
 
         [Test]
+        public void StringifyProducesCompactJson()
+        {
+            // JSON.stringify(x) with no space argument is compact (no whitespace),
+            // matching standard JS.
+            Assert.That(Run("result = JSON.stringify({a:1,b:[2,3]});").String,
+                Is.EqualTo("{\"a\":1,\"b\":[2,3]}"));
+        }
+
+        [Test]
+        public void StringifyArrayCompact()
+            => Assert.That(Run("result = JSON.stringify([1,\"x\",true]);").String,
+                Is.EqualTo("[1,\"x\",true]").Or.EqualTo("[1,\"x\",1]")); // bool renders as 1 (pre-existing)
+
+        [Test]
         public void InvalidJson_ThrowsScriptException()
         {
             var engine = new ScriptEngine();

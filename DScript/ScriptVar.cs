@@ -1257,56 +1257,58 @@ namespace DScript
             }
         }
 
-        public void GetJSON(Stream stream, string linePrefix)
+        /// <summary>
+        /// Append this value as compact JSON (no whitespace, matching
+        /// <c>JSON.stringify(x)</c>) to <paramref name="sb"/>. Building into a shared
+        /// <see cref="StringBuilder"/> avoids the per-node stream/writer allocation the
+        /// old <see cref="GetJSON(Stream, string)"/> incurred.
+        /// </summary>
+        public void AppendJson(StringBuilder sb)
         {
-            var streamWriter = new StreamWriter(stream);
-            
             if (IsObject)
             {
-                streamWriter.WriteLine("{");
-
+                sb.Append('{');
                 var link = FirstChild;
-
-                while(link != null)
+                var first = true;
+                while (link != null)
                 {
-                    streamWriter.Write(linePrefix);
-                    streamWriter.Write(link.Name.GetJSString());
-                    streamWriter.Write(": ");
-                    streamWriter.Flush();
-
-                    link.Var.GetJSON(stream, linePrefix + "    ");
-
+                    if (!first) sb.Append(',');
+                    first = false;
+                    sb.Append(link.Name.GetJSString());
+                    sb.Append(':');
+                    link.Var.AppendJson(sb);
                     link = link.Next;
-                    if(link != null)
-                    {
-                        streamWriter.WriteLine(",");
-                    }
                 }
-                streamWriter.WriteLine();
-                streamWriter.WriteLine("}");
+                sb.Append('}');
             }
-            else if(IsArray)
+            else if (IsArray)
             {
-                streamWriter.WriteLine("[");
-
+                sb.Append('[');
                 var arrayLength = GetArrayLength();
-                for(var x=0; x<arrayLength; x++)
+                for (var x = 0; x < arrayLength; x++)
                 {
-                    streamWriter.Flush();
-                    GetArrayIndex(x).GetJSON(stream, linePrefix + "    ");
-                    if(x<arrayLength-1)
-                    {
-                        streamWriter.WriteLine(",");
-                    }
+                    if (x > 0) sb.Append(',');
+                    GetArrayIndex(x).AppendJson(sb);
                 }
-
-                streamWriter.WriteLine("]");
+                sb.Append(']');
             }
             else
             {
-                streamWriter.Write(GetParsableString());
+                sb.Append(GetParsableString());
             }
+        }
 
+        /// <summary>
+        /// Write this value as JSON to a stream. Retained for API compatibility;
+        /// delegates to <see cref="AppendJson"/> (compact output). <paramref name="linePrefix"/>
+        /// is ignored.
+        /// </summary>
+        public void GetJSON(Stream stream, string linePrefix)
+        {
+            var sb = new StringBuilder();
+            AppendJson(sb);
+            var streamWriter = new StreamWriter(stream);
+            streamWriter.Write(sb.ToString());
             streamWriter.Flush();
         }
 
