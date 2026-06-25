@@ -285,9 +285,22 @@ namespace DScript.Extras.FunctionProviders
         [ScriptMethod("imul", "a", "b")]
         public static void MathImulImpl(ScriptVar var, object userData)
         {
-            var a = (int)var.GetParameter("a").Float;
-            var b = (int)var.GetParameter("b").Float;
+            // Math.imul coerces both operands with ToInt32 (truncate, mod 2^32, then
+            // map the high half to negative) before the 32-bit multiply. A plain
+            // (int)double cast is undefined for values outside int range, so a value
+            // like 0xFFFFFFFF (4294967295.0) must be folded explicitly.
+            var a = ToInt32(var.GetParameter("a").Float);
+            var b = ToInt32(var.GetParameter("b").Float);
             var.ReturnVar.Int = unchecked(a * b);
+        }
+
+        // ECMAScript ToInt32 abstract operation.
+        private static int ToInt32(double d)
+        {
+            if (!double.IsFinite(d)) return 0;
+            var m = Math.Truncate(d) % 4294967296.0; // mod 2^32
+            if (m < 0) m += 4294967296.0;
+            return unchecked((int)(uint)m);
         }
     }
 }
