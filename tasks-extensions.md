@@ -143,6 +143,15 @@ bounded recursion; benchmark shows reduced allocation on a call-heavy workload
 
 ## Phase 10 — Call-frame pooling & escape analysis
 
+> **Outcome: not viable as specified.** The `vars` object is already pooled
+> (`frameVarsPool`, gated by `RecyclableFrame`). Pooling the `Environment` object
+> too was attempted and **reverted**: the GetVar inline cache keys on `Environment`
+> *identity* + version (`Chunk.InlineCacheEntry`), so reusing env objects makes
+> references recur and a stale cache entry can falsely validate (it broke
+> `test043.js`). Safe env pooling would require redesigning the env-identity inline
+> cache — out of scope. Frame-allocation reduction therefore stops at the existing
+> vars pool plus the JIT inlining from Phase 9.
+
 ### T44 — Expanded escape analysis
 **File:** `DScript/Compiler/*`, `DScript/Vm/Chunk.cs`
 **Work:** Extend the `MakesClosure`/`RecyclableFrame` analysis so a frame is poolable
