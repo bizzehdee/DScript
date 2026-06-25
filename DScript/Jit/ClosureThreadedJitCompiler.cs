@@ -52,7 +52,9 @@ namespace DScript.Jit
             // decline any chunk containing branches (handled by the Reflection.Emit
             // back-end only).
             foreach (var instr in instrs)
-                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue
+                    or JitOpKind.JumpIfFalseOrPop or JitOpKind.JumpIfTrueOrPop
+                    or JitOpKind.JumpIfNullOrUndefined or JitOpKind.JumpIfDefined)
                     return null;
 
             // Build a tree of value-producing nodes. Expression statements (Pop) are

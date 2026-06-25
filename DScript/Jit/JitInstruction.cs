@@ -66,6 +66,14 @@ namespace DScript.Jit
         JumpIfFalse,
         /// <summary>Pop a condition; branch if truthy.</summary>
         JumpIfTrue,
+        /// <summary>Peek a condition; branch (keeping it) if falsy, else pop it. (&amp;&amp;)</summary>
+        JumpIfFalseOrPop,
+        /// <summary>Peek a condition; branch (keeping it) if truthy, else pop it. (||)</summary>
+        JumpIfTrueOrPop,
+        /// <summary>Pop a value; if null/undefined push undefined and branch, else push the value. (??)</summary>
+        JumpIfNullOrUndefined,
+        /// <summary>Pop a value; branch if it is not undefined. (optional chaining)</summary>
+        JumpIfDefined,
         /// <summary>Logical NOT of the top operand.</summary>
         Not,
         /// <summary>Pop object + key, read the indexed element, push it.</summary>
@@ -151,6 +159,14 @@ namespace DScript.Jit
             new(JitOpKind.JumpIfFalse, null, targetIndex, null, default, null);
         public static JitInstruction JumpIfTrue(int targetIndex) =>
             new(JitOpKind.JumpIfTrue, null, targetIndex, null, default, null);
+        public static JitInstruction JumpIfFalseOrPop(int targetIndex) =>
+            new(JitOpKind.JumpIfFalseOrPop, null, targetIndex, null, default, null);
+        public static JitInstruction JumpIfTrueOrPop(int targetIndex) =>
+            new(JitOpKind.JumpIfTrueOrPop, null, targetIndex, null, default, null);
+        public static JitInstruction JumpIfNullOrUndefined(int targetIndex) =>
+            new(JitOpKind.JumpIfNullOrUndefined, null, targetIndex, null, default, null);
+        public static JitInstruction JumpIfDefined(int targetIndex) =>
+            new(JitOpKind.JumpIfDefined, null, targetIndex, null, default, null);
         public static JitInstruction Not() =>
             new(JitOpKind.Not, null, 0, null, default, null);
         public static JitInstruction GetIndex() =>

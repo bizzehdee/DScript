@@ -262,6 +262,26 @@ namespace DScript.Jit
                         instrs.Add(JitInstruction.JumpIfTrue(chunk.ReadInt(ip)));
                         ip += 4;
                         break;
+                    case OpCode.JumpIfFalseOrPop:
+                        jumpIndices.Add(instrs.Count);
+                        instrs.Add(JitInstruction.JumpIfFalseOrPop(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+                    case OpCode.JumpIfTrueOrPop:
+                        jumpIndices.Add(instrs.Count);
+                        instrs.Add(JitInstruction.JumpIfTrueOrPop(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+                    case OpCode.JumpIfNullOrUndefined:
+                        jumpIndices.Add(instrs.Count);
+                        instrs.Add(JitInstruction.JumpIfNullOrUndefined(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+                    case OpCode.JumpIfDefined:
+                        jumpIndices.Add(instrs.Count);
+                        instrs.Add(JitInstruction.JumpIfDefined(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
 
                     case OpCode.Return:
                         instrs.Add(JitInstruction.Return());
@@ -300,9 +320,13 @@ namespace DScript.Jit
                 }
                 instrs[ji] = instrs[ji].Kind switch
                 {
-                    JitOpKind.Jump        => JitInstruction.Jump(targetIndex),
-                    JitOpKind.JumpIfFalse => JitInstruction.JumpIfFalse(targetIndex),
-                    _                     => JitInstruction.JumpIfTrue(targetIndex),
+                    JitOpKind.Jump                  => JitInstruction.Jump(targetIndex),
+                    JitOpKind.JumpIfFalse           => JitInstruction.JumpIfFalse(targetIndex),
+                    JitOpKind.JumpIfTrue            => JitInstruction.JumpIfTrue(targetIndex),
+                    JitOpKind.JumpIfFalseOrPop      => JitInstruction.JumpIfFalseOrPop(targetIndex),
+                    JitOpKind.JumpIfTrueOrPop       => JitInstruction.JumpIfTrueOrPop(targetIndex),
+                    JitOpKind.JumpIfNullOrUndefined => JitInstruction.JumpIfNullOrUndefined(targetIndex),
+                    _                               => JitInstruction.JumpIfDefined(targetIndex),
                 };
             }
 

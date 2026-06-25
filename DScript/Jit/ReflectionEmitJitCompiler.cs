@@ -127,6 +127,10 @@ namespace DScript.Jit
                     case JitOpKind.Jump:
                     case JitOpKind.JumpIfFalse:
                     case JitOpKind.JumpIfTrue:
+                    case JitOpKind.JumpIfFalseOrPop:
+                    case JitOpKind.JumpIfTrueOrPop:
+                    case JitOpKind.JumpIfNullOrUndefined:
+                    case JitOpKind.JumpIfDefined:
                     case JitOpKind.SetVar:
                     case JitOpKind.SetVarPop:
                     case JitOpKind.SetProp:
@@ -253,6 +257,10 @@ namespace DScript.Jit
                     case JitOpKind.Jump:
                     case JitOpKind.JumpIfFalse:
                     case JitOpKind.JumpIfTrue:
+                    case JitOpKind.JumpIfFalseOrPop:
+                    case JitOpKind.JumpIfTrueOrPop:
+                    case JitOpKind.JumpIfNullOrUndefined:
+                    case JitOpKind.JumpIfDefined:
                     case JitOpKind.SetVar:
                     case JitOpKind.SetVarPop:
                     case JitOpKind.SetProp:
@@ -315,7 +323,9 @@ namespace DScript.Jit
             // instruction is emitted.
             var labels = new Dictionary<int, Label>();
             foreach (var instr in instrs)
-                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue
+                    or JitOpKind.JumpIfFalseOrPop or JitOpKind.JumpIfTrueOrPop
+                    or JitOpKind.JumpIfNullOrUndefined or JitOpKind.JumpIfDefined)
                     labels[instr.IntValue] = b.IL.DefineLabel();
 
             var lastWasReturn = false;
@@ -363,6 +373,28 @@ namespace DScript.Jit
                         b.EmitToBool();
                         b.IL.Emit(OpCodes.Brtrue, labels[instr.IntValue]);
                         break;
+                    case JitOpKind.JumpIfFalseOrPop:
+                        // && : keep the operand and branch if falsy, else pop it.
+                        b.IL.Emit(OpCodes.Dup);
+                        b.EmitToBool();
+                        b.IL.Emit(OpCodes.Brfalse, labels[instr.IntValue]);
+                        b.IL.Emit(OpCodes.Pop);
+                        break;
+                    case JitOpKind.JumpIfTrueOrPop:
+                        // || : keep the operand and branch if truthy, else pop it.
+                        b.IL.Emit(OpCodes.Dup);
+                        b.EmitToBool();
+                        b.IL.Emit(OpCodes.Brtrue, labels[instr.IntValue]);
+                        b.IL.Emit(OpCodes.Pop);
+                        break;
+                    case JitOpKind.JumpIfDefined:
+                        // optional chaining: pop value, branch if it is not undefined.
+                        b.EmitIsUndefined();
+                        b.IL.Emit(OpCodes.Brfalse, labels[instr.IntValue]);
+                        break;
+                    case JitOpKind.JumpIfNullOrUndefined:
+                        EmitJumpIfNullOrUndefined(b, aSlot, labels[instr.IntValue]);
+                        break;
                     case JitOpKind.Return:
                         b.IL.Emit(OpCodes.Ret);   // returns the ScriptVar on top of stack
                         lastWasReturn = true;
@@ -374,6 +406,30 @@ namespace DScript.Jit
                 b.EmitPushUndefined(); // fall-through: function returns undefined
 
             return b.Finish();
+        }
+
+        // `??` : pop the value; if it is null/undefined push undefined and branch to
+        // `target`, otherwise push the value back and fall through. Mirrors the
+        // JumpIfNullOrUndefined opcode. valTmp is a scratch ScriptVar local.
+        private static void EmitJumpIfNullOrUndefined(DynamicMethodBuilder b, LocalBuilder valTmp,
+                                                      System.Reflection.Emit.Label target)
+        {
+            var il = b.IL;
+            var nullish = il.DefineLabel();
+            var fallThrough = il.DefineLabel();
+
+            b.EmitStoreLocal(valTmp);                       // pop value
+            b.EmitLoadLocal(valTmp); b.EmitIsNull();      il.Emit(OpCodes.Brtrue, nullish);
+            b.EmitLoadLocal(valTmp); b.EmitIsUndefined(); il.Emit(OpCodes.Brtrue, nullish);
+
+            b.EmitLoadLocal(valTmp);                        // not nullish: push value, fall through
+            il.Emit(OpCodes.Br, fallThrough);
+
+            il.MarkLabel(nullish);
+            b.EmitPushUndefined();                          // push undefined, take the branch
+            il.Emit(OpCodes.Br, target);
+
+            il.MarkLabel(fallThrough);
         }
 
         // Abstract-interpret the operand-stack depth across all branch edges; return
@@ -396,24 +452,48 @@ namespace DScript.Jit
                 depth[i] = d;
 
                 var instr = instrs[i];
-                var after = d + StackEffect(instr);
-                if (after < 0) return false;
 
+                // Jumps can have different stack effects on the taken edge vs the
+                // fall-through edge (the conditional-pop variants keep the operand on
+                // one edge and drop it on the other).
                 switch (instr.Kind)
                 {
                     case JitOpKind.Jump:
-                        work.Push((instr.IntValue, after));
+                        if (d < 0) return false;
+                        work.Push((instr.IntValue, d));      // unconditional, no effect
                         break;
                     case JitOpKind.JumpIfFalse:
                     case JitOpKind.JumpIfTrue:
-                        work.Push((instr.IntValue, after)); // branch taken
-                        work.Push((i + 1, after));          // fall through
+                        if (d - 1 < 0) return false;          // pops the condition on both edges
+                        work.Push((instr.IntValue, d - 1));
+                        work.Push((i + 1, d - 1));
+                        break;
+                    case JitOpKind.JumpIfFalseOrPop:
+                    case JitOpKind.JumpIfTrueOrPop:
+                        if (d - 1 < 0) return false;
+                        work.Push((instr.IntValue, d));       // branch keeps the operand
+                        work.Push((i + 1, d - 1));            // fall-through pops it
+                        break;
+                    case JitOpKind.JumpIfNullOrUndefined:
+                        if (d - 1 < 0) return false;          // pops, then pushes on both edges
+                        work.Push((instr.IntValue, d));
+                        work.Push((i + 1, d));
+                        break;
+                    case JitOpKind.JumpIfDefined:
+                        if (d - 1 < 0) return false;          // pops the value on both edges
+                        work.Push((instr.IntValue, d - 1));
+                        work.Push((i + 1, d - 1));
                         break;
                     case JitOpKind.Return:
-                        break;                               // terminal
+                        if (d + StackEffect(instr) < 0) return false; // terminal
+                        break;
                     default:
+                    {
+                        var after = d + StackEffect(instr);
+                        if (after < 0) return false;
                         work.Push((i + 1, after));
                         break;
+                    }
                 }
             }
             return true;

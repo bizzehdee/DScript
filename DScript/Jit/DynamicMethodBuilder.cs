@@ -55,6 +55,8 @@ namespace DScript.Jit
         private static readonly MethodInfo IsIntGetter      = Prop(typeof(ScriptVar), "IsInt");
         private static readonly MethodInfo IsDoubleGetter   = Prop(typeof(ScriptVar), "IsDouble");
         private static readonly MethodInfo IsStringGetter   = Prop(typeof(ScriptVar), "IsString");
+        private static readonly MethodInfo IsNullGetter      = Prop(typeof(ScriptVar), "IsNull");
+        private static readonly MethodInfo IsUndefinedGetter = Prop(typeof(ScriptVar), "IsUndefined");
         private static readonly MethodInfo IntGetter        = Prop(typeof(ScriptVar), "Int");
         private static readonly MethodInfo BoolGetter        = Prop(typeof(ScriptVar), "Bool");
         private static readonly MethodInfo FloatGetter      = Prop(typeof(ScriptVar), "Float");
@@ -310,6 +312,12 @@ namespace DScript.Jit
         /// <summary>Replace the <see cref="ScriptVar"/> on top of the stack with its
         /// truthiness (<c>a.Bool</c>) as an int 0/1 — used for conditional branches.</summary>
         public void EmitToBool() => IL.EmitCall(OpCodes.Callvirt, BoolGetter, null);
+
+        /// <summary>Replace the <see cref="ScriptVar"/> on top of the stack with <c>a.IsNull</c>.</summary>
+        public void EmitIsNull() => IL.EmitCall(OpCodes.Callvirt, IsNullGetter, null);
+
+        /// <summary>Replace the <see cref="ScriptVar"/> on top of the stack with <c>a.IsUndefined</c>.</summary>
+        public void EmitIsUndefined() => IL.EmitCall(OpCodes.Callvirt, IsUndefinedGetter, null);
 
         // ── extra opcodes (delegate to interpreter-identical helpers) ─────────────
 
