@@ -181,6 +181,8 @@ namespace DScript.Compiler
             // --- Emit methods and statics ---
             // Instance methods are placed directly on the constructor function so that
             // FindInParentClasses(instance, name) finds them via instance.prototype = ctor.
+            // Track the parent name across method bodies so `super.m()` resolves.
+            _superClassName = parentName;
             foreach (var (methodName, isStatic, src, accessorOp) in methods)
             {
                 var methodIdx = CompileMethodSource(src, methodName);
@@ -221,6 +223,7 @@ namespace DScript.Compiler
                 }
             }
 
+            _superClassName = null;
             _currentClassPrivateNames = savedPrivateNames;
 
             // --- Emit static initialisation blocks ---
@@ -347,14 +350,44 @@ namespace DScript.Compiler
             return lexer.GetSubString(start);
         }
 
-        // Compile `super(args)` — calls the parent constructor with `this` as receiver.
+        // Compile a `super` expression:
+        //   super(args)         → calls the parent constructor with `this` as receiver
+        //   super.m(args)        → calls the parent's method `m` with `this` as receiver
+        //   super.m              → reads the parent's property `m`
+        // Methods/properties live directly on the parent constructor, and its own
+        // prototype chain is walked by GetProp, so resolving against the parent var works.
         private void CompileSuper()
         {
             lexer.Match(ScriptLex.LexTypes.RSuper);
 
+            // super.member [ (...) ]
+            if (lexer.TokenType == (ScriptLex.LexTypes)'.')
+            {
+                lexer.Match((ScriptLex.LexTypes)'.');
+                var member = lexer.TokenString;
+                lexer.Match(ScriptLex.LexTypes.Id);
+                var memberIdx = chunk.AddName(member);
+
+                if (lexer.TokenType == (ScriptLex.LexTypes)'(')
+                {
+                    // Method call: receiver is `this`, callee is Parent.member.
+                    // Stack: [this, Parent.member, args...] → CallMethod argc
+                    chunk.Emit(OpCode.GetVar, chunk.AddName("this"));
+                    EmitSuperMember(memberIdx);
+                    var margc = CompileArguments();
+                    chunk.Emit(OpCode.CallMethod, margc);
+                }
+                else
+                {
+                    // Property read: super.x
+                    EmitSuperMember(memberIdx);
+                }
+                return;
+            }
+
             if (_superClassName == null)
             {
-                // super outside a class constructor: compile as identifier read (no-op graceful)
+                // super(...) outside a class constructor: graceful no-op identifier read.
                 chunk.Emit(OpCode.PushUndefined);
                 if (lexer.TokenType == (ScriptLex.LexTypes)'(')
                     CompileArguments();
@@ -368,6 +401,18 @@ namespace DScript.Compiler
             var argc = CompileArguments();
             // argc already on stack; call Parent with this as receiver
             chunk.Emit(OpCode.CallMethod, argc);
+        }
+
+        // Push Parent.member onto the stack (undefined if super has no parent in scope).
+        private void EmitSuperMember(int memberIdx)
+        {
+            if (_superClassName == null)
+            {
+                chunk.Emit(OpCode.PushUndefined);
+                return;
+            }
+            chunk.Emit(OpCode.GetVar, chunk.AddName(_superClassName));
+            chunk.Emit(OpCode.GetProp, memberIdx);
         }
     }
 }

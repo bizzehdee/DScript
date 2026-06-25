@@ -86,5 +86,34 @@ var d = new Dog('Rex');
 var r = d.speak();";
             Assert.That(RunStr(src), Is.EqualTo("Rex barks"));
         }
+
+        [Test]
+        public void SuperMethodCall_InvokesParentMethod()
+        {
+            // super.m() — previously a parse error ("Expected ;, found .").
+            var src = "class A { m() { return 1; } } " +
+                      "class B extends A { m() { return super.m() + 1; } } " +
+                      "var r = new B().m();";
+            Assert.That(RunInt(src), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void SuperMethodCall_PassesThisAndArgs()
+        {
+            var src = "class A { add(n) { return this.base + n; } } " +
+                      "class B extends A { constructor() { super(); this.base = 10; } " +
+                      "  add(n) { return super.add(n) * 2; } } " +
+                      "var r = new B().add(5);"; // (10+5)*2
+            Assert.That(RunInt(src), Is.EqualTo(30));
+        }
+
+        [Test]
+        public void SuperPropertyRead_ReadsParentProperty()
+        {
+            var src = "class A { getV() { return 7; } } " +
+                      "class B extends A { read() { return super.getV; } } " +
+                      "var r = new B().read()();"; // read() returns the fn, then call it
+            Assert.That(RunInt(src), Is.EqualTo(7));
+        }
     }
 }
