@@ -38,11 +38,23 @@ namespace DScript.Jit
     /// </summary>
     internal static class JitDecoder
     {
-        public static List<JitInstruction> Decode(Chunk chunk)
+        public static List<JitInstruction> Decode(Chunk chunk) => Decode(chunk, out _);
+
+        /// <summary>
+        /// Decode a chunk, also reporting <paramref name="declineReason"/> — null on
+        /// success, otherwise a short human-readable reason the chunk cannot be JIT
+        /// compiled (used by <see cref="JitDiagnostics"/>).
+        /// </summary>
+        public static List<JitInstruction> Decode(Chunk chunk, out string declineReason)
         {
+            declineReason = null;
+
             // Suspend/resume execution models are not linearisable here.
             if (chunk.IsGenerator || chunk.IsAsync)
+            {
+                declineReason = "generator or async function";
                 return null;
+            }
 
             var code = chunk.CodeBytes;
             var instrs = new List<JitInstruction>(code.Length);
@@ -252,8 +264,9 @@ namespace DScript.Jit
                         break;
 
                     default:
-                        // Conditional-pop jumps, for..of, assignments, object/array ops,
+                        // Conditional-pop jumps, for..of, object/array literals,
                         // try, tail and method calls, etc. — not supported.
+                        declineReason = "unsupported opcode: " + op;
                         return null;
                 }
 
@@ -272,7 +285,10 @@ namespace DScript.Jit
             foreach (var ji in jumpIndices)
             {
                 if (!offsetToIndex.TryGetValue(instrs[ji].IntValue, out var targetIndex))
+                {
+                    declineReason = "unresolvable jump target";
                     return null; // target not at an instruction boundary we model
+                }
                 instrs[ji] = instrs[ji].Kind switch
                 {
                     JitOpKind.Jump        => JitInstruction.Jump(targetIndex),
