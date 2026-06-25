@@ -26,32 +26,23 @@ namespace DScript.Extras.FunctionProviders
 {
     public sealed class SetObject : INativeContainer
     {
-        public HashSet<ScriptVar> Data { get; } = new HashSet<ScriptVar>(ReferenceEqualityComparer.Instance);
+        // Keyed by SameValueZero (primitives by value, objects by reference) so
+        // add/has/delete are O(1) instead of O(n) linear scans.
+        public HashSet<ScriptVar> Data { get; } = new HashSet<ScriptVar>(ScriptVarKeyComparer.Instance);
 
         /// <inheritdoc/>
         public int GetSize() => Data.Count;
 
         /// <summary>
-        /// Returns true if any element in the set is value-equal to
-        /// <paramref name="val"/> (mirrors the JS <c>===</c> semantics).
+        /// Returns true if a value-equal element is present (JS SameValueZero).
         /// </summary>
-        public bool Contains(ScriptVar val)
-        {
-            foreach (var item in Data)
-                if (item.Equal(val)) return true;
-            return false;
-        }
+        public bool Contains(ScriptVar val) => Data.Contains(val);
 
         /// <summary>
-        /// Adds <paramref name="val"/> only if no value-equal element is present.
-        /// Returns true if the element was added.
+        /// Adds <paramref name="val"/> (by reference) unless a value-equal element is
+        /// already present. Returns true if it was added.
         /// </summary>
-        public bool TryAdd(ScriptVar val)
-        {
-            if (Contains(val)) return false;
-            Data.Add(val.DeepCopy());
-            return true;
-        }
+        public bool TryAdd(ScriptVar val) => Data.Add(val);
 
         public ScriptVar ToScriptVar()
         {

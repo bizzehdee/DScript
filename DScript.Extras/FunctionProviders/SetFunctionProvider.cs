@@ -62,12 +62,7 @@ namespace DScript.Extras.FunctionProviders
         public static void SetDeleteImpl(ScriptVar var, object userData)
         {
             var set = GetSet(var.GetParameter("this"));
-            var val = var.GetParameter("val");
-            foreach (var item in set.Data)
-            {
-                if (item.Equal(val)) { set.Data.Remove(item); var.ReturnVar.Int = 1; return; }
-            }
-            var.ReturnVar.Int = 0;
+            var.ReturnVar.Int = set.Data.Remove(var.GetParameter("val")) ? 1 : 0;
         }
 
         [ScriptMethod("clear")]
