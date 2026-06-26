@@ -681,7 +681,15 @@ namespace DScript.Vm
                     {
                         var key = Pop();
                         var obj = Pop();
-                        Push(GetMember(obj, KeyName(key)));
+                        if (key.IsAnyInt && obj.GetData() is ITypedArrayAccess taGet)
+                        {
+                            var idx = key.Int;
+                            Push(idx >= 0 && idx < taGet.Length ? taGet.GetElement(idx) : ScriptVar.CreateUndefined());
+                        }
+                        else
+                        {
+                            Push(GetMember(obj, KeyName(key)));
+                        }
                         break;
                     }
                     case OpCode.GetIndexMethod:
@@ -699,7 +707,15 @@ namespace DScript.Vm
                         var value = Pop();
                         var key = Pop();
                         var obj = Pop();
-                        SetMember(obj, KeyName(key), value, chunk.IsStrict);
+                        if (key.IsAnyInt && obj.GetData() is ITypedArrayAccess taSet2)
+                        {
+                            var idx = key.Int;
+                            if (idx >= 0 && idx < taSet2.Length) taSet2.SetElement(idx, value);
+                        }
+                        else
+                        {
+                            SetMember(obj, KeyName(key), value, chunk.IsStrict);
+                        }
                         Push(value);
                         break;
                     }
@@ -3302,12 +3318,28 @@ namespace DScript.Vm
 
         // ── extra opcode helpers for JIT-compiled code (mirror the opcode handlers) ──
 
-        internal ScriptVar JitGetIndex(ScriptVar obj, ScriptVar key) => GetMember(obj, KeyName(key));
+        internal ScriptVar JitGetIndex(ScriptVar obj, ScriptVar key)
+        {
+            if (key.IsAnyInt && obj.GetData() is ITypedArrayAccess ta)
+            {
+                var idx = key.Int;
+                return idx >= 0 && idx < ta.Length ? ta.GetElement(idx) : ScriptVar.CreateUndefined();
+            }
+            return GetMember(obj, KeyName(key));
+        }
 
         // void, mirroring JitSetProp: the emitter re-pushes the value when the
         // expression form needs it.
         internal void JitSetIndex(ScriptVar obj, ScriptVar key, ScriptVar value, bool strict)
-            => SetMember(obj, KeyName(key), value, strict);
+        {
+            if (key.IsAnyInt && obj.GetData() is ITypedArrayAccess ta)
+            {
+                var idx = key.Int;
+                if (idx >= 0 && idx < ta.Length) ta.SetElement(idx, value);
+                return;
+            }
+            SetMember(obj, KeyName(key), value, strict);
+        }
 
         internal static ScriptVar JitNegate(ScriptVar a)
         {
