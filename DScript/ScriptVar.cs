@@ -33,7 +33,7 @@ using DScript.Vm;
 
 namespace DScript
 {
-    public sealed partial class ScriptVar : IDisposable
+    public partial class ScriptVar : IDisposable
     {
         // Cache compiled regex patterns to avoid recompilation (performance optimization)
         private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
@@ -171,19 +171,12 @@ namespace DScript
         // The child linked list remains authoritative for for-in, serialisation, etc.
         private ScriptVar[] _elements;
 
-        // Hidden class / shape for this object. Non-null for plain non-array objects
-        // whose properties have all been added without getters/setters/deletions.
-        // When non-null, walking _shapeRoot by shape.Slots[name] steps gives the
-        // ScriptVarLink for that name, enabling O(1) reads keyed on (shape.Id, name)
-        // instead of FindChild.  The child linked list remains the source of truth;
-        // _shape/_shapeRoot are an acceleration layer only.
-        //
-        // _shapeRoot is the FIRST shape-tracked link added to this object
-        // (non-shape-tracked links like "prototype" may precede it in the linked list).
-        // Walking SlotIndex steps from _shapeRoot gives the link at that slot without
-        // allocating any per-instance array.
-        internal Shape _shape;
-        internal ScriptVarLink _shapeRoot;
+        // Hidden-class (shape) state lives on the ShapedScriptVar subclass so that
+        // the millions of non-shape-tracked ScriptVars the VM allocates do not pay
+        // for two reference fields they never use. Only instances created via
+        // ScriptVar.CreateShapeTracked() (class instances) carry shape state, and
+        // they are the only instances on which Flags.ShapeTracked is set — so the
+        // flag-gated casts to ShapedScriptVar below are always valid.
 
         private static int _symbolCounter;
 
@@ -303,7 +296,9 @@ namespace DScript
         /// the hot paths that build call frames and aggregates. Must not be used
         /// with Integer/Double/Regexp flags, which require a value to parse.
         /// </summary>
-        private ScriptVar(Flags flags)
+        // protected so ShapedScriptVar can chain into it; all other flag-based
+        // construction goes through the factory methods in ScriptVar.Factory.cs.
+        protected ScriptVar(Flags flags)
         {
             this.flags = flags;
         }
@@ -550,8 +545,19 @@ namespace DScript
         internal void BumpShapeVersionAndInvalidateShape()
         {
             shapeVersion++;
-            _shape = null;
-            _shapeRoot = null;
+            InvalidateShape();
+        }
+
+        // Drop any hidden-class state. A no-op on non-shape-tracked vars (the common
+        // case), so the flag check keeps it free for them and avoids the cast.
+        private void InvalidateShape()
+        {
+            if ((flags & Flags.ShapeTracked) != 0)
+            {
+                var sv = (ShapedScriptVar)this;
+                sv._shape = null;
+                sv._shapeRoot = null;
+            }
         }
 
         public void FreezeSelf()
@@ -1037,13 +1043,16 @@ namespace DScript
             // via the shape cache, so including it would add cost with no benefit).
             if ((flags & Flags.ShapeTracked) != 0 && childName != PrototypeClassName)
             {
-                var cur = _shape ?? Shape.Empty;
+                // The flag is set only on ShapedScriptVar instances, so this cast
+                // always succeeds (see the field comment above).
+                var sv = (ShapedScriptVar)this;
+                var cur = sv._shape ?? Shape.Empty;
                 if (!cur.Slots.ContainsKey(childName))
                 {
-                    _shape = cur.Transition(childName);
+                    sv._shape = cur.Transition(childName);
                     // Record the first shape-tracked link; subsequent links are walked
                     // from this root by slot index (avoids a per-instance array allocation).
-                    if (_shapeRoot == null) _shapeRoot = link;
+                    if (sv._shapeRoot == null) sv._shapeRoot = link;
                 }
                 // Duplicate name (rare): first occurrence is already at the correct
                 // walk position from _shapeRoot; leave _shape and _shapeRoot unchanged.
@@ -1118,8 +1127,7 @@ namespace DScript
             childIndexValid = false;
 
             // Any deletion breaks the hidden-class invariant — fall back to link-list.
-            _shape = null;
-            _shapeRoot = null;
+            InvalidateShape();
 
             // Invalidate array length cache and dense backing store if this is an array.
             // A removed element leaves a gap that _elements cannot represent correctly.
@@ -1148,8 +1156,7 @@ namespace DScript
             childIndex?.Clear();
             childIndexValid = false;
             childCount = 0;
-            _shape = null;
-            _shapeRoot = null;
+            InvalidateShape();
 
             // Invalidate array length cache
             if (IsArray)
@@ -1178,8 +1185,7 @@ namespace DScript
             childIndex?.Clear();
             childIndexValid = false;
             childCount = 0;
-            _shape = null;
-            _shapeRoot = null;
+            InvalidateShape();
         }
 
         public ScriptVar ReturnVar
@@ -1829,6 +1835,11 @@ namespace DScript
         {
             // Read flags
             var flags = (Flags)reader.ReadInt32();
+
+            // Shape tracking is an in-memory accelerator only. A deserialized var is a
+            // plain ScriptVar (not a ShapedScriptVar), so strip the flag to keep the
+            // "ShapeTracked ⟺ ShapedScriptVar" invariant the flag-gated casts rely on.
+            flags &= ~Flags.ShapeTracked;
 
             // Create a new ScriptVar using the default constructor to avoid null reference issues
             var var = new ScriptVar

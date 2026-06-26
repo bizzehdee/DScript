@@ -290,5 +290,37 @@ namespace DScript.Test
             Assert.That(scores.Var.GetArrayLength(), Is.EqualTo(4));
             Assert.That(scores.Var.GetArrayIndex(3).Int, Is.EqualTo(100));
         }
+
+        // Shape-tracked instances (class instances and CreateShapeTracked) are a
+        // ShapedScriptVar subclass carrying the hidden-class fields, and Flags.ShapeTracked
+        // is only ever set on that subclass. Serialization writes the raw flags, so
+        // deserialization must strip ShapeTracked — otherwise a plain (non-Shaped)
+        // ScriptVar would carry the flag and the flag-gated cast to ShapedScriptVar in
+        // AddChild would throw InvalidCastException on the next property write.
+        [Test]
+        public void TestSerialize_ShapeTrackedObject_RoundTripsAndAcceptsNewProperties()
+        {
+            var original = ScriptVar.CreateShapeTracked();
+            original.AddChild("a", ScriptVar.FromInt(1));
+            original.AddChild("b", ScriptVar.FromInt(2));
+
+            using var ms = new MemoryStream();
+            using (var writer = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+            {
+                original.Serialize(writer);
+            }
+
+            ms.Position = 0;
+            using var reader = new BinaryReader(ms);
+            var restored = ScriptVar.Deserialize(reader);
+
+            Assert.That(restored.FindChild("a").Var.Int, Is.EqualTo(1));
+            Assert.That(restored.FindChild("b").Var.Int, Is.EqualTo(2));
+
+            // Adding a property must not throw: the deserialized value is a plain
+            // ScriptVar, so the ShapeTracked flag must have been stripped on restore.
+            Assert.DoesNotThrow(() => restored.AddChild("c", ScriptVar.FromInt(3)));
+            Assert.That(restored.FindChild("c").Var.Int, Is.EqualTo(3));
+        }
     }
 }

@@ -169,18 +169,19 @@ existing linked list by slot index) to eliminate 32 MB of per-run GC pressure.
   `Shape.Transition()` in `AddChild` (~7 ms per 1 M transitions). See **T3.1a** below.
 
 **T3.1a — Subclass ScriptVar to eliminate shape-field overhead on non-shaped objects.**
-Currently `_shape` and `_shapeRoot` sit on every `ScriptVar` regardless of whether shape
-tracking is active, adding 16 bytes to all scope objects, arrays, closures, and function
-frames. Only class instances (`Flags.ShapeTracked`) ever use those fields.
-- Approach: introduce `ShapedScriptVar : ScriptVar` carrying `_shape` and `_shapeRoot`.
-  `ScriptVar.CreateShapeTracked()` returns a `ShapedScriptVar`. All other factory methods
-  return plain `ScriptVar`. VM/PropCacheCell uses `obj as ShapedScriptVar` (single `isinst`
-  opcode, ~1–2 ns) to enter the shape path.
-- Expected gain: eliminates the ~8 MB extra-per-run GC pressure that causes the sporadic
-  +100 ms spikes in Classes; should bring Classes delta from +9.7 % into noise range.
-- Files: new `ScriptVar.Shaped.cs`; `ScriptVar.Factory.cs`; `VirtualMachine.cs`;
-  `PropCacheCell.cs`; `Vm/Shape.cs` (no change).
-- Risk: Medium. Public API surface of `ScriptVar` unchanged; subclass is internal.
+✅ Done. `_shape`/`_shapeRoot` moved onto an internal `ShapedScriptVar : ScriptVar`;
+`ScriptVar.CreateShapeTracked()` is the only factory that returns one, and it is the only
+place `Flags.ShapeTracked` is set, so the flag-gated `(ShapedScriptVar)this` casts in
+`ScriptVar` mutators and the `obj as ShapedScriptVar` tests in the VM / `PropCacheCell`
+are always valid. `Deserialize` strips `ShapeTracked` so a restored plain ScriptVar can
+never carry the flag (covered by a new test). `ScriptVar` is no longer `sealed`.
+- **bench.ds results (6-run interleaved A/B vs the pre-T3.1a baseline restored from git):**
+  Classes ~627 → ~557 ms (**−11%**, recovering the T3.1 regression as intended);
+  Arrays ~1375 → ~1290 ms (**−6%**, from the smaller ScriptVar); Spread −10%; Objects,
+  Closures, TypedArrays and all others within run-to-run noise. The array-covariance cost
+  feared from unsealing did not materialise (`ShapedScriptVar` is sealed → exact-MT isinst).
+- Files: new `ScriptVar.Shaped.cs`; `ScriptVar.cs`; `ScriptVar.Factory.cs`;
+  `VirtualMachine.cs`; `PropCacheCell.cs`.
 
 **T3.2 — Positional local-slot frames + pooled Environments.** Resolve params/locals to
 integer slots at compile time; bind into a `ScriptVar[]` on the frame instead of named

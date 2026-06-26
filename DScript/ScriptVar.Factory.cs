@@ -60,7 +60,7 @@ namespace DScript
     ///   </description></item>
     /// </list>
     /// </summary>
-    public sealed partial class ScriptVar
+    public partial class ScriptVar
     {
         // ── Integer intern table ──────────────────────────────────────────────────
         // Pre-allocated ScriptVar instances for integers in [-1, 255].
@@ -179,7 +179,7 @@ namespace DScript
         /// has no shape overhead.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ScriptVar CreateShapeTracked() => Track(new ScriptVar(Flags.Object | Flags.ShapeTracked));
+        public static ScriptVar CreateShapeTracked() => Track(new ShapedScriptVar());
 
         /// <summary>Returns a new empty Array ScriptVar.</summary>
         // Pooling seam: same pattern as CreateObject().

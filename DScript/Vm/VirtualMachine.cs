@@ -632,10 +632,11 @@ namespace DScript.Vm
                         {
                             if (ce.ShapeId > 0)
                             {
-                                var shp = obj._shape;
+                                var shapedObj = obj as ShapedScriptVar;
+                                var shp = shapedObj?._shape;
                                 if (shp != null && ce.ShapeId == shp.Id)
                                 {
-                                    var sl = obj._shapeRoot;
+                                    var sl = shapedObj._shapeRoot;
                                     for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
                                     if (sl != null)
                                     {
@@ -661,10 +662,11 @@ namespace DScript.Vm
 
                         // Shape miss: populate via slot if available.
                         {
-                            var shp = obj._shape;
+                            var shapedObj = obj as ShapedScriptVar;
+                            var shp = shapedObj?._shape;
                             if (shp != null && shp.Slots.TryGetValue(name, out var slotIdx))
                             {
-                                var sl = obj._shapeRoot;
+                                var sl = shapedObj._shapeRoot;
                                 for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
                                 if (sl != null)
                                 {
@@ -1688,10 +1690,11 @@ namespace DScript.Vm
                         {
                             if (ce.ShapeId > 0)
                             {
-                                var shp = obj._shape;
+                                var shapedObj = obj as ShapedScriptVar;
+                                var shp = shapedObj?._shape;
                                 if (shp != null && ce.ShapeId == shp.Id)
                                 {
-                                    var sl = obj._shapeRoot;
+                                    var sl = shapedObj._shapeRoot;
                                     for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
                                     if (sl != null)
                                     {
@@ -1716,10 +1719,11 @@ namespace DScript.Vm
                         if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
 
                         {
-                            var shp = obj._shape;
+                            var shapedObj = obj as ShapedScriptVar;
+                            var shp = shapedObj?._shape;
                             if (shp != null && shp.Slots.TryGetValue(name, out var slotIdx))
                             {
-                                var sl = obj._shapeRoot;
+                                var sl = shapedObj._shapeRoot;
                                 for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
                                 if (sl != null)
                                 {
@@ -1859,10 +1863,11 @@ namespace DScript.Vm
                         {
                             if (ce.ShapeId > 0)
                             {
-                                var shp = obj._shape;
+                                var shapedObj = obj as ShapedScriptVar;
+                                var shp = shapedObj?._shape;
                                 if (shp != null && ce.ShapeId == shp.Id)
                                 {
-                                    var sl = obj._shapeRoot;
+                                    var sl = shapedObj._shapeRoot;
                                     for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
                                     if (sl != null)
                                     {
@@ -1887,10 +1892,11 @@ namespace DScript.Vm
                         if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
 
                         {
-                            var shp = obj._shape;
+                            var shapedObj = obj as ShapedScriptVar;
+                            var shp = shapedObj?._shape;
                             if (shp != null && shp.Slots.TryGetValue(propName, out var slotIdx))
                             {
-                                var sl = obj._shapeRoot;
+                                var sl = shapedObj._shapeRoot;
                                 for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
                                 if (sl != null)
                                 {
@@ -1955,10 +1961,11 @@ namespace DScript.Vm
                         {
                             if (ce.ShapeId > 0)
                             {
-                                var shp = obj._shape;
+                                var shapedObj = obj as ShapedScriptVar;
+                                var shp = shapedObj?._shape;
                                 if (shp != null && ce.ShapeId == shp.Id)
                                 {
-                                    var sl = obj._shapeRoot;
+                                    var sl = shapedObj._shapeRoot;
                                     for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
                                     if (sl != null)
                                     {
@@ -1983,10 +1990,11 @@ namespace DScript.Vm
                         if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
 
                         {
-                            var shp = obj._shape;
+                            var shapedObj = obj as ShapedScriptVar;
+                            var shp = shapedObj?._shape;
                             if (shp != null && shp.Slots.TryGetValue(propName, out var slotIdx))
                             {
-                                var sl = obj._shapeRoot;
+                                var sl = shapedObj._shapeRoot;
                                 for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
                                 if (sl != null)
                                 {

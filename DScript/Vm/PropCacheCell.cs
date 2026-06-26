@@ -27,12 +27,12 @@ namespace DScript.Vm
     /// site. Maintains two slots so a site that alternates between two object shapes
     /// hits the cache instead of thrashing a single entry.
     ///
-    /// <b>Shape-keyed path (preferred):</b> When the receiver is a plain shaped
-    /// object (<see cref="ScriptVar._shape"/> is non-null), the cache stores
-    /// <c>(ShapeId, SlotIndex)</c>. A hit requires only an integer comparison against
-    /// the shape ID — no object-identity check — so all instances that share the same
-    /// hidden class hit the same entry. <see cref="ScriptVar._shapeRoot"/> is walked
-    /// <c>SlotIndex</c> steps to reach the target link without a per-instance array.
+    /// <b>Shape-keyed path (preferred):</b> When the receiver is a shaped object
+    /// (a <see cref="ShapedScriptVar"/> whose <c>_shape</c> is non-null), the cache
+    /// stores <c>(ShapeId, SlotIndex)</c>. A hit requires only an integer comparison
+    /// against the shape ID — no object-identity check — so all instances that share
+    /// the same hidden class hit the same entry. The shaped var's <c>_shapeRoot</c> is
+    /// walked <c>SlotIndex</c> steps to reach the target link without a per-instance array.
     ///
     /// <b>Identity-keyed path (fallback):</b> For non-shaped objects (arrays, proxies,
     /// host objects) the old behaviour is preserved: entries are keyed on object
@@ -69,17 +69,22 @@ namespace DScript.Vm
         public ScriptVarLink Lookup(ScriptVar obj)
         {
             // Shape-keyed path: one integer comparison, no object identity check.
-            var shape = obj._shape;
-            if (shape != null)
+            // Only ShapedScriptVar instances carry shape state; the single isinst
+            // here replaces the old per-instance _shape field load.
+            if (obj is ShapedScriptVar shaped)
             {
-                if (ShapeId0 == shape.Id && ShapeId0 > 0)
-                    return WalkShapeRoot(obj._shapeRoot, SlotIndex0);
-                if (ShapeId1 == shape.Id && ShapeId1 > 0)
+                var shape = shaped._shape;
+                if (shape != null)
                 {
-                    // promote slot 1 → slot 0
-                    (ShapeId0, SlotIndex0, ShapeId1, SlotIndex1) =
-                        (ShapeId1, SlotIndex1, ShapeId0, SlotIndex0);
-                    return WalkShapeRoot(obj._shapeRoot, SlotIndex0);
+                    if (ShapeId0 == shape.Id && ShapeId0 > 0)
+                        return WalkShapeRoot(shaped._shapeRoot, SlotIndex0);
+                    if (ShapeId1 == shape.Id && ShapeId1 > 0)
+                    {
+                        // promote slot 1 → slot 0
+                        (ShapeId0, SlotIndex0, ShapeId1, SlotIndex1) =
+                            (ShapeId1, SlotIndex1, ShapeId0, SlotIndex0);
+                        return WalkShapeRoot(shaped._shapeRoot, SlotIndex0);
+                    }
                 }
             }
 
@@ -111,9 +116,9 @@ namespace DScript.Vm
         /// </summary>
         public void Insert(ScriptVar obj, ScriptVarLink link)
         {
-            if (link != null)
+            if (link != null && obj is ShapedScriptVar shaped)
             {
-                var shape = obj._shape;
+                var shape = shaped._shape;
                 // Use shape path only for own data properties (no accessors, owned by obj).
                 if (shape != null && link.Getter == null && ReferenceEquals(link.Owner, obj)
                     && shape.Slots.TryGetValue(link.Name, out var slotIdx))
