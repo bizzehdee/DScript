@@ -489,5 +489,49 @@ namespace DScript.Test
             ConsoleFunctionProvider.SetOutput(stdout: line => _out.Add(line), stderr: null);
             Assert.DoesNotThrow(() => RunScript("console.error(\"fallback-err\");"));
         }
+
+        // ------------------------------------------------------------------
+        // Object / array formatting in console.log (GetParsableString)
+        // ------------------------------------------------------------------
+
+        [Test]
+        public void ConsoleLog_PlainObject_PrintsObjectTag()
+        {
+            // Logging a plain object must not print "undefined".
+            RunScript("console.log({});");
+            Assert.That(StdOut, Does.Contain("[object Object]"),
+                "Plain object should be displayed as '[object Object]', not 'undefined'");
+        }
+
+        [Test]
+        public void ConsoleLog_ObjectWithProperties_PrintsObjectTag()
+        {
+            RunScript("console.log({x: 1, y: 2});");
+            Assert.That(StdOut, Does.Contain("[object Object]"));
+        }
+
+        [Test]
+        public void ConsoleLog_Array_PrintsCommaSeparated()
+        {
+            RunScript("console.log([1, 2, 3]);");
+            Assert.That(StdOut, Does.Contain("1,2,3"));
+        }
+
+        [Test]
+        public void ConsoleLog_EmptyArray_PrintsEmpty()
+        {
+            RunScript("console.log([]);");
+            // Empty array toString is ""  — just verify it doesn't print "undefined"
+            Assert.That(StdOut, Does.Not.Contain("undefined"));
+        }
+
+        [Test]
+        public void ConsoleLog_PromiseThenResult_PrintsObjectTag()
+        {
+            // Promise.resolve(123).then(cb) returns a Promise object — must not print "undefined"
+            RunScript("var r = Promise.resolve(123).then(function(x) {}); console.log(r);");
+            Assert.That(StdOut, Does.Contain("[object Object]"),
+                "Promise object logged via console.log should not appear as 'undefined'");
+        }
     }
 }

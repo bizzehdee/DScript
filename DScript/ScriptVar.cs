@@ -1602,6 +1602,24 @@ namespace DScript
             {
                 return "null";
             }
+            if(IsArray)
+            {
+                var len = GetArrayLength();
+                if (len == 0) return "";
+                var parts = new System.Text.StringBuilder();
+                for (var i = 0; i < len; i++)
+                {
+                    if (i > 0) parts.Append(',');
+                    var elem = GetArrayIndex(i);
+                    if (elem != null && !elem.IsNull && !elem.IsUndefined)
+                        parts.Append(elem.GetParsableString());
+                }
+                return parts.ToString();
+            }
+            if(IsObject)
+            {
+                return "[object Object]";
+            }
 
             return "undefined";
         }

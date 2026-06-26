@@ -176,5 +176,48 @@ namespace DScript.Test
             ";
             Assert.That(RunInt(src), Is.EqualTo(7));
         }
+
+        // ── .then() return value (compat-script pattern) ───────────────────────
+
+        [Test]
+        public void Then_ReturnsPromiseObject_NotUndefined()
+        {
+            // Promise.resolve(123).then(cb) must return a Promise-like object, not undefined
+            var engine = new ScriptEngine();
+            engine.Execute("var r = typeof Promise.resolve(123).then(function(x) {});");
+            ScriptEngine.DrainMicroTasks();
+            var result = engine.Root.GetParameter("r");
+            Assert.That(result.String, Is.EqualTo("object"), "Promise.then() should return a Promise object");
+        }
+
+        [Test]
+        public void Then_ReturnValueIsObject_WithArrowCallback()
+        {
+            // Arrow function variant: () => Promise.resolve(123).then(cb) should return an object
+            var engine = new ScriptEngine();
+            engine.Execute("var f = () => Promise.resolve(123).then(x => x); var r = typeof f();");
+            ScriptEngine.DrainMicroTasks();
+            var result = engine.Root.GetParameter("r");
+            Assert.That(result.String, Is.EqualTo("object"), "Arrow-function .then() return should be an object");
+        }
+
+        [Test]
+        public void CompatPromise_ThunkReturnIsNotUndefined()
+        {
+            // Mirrors the exact compat-script pattern: t() captures f() return value
+            var engine = new ScriptEngine();
+            new DScript.Extras.EngineFunctionLoader().RegisterFunctions(engine);
+            engine.Execute(@"
+                var __result__ = 'not-set';
+                const t = (n, f) => {
+                    try { const r = f(); if (n === 'Promise') __result__ = typeof r; }
+                    catch (e) { if (n === 'Promise') __result__ = 'threw: ' + e.message; }
+                };
+                t('Promise', () => Promise.resolve(123).then(x => x));
+            ");
+            ScriptEngine.DrainMicroTasks();
+            var result = engine.Root.GetParameter("__result__");
+            Assert.That(result.String, Is.EqualTo("object"), $"Expected object but got: {result.String}");
+        }
     }
 }
