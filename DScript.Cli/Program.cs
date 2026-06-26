@@ -127,7 +127,9 @@ static int CheckScript(string[] args)
 
 static int RunRepl()
 {
-    // Ensure emoji and other non-ASCII characters display correctly in the terminal.
+    // Set both input and output to UTF-8, matching what Node.js does on Windows.
+    // Without this, the OEM code page (e.g. 437) mangles emoji pasted into the REPL.
+    Console.InputEncoding  = System.Text.Encoding.UTF8;
     Console.OutputEncoding = System.Text.Encoding.UTF8;
 
     Console.WriteLine($"DScript {Version} REPL  (type .exit to quit, .help for commands)");
