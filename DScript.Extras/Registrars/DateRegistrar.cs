@@ -28,6 +28,9 @@ namespace DScript.Extras.Registrars
 {
     internal static class DateRegistrar
     {
+        // Cached once at class init; avoids a Lazy<T> check on every new Date(y,m,d).
+        private static readonly TimeZoneInfo _localTz = TimeZoneInfo.Local;
+
         internal static void Register(ScriptEngine engine)
         {
             // Date constructor: new Date(), new Date(ms), new Date(str),
@@ -59,7 +62,7 @@ namespace DScript.Extras.Registrars
                         var a4 = scope.FindChild("arg4")?.Var;
                         var a5 = scope.FindChild("arg5")?.Var;
                         var a6 = scope.FindChild("arg6")?.Var;
-                        dto = new DateTimeOffset(new DateTime(
+                        var dt = new DateTime(
                             a0.Int,
                             a1.Int + 1,
                             a2 != null && !a2.IsUndefined ? a2.Int : 1,
@@ -67,7 +70,8 @@ namespace DScript.Extras.Registrars
                             a4 != null && !a4.IsUndefined ? a4.Int : 0,
                             a5 != null && !a5.IsUndefined ? a5.Int : 0,
                             a6 != null && !a6.IsUndefined ? a6.Int : 0
-                        ));
+                        );
+                        dto = new DateTimeOffset(dt, _localTz.GetUtcOffset(dt));
                     }
                     else
                     {

@@ -157,13 +157,19 @@ namespace DScript.Extras.FunctionProviders
             const string digits = "0123456789abcdefghijklmnopqrstuvwxyz";
             var negative = value < 0;
             var n = negative ? -value : value;
+            // Append low-to-high then reverse: O(n) vs O(n²) Insert(0).
             var sb = new System.Text.StringBuilder();
             while (n > 0)
             {
-                sb.Insert(0, digits[(int)(n % radix)]);
+                sb.Append(digits[(int)(n % radix)]);
                 n /= radix;
             }
-            if (negative) sb.Insert(0, '-');
+            if (negative) sb.Append('-');
+            // Reverse in place.
+            for (int lo = 0, hi = sb.Length - 1; lo < hi; lo++, hi--)
+            {
+                char tmp = sb[lo]; sb[lo] = sb[hi]; sb[hi] = tmp;
+            }
             return sb.ToString();
         }
 

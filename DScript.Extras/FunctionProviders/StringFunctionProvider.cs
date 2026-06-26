@@ -400,6 +400,9 @@ namespace DScript.Extras.FunctionProviders
 
             var regex = ToRegex(regexVar);
             var matches = regex.Matches(str);
+            // Hoist: GetGroupNames() and named-capture detection are per-regex, not per-match.
+            var namedGroups = RegExpFunctionProvider.GetNamedGroupNames(regex);
+            var inputVar = ScriptVar.FromString(str);
             var.ReturnVar.SetArray();
             for (var i = 0; i < matches.Count; i++)
             {
@@ -412,8 +415,8 @@ namespace DScript.Extras.FunctionProviders
                     matchArr.SetArrayIndex(g, grp.Success ? ScriptVar.FromString(grp.Value) : ScriptVar.CreateUndefined());
                 }
                 matchArr.AddChild("index", ScriptVar.FromInt(m.Index));
-                matchArr.AddChild("input", ScriptVar.FromString(str));
-                matchArr.AddChild("groups", RegExpFunctionProvider.BuildNamedGroups(regex, m));
+                matchArr.AddChild("input", inputVar);
+                matchArr.AddChild("groups", RegExpFunctionProvider.BuildNamedGroups(namedGroups, m));
                 var.ReturnVar.SetArrayIndex(i, matchArr);
             }
         }

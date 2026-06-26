@@ -74,22 +74,32 @@ namespace DScript.Extras.FunctionProviders
 
         /// <summary>Builds a groups object from named captures, or undefined if none.</summary>
         internal static ScriptVar BuildNamedGroups(Regex regex, Match match)
+            => BuildNamedGroups(GetNamedGroupNames(regex), match);
+
+        /// <summary>
+        /// Builds a groups object from pre-computed group names.
+        /// Call <see cref="GetNamedGroupNames"/> once per regex and reuse across matches.
+        /// </summary>
+        internal static ScriptVar BuildNamedGroups(string[] namedGroupNames, Match match)
         {
-            var groupNames = regex.GetGroupNames();
-            var hasNamed = false;
-            foreach (var gn in groupNames)
-            {
-                if (!int.TryParse(gn, out _)) { hasNamed = true; break; }
-            }
-            if (!hasNamed) return ScriptVar.CreateUndefined();
+            if (namedGroupNames.Length == 0) return ScriptVar.CreateUndefined();
             var groups = ScriptVar.CreateObject();
-            foreach (var gn in groupNames)
+            foreach (var gn in namedGroupNames)
             {
-                if (int.TryParse(gn, out _)) continue;
                 var g = match.Groups[gn];
                 groups.AddChildNoDup(gn, g.Success ? ScriptVar.FromString(g.Value) : ScriptVar.CreateUndefined());
             }
             return groups;
+        }
+
+        /// <summary>Returns only the non-numeric group names (named captures) for a regex.</summary>
+        internal static string[] GetNamedGroupNames(Regex regex)
+        {
+            var all = regex.GetGroupNames();
+            var named = new System.Collections.Generic.List<string>(all.Length);
+            foreach (var gn in all)
+                if (!int.TryParse(gn, out _)) named.Add(gn);
+            return named.ToArray();
         }
 
         /// <summary>Builds the .indices array for the d flag: each element is [start, end] or undefined.</summary>
