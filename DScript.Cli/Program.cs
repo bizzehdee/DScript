@@ -55,6 +55,7 @@ static int RunScript(string[] args)
     try
     {
         engine.Run(ScriptEngine.Compile(source));
+        ScriptEngine.DrainMicroTasks();
         return 0;
     }
     catch (Exception ex)
@@ -90,6 +91,7 @@ static int ProfileScript(string[] args)
     try
     {
         engine.Run(ScriptEngine.Compile(source));
+        ScriptEngine.DrainMicroTasks();
     }
     catch (Exception ex)
     {
