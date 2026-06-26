@@ -3415,6 +3415,48 @@ namespace DScript.Vm
             return arr;
         }
 
+        // Constructor calls and spread for JIT-compiled code.
+
+        // `new Ctor(...args)` — mirrors the fast path in the New opcode handler.
+        internal ScriptVar JitNew(ScriptVar ctor, ScriptVar[] args)
+        {
+            if (ctor != null && ctor.IsFunction && !ctor.IsNative)
+            {
+                var instance = ScriptVar.CreateObject();
+                instance.AddChild(ScriptVar.PrototypeClassName, ctor);
+                var result = InvokeCallable(ctor, instance, args);
+                return result != null && result.IsObject ? result : instance;
+            }
+            return Construct(ctor, args);
+        }
+
+        // Object spread — mirrors MergeObject: copy own non-prototype properties.
+        internal ScriptVar JitMergeObject(ScriptVar target, ScriptVar source)
+        {
+            var member = source.FirstChild;
+            while (member != null)
+            {
+                if (member.Name != ScriptVar.PrototypeClassName)
+                    SetMember(target, member.Name, member.Var, false);
+                member = member.Next;
+            }
+            return target;
+        }
+
+        // Property overwrite (object spread property) — mirrors InitPropOverwrite.
+        internal static ScriptVar JitInitPropOverwrite(ScriptVar obj, string name, ScriptVar value)
+        {
+            obj.AddChildNoDup(name, value);
+            return obj;
+        }
+
+        // Array spread element append — mirrors AppendElem.
+        internal static ScriptVar JitAppendElem(ScriptVar arr, ScriptVar value)
+        {
+            arr.AppendArrayElement(value);
+            return arr;
+        }
+
         // MakeClosure opcode: create a function object that captures the current
         // environment as its defining scope — identical to the interpreter's handler.
         internal static ScriptVar JitMakeClosure(Environment env, Chunk fnChunk)

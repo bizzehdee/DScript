@@ -116,6 +116,14 @@ namespace DScript.Jit
         Pop,
         /// <summary>Return the top operand.</summary>
         Return,
+        /// <summary>Pop ctor + N args, call the constructor, push the new instance.</summary>
+        New,
+        /// <summary>Pop source; merge its enumerable own properties into the peeked target; keep target.</summary>
+        MergeObject,
+        /// <summary>Pop value; add/replace the named property on the peeked object; keep the object.</summary>
+        InitPropOverwrite,
+        /// <summary>Pop value; append it to the end of the peeked array; keep the array.</summary>
+        AppendElem,
     }
 
     /// <summary>Which kind of variable declaration to emit.</summary>
@@ -232,5 +240,13 @@ namespace DScript.Jit
             new(JitOpKind.Pop, null, 0, null, default, null);
         public static JitInstruction Return() =>
             new(JitOpKind.Return, null, 0, null, default, null);
+        public static JitInstruction New(int argc) =>
+            new(JitOpKind.New, null, argc, null, default, null);
+        public static JitInstruction MergeObject() =>
+            new(JitOpKind.MergeObject, null, 0, null, default, null);
+        public static JitInstruction InitPropOverwrite(string name) =>
+            new(JitOpKind.InitPropOverwrite, null, 0, name, default, null);
+        public static JitInstruction AppendElem() =>
+            new(JitOpKind.AppendElem, null, 0, null, default, null);
     }
 }

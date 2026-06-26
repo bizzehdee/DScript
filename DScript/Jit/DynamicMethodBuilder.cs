@@ -114,6 +114,14 @@ namespace DScript.Jit
             "JitInitElem", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitMakeClosureMethod = typeof(VirtualMachine).GetMethod(
             "JitMakeClosure", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitNewMethod = typeof(VirtualMachine).GetMethod(
+            "JitNew", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitMergeObjectMethod = typeof(VirtualMachine).GetMethod(
+            "JitMergeObject", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitInitPropOverwriteMethod = typeof(VirtualMachine).GetMethod(
+            "JitInitPropOverwrite", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitAppendElemMethod = typeof(VirtualMachine).GetMethod(
+            "JitAppendElem", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo MaterializeMethod = typeof(ConstantValue).GetMethod("Materialize", Type.EmptyTypes);
         private static readonly MethodInfo IntBinaryMethod  = typeof(VirtualMachine).GetMethod(
             "IntBinary", BindingFlags.NonPublic | BindingFlags.Static);
@@ -233,6 +241,66 @@ namespace DScript.Jit
         {
             EmitLdcI4(index);                              // [arr, value, index]
             IL.EmitCall(OpCodes.Call, JitInitElemMethod, null);
+        }
+
+        /// <summary>
+        /// Constructor call. The stack holds <c>[ctor, arg0..arg{argc-1}]</c>; emits
+        /// <c>vm.JitNew(ctor, args)</c> and leaves the new instance.
+        /// </summary>
+        public void EmitNew(int argc, LocalBuilder argTmp, LocalBuilder ctorSlot, LocalBuilder argArr)
+        {
+            EmitNewScriptVarArray(argc);
+            EmitStoreLocal(argArr);
+            for (var j = argc - 1; j >= 0; j--)
+            {
+                EmitStoreLocal(argTmp);
+                EmitLoadLocal(argArr);
+                EmitLdcI4(j);
+                EmitLoadLocal(argTmp);
+                EmitStoreElemRef();
+            }
+            EmitStoreLocal(ctorSlot);   // pop ctor
+            EmitLoadVm();
+            EmitLoadLocal(ctorSlot);
+            EmitLoadLocal(argArr);
+            IL.EmitCall(OpCodes.Callvirt, JitNewMethod, null);
+        }
+
+        /// <summary>
+        /// Object spread merge. The stack holds <c>[target, source]</c>; emits
+        /// <c>vm.JitMergeObject(target, source)</c> and leaves <c>target</c>.
+        /// </summary>
+        public void EmitMergeObject(LocalBuilder sourceSlot, LocalBuilder targetSlot)
+        {
+            EmitStoreLocal(sourceSlot);
+            EmitStoreLocal(targetSlot);
+            EmitLoadVm();
+            EmitLoadLocal(targetSlot);
+            EmitLoadLocal(sourceSlot);
+            IL.EmitCall(OpCodes.Callvirt, JitMergeObjectMethod, null);
+        }
+
+        /// <summary>
+        /// Overwriting property init (spread syntax). The stack holds <c>[obj, value]</c>;
+        /// emits <c>JitInitPropOverwrite(obj, name, value)</c> and leaves <c>obj</c>.
+        /// </summary>
+        public void EmitInitPropOverwrite(string name, LocalBuilder valSlot)
+        {
+            EmitStoreLocal(valSlot);
+            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadLocal(valSlot);
+            IL.EmitCall(OpCodes.Call, JitInitPropOverwriteMethod, null);
+        }
+
+        /// <summary>
+        /// Array spread element append. The stack holds <c>[arr, value]</c>; emits
+        /// <c>JitAppendElem(arr, value)</c> and leaves <c>arr</c>.
+        /// </summary>
+        public void EmitAppendElem(LocalBuilder valSlot)
+        {
+            EmitStoreLocal(valSlot);
+            EmitLoadLocal(valSlot);
+            IL.EmitCall(OpCodes.Call, JitAppendElemMethod, null);
         }
 
         /// <summary>Push the <c>vm</c> argument (a <see cref="VirtualMachine"/>).</summary>

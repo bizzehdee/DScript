@@ -119,6 +119,36 @@ namespace DScript.Jit
                         stack.Push(CallNode(callee, argNodes));
                         break;
                     }
+                    case JitOpKind.New:
+                    {
+                        var argNodes = new JitDelegate[instr.IntValue];
+                        for (var j = instr.IntValue - 1; j >= 0; j--)
+                            argNodes[j] = stack.Pop();
+                        var ctor = stack.Pop();
+                        stack.Push(NewNode(ctor, argNodes));
+                        break;
+                    }
+                    case JitOpKind.MergeObject:
+                    {
+                        var source = stack.Pop();
+                        var target = stack.Pop();
+                        stack.Push(MergeObjectNode(target, source));
+                        break;
+                    }
+                    case JitOpKind.InitPropOverwrite:
+                    {
+                        var value = stack.Pop();
+                        var obj = stack.Pop();
+                        stack.Push(InitPropOverwriteNode(obj, value, instr.Name));
+                        break;
+                    }
+                    case JitOpKind.AppendElem:
+                    {
+                        var value = stack.Pop();
+                        var arr = stack.Pop();
+                        stack.Push(AppendElemNode(arr, value));
+                        break;
+                    }
                     case JitOpKind.SetVar:        stack.Push(SetVarNode(instr.Name, stack.Pop(), strict)); break;
                     case JitOpKind.SetVarPop:     effects.Add(SetVarNode(instr.Name, stack.Pop(), strict)); break;
                     case JitOpKind.SetProp:
@@ -270,6 +300,35 @@ namespace DScript.Jit
                 for (var j = 0; j < argNodes.Length; j++)
                     resolved[j] = argNodes[j](vm, args, env);
                 return vm.InvokeCallable(c, null, resolved);
+            };
+
+        private static JitDelegate NewNode(JitDelegate ctor, JitDelegate[] argNodes) =>
+            (vm, args, env) =>
+            {
+                var c = ctor(vm, args, env);
+                var resolved = new ScriptVar[argNodes.Length];
+                for (var j = 0; j < argNodes.Length; j++)
+                    resolved[j] = argNodes[j](vm, args, env);
+                return vm.JitNew(c, resolved);
+            };
+
+        private static JitDelegate MergeObjectNode(JitDelegate target, JitDelegate source) =>
+            (vm, args, env) => vm.JitMergeObject(target(vm, args, env), source(vm, args, env));
+
+        private static JitDelegate InitPropOverwriteNode(JitDelegate objNode, JitDelegate valueNode, string name) =>
+            (vm, args, env) =>
+            {
+                var o = objNode(vm, args, env);
+                o.AddChildNoDup(name, valueNode(vm, args, env));
+                return o;
+            };
+
+        private static JitDelegate AppendElemNode(JitDelegate arrNode, JitDelegate valueNode) =>
+            (vm, args, env) =>
+            {
+                var a = arrNode(vm, args, env);
+                a.AppendArrayElement(valueNode(vm, args, env));
+                return a;
             };
 
         private static JitDelegate FinishNode(JitDelegate[] effects, JitDelegate result) =>

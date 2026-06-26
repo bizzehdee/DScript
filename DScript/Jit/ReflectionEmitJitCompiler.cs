@@ -1055,6 +1055,10 @@ namespace DScript.Jit
                     case JitOpKind.MakeClosure:   b.EmitMakeClosure(instr.Closure); break;
                     case JitOpKind.InitProp:      b.EmitInitProp(instr.Name); break;
                     case JitOpKind.InitElem:      b.EmitInitElem(instr.IntValue); break;
+                    case JitOpKind.New:           b.EmitNew(instr.IntValue, aSlot, bSlot, argArr); break;
+                    case JitOpKind.MergeObject:   b.EmitMergeObject(aSlot, bSlot); break;
+                    case JitOpKind.InitPropOverwrite: b.EmitInitPropOverwrite(instr.Name, aSlot); break;
+                    case JitOpKind.AppendElem:    b.EmitAppendElem(aSlot); break;
                     case JitOpKind.PushUndefined: b.EmitPushUndefined(); break;
                     case JitOpKind.PushNull:      b.EmitPushNull(); break;
                     case JitOpKind.Pop:           b.IL.Emit(OpCodes.Pop); break;

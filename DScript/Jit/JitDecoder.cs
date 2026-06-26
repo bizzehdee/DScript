@@ -397,6 +397,22 @@ namespace DScript.Jit
                         instrs.Add(JitInstruction.Return());
                         break;
 
+                    // Constructor calls, object/array spread.
+                    case OpCode.New:
+                        instrs.Add(JitInstruction.New(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+                    case OpCode.MergeObject:
+                        instrs.Add(JitInstruction.MergeObject());
+                        break;
+                    case OpCode.InitPropOverwrite:
+                        instrs.Add(JitInstruction.InitPropOverwrite(chunk.Names[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+                    case OpCode.AppendElem:
+                        instrs.Add(JitInstruction.AppendElem());
+                        break;
+
                     default:
                         // Conditional-pop jumps, for..of, object/array literals,
                         // try, tail and method calls, etc. — not supported.
