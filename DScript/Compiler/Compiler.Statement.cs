@@ -913,6 +913,16 @@ namespace DScript.Compiler
         private void CompileAsyncFunctionDeclaration()
         {
             lexer.Match(ScriptLex.LexTypes.RAsync);
+
+            // async () => body  or  async x => body  used as an expression statement
+            if (IsArrowFunction())
+            {
+                CompileArrowFunction(isAsync: true);
+                chunk.Emit(OpCode.Pop);
+                MatchStatementTerminator();
+                return;
+            }
+
             lexer.Match(ScriptLex.LexTypes.RFunction);
             var isGenerator = lexer.TokenType == (ScriptLex.LexTypes)'*';
             if (isGenerator) lexer.Match((ScriptLex.LexTypes)'*');
@@ -944,7 +954,42 @@ namespace DScript.Compiler
 
         private void CompileForOfBase(OpCode getIterOp, OpCode stepOp, string iterVarPrefix)
         {
-            var loopVar = ParseForIteratorVar(ScriptLex.LexTypes.ROf);
+            // Detect `const/let/var [a,b]` or `const/let/var {a,b}` — destructuring pattern.
+            bool isDecl = lexer.TokenType is ScriptLex.LexTypes.RVar
+                                          or ScriptLex.LexTypes.RConst
+                                          or ScriptLex.LexTypes.RLet;
+            bool isConst = lexer.TokenType == ScriptLex.LexTypes.RConst;
+            bool isLet   = lexer.TokenType == ScriptLex.LexTypes.RLet;
+            if (isDecl) lexer.Match(lexer.TokenType);
+
+            List<string> destructureNames = null;
+            bool isObjDestructure = false;
+
+            int loopVar;
+            if (lexer.TokenType == (ScriptLex.LexTypes)'[')
+            {
+                // Array destructuring: for(const[k,v] of iter)
+                destructureNames = ParseForOfArrayDestructureNames();
+                lexer.Match(ScriptLex.LexTypes.ROf);
+                var tmpName = "$forof_d" + _destructureCounter++;
+                loopVar = chunk.AddName(tmpName);
+            }
+            else if (lexer.TokenType == (ScriptLex.LexTypes)'{')
+            {
+                // Object destructuring: for(const{a,b} of iter)
+                destructureNames = ParseForOfObjectDestructureNames();
+                isObjDestructure = true;
+                lexer.Match(ScriptLex.LexTypes.ROf);
+                var tmpName = "$forof_d" + _destructureCounter++;
+                loopVar = chunk.AddName(tmpName);
+            }
+            else
+            {
+                // Plain identifier — re-enter the old path without re-consuming the decl keyword.
+                loopVar = chunk.AddName(lexer.TokenString);
+                lexer.Match(ScriptLex.LexTypes.Id);
+                lexer.Match(ScriptLex.LexTypes.ROf);
+            }
 
             CompileBase();
             chunk.Emit(getIterOp);
@@ -958,11 +1003,44 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.SetVar, iterVar);
             chunk.Emit(OpCode.Pop);
 
+            // Pre-declare destructuring target variables.
+            var declOp = isConst ? OpCode.DeclareConst
+                       : isLet   ? OpCode.DeclareLocal
+                                 : OpCode.DeclareVar;
+            if (destructureNames != null)
+            {
+                foreach (var n in destructureNames)
+                {
+                    chunk.Emit(declOp, chunk.AddName(n));
+                }
+            }
+
             var loopTop = chunk.Count;
             chunk.Emit(OpCode.GetVar, iterVar);
             var exitJump = chunk.EmitJump(stepOp);
             chunk.Emit(OpCode.SetVar, loopVar);
             chunk.Emit(OpCode.Pop);
+
+            // Emit destructuring assignments from the temp loop var.
+            if (destructureNames != null)
+            {
+                for (var i = 0; i < destructureNames.Count; i++)
+                {
+                    var targetIdx = chunk.AddName(destructureNames[i]);
+                    chunk.Emit(OpCode.GetVar, loopVar);
+                    if (isObjDestructure)
+                    {
+                        chunk.Emit(OpCode.GetProp, targetIdx);
+                    }
+                    else
+                    {
+                        chunk.Emit(OpCode.Constant, chunk.AddConstant(ConstantValue.Int(i)));
+                        chunk.Emit(OpCode.GetIndex);
+                    }
+                    chunk.Emit(OpCode.SetVar, targetIdx);
+                    chunk.Emit(OpCode.Pop);
+                }
+            }
 
             loops.Push(new LoopContext());
             CompileStatement();
@@ -974,6 +1052,62 @@ namespace DScript.Compiler
             var ctx = loops.Pop();
             PatchJumps(ctx.BreakJumps, chunk.Count);
             PatchJumps(ctx.ContinueJumps, incrStart);
+        }
+
+        // Parse `[a, b, c]` in `for(const [a,b,c] of ...)`, returning the binding names.
+        // Does NOT consume the `of` separator.
+        private List<string> ParseForOfArrayDestructureNames()
+        {
+            var names = new System.Collections.Generic.List<string>();
+            lexer.Match((ScriptLex.LexTypes)'[');
+            while (lexer.TokenType != (ScriptLex.LexTypes)']')
+            {
+                if (lexer.TokenType == ScriptLex.LexTypes.Ellipsis)
+                {
+                    lexer.Match(ScriptLex.LexTypes.Ellipsis);
+                    names.Add(lexer.TokenString);
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                    break;
+                }
+                if (lexer.TokenType == (ScriptLex.LexTypes)',')
+                {
+                    // hole / elision — skip
+                    names.Add(null);
+                    lexer.Match((ScriptLex.LexTypes)',');
+                    continue;
+                }
+                names.Add(lexer.TokenString);
+                lexer.Match(ScriptLex.LexTypes.Id);
+                if (lexer.TokenType == (ScriptLex.LexTypes)']') break;
+                lexer.Match((ScriptLex.LexTypes)',');
+            }
+            lexer.Match((ScriptLex.LexTypes)']');
+            return names;
+        }
+
+        // Parse `{a, b}` in `for(const {a,b} of ...)`, returning the binding names.
+        // Does NOT consume the `of` separator.
+        private List<string> ParseForOfObjectDestructureNames()
+        {
+            var names = new System.Collections.Generic.List<string>();
+            lexer.Match((ScriptLex.LexTypes)'{');
+            while (lexer.TokenType != (ScriptLex.LexTypes)'}')
+            {
+                names.Add(lexer.TokenString);
+                lexer.Match(ScriptLex.LexTypes.Id);
+                if (lexer.TokenType == (ScriptLex.LexTypes)'}') break;
+                if (lexer.TokenType == (ScriptLex.LexTypes)':')
+                {
+                    // { key: binding }  — consume key alias
+                    lexer.Match((ScriptLex.LexTypes)':');
+                    names[^1] = lexer.TokenString;  // replace with the actual binding name
+                    lexer.Match(ScriptLex.LexTypes.Id);
+                }
+                if (lexer.TokenType == (ScriptLex.LexTypes)'}') break;
+                lexer.Match((ScriptLex.LexTypes)',');
+            }
+            lexer.Match((ScriptLex.LexTypes)'}');
+            return names;
         }
 
         private void PatchJumps(List<int> jumps, int target)

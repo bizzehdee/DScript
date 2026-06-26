@@ -197,6 +197,14 @@ namespace DScript.Compiler
         private void CompileAsyncFunctionExpression()
         {
             lexer.Match(ScriptLex.LexTypes.RAsync);
+
+            // async () => body  or  async x => body  (async arrow function)
+            if (IsArrowFunction())
+            {
+                CompileArrowFunction(isAsync: true);
+                return;
+            }
+
             lexer.Match(ScriptLex.LexTypes.RFunction);
             var isAsyncGen = lexer.TokenType == (ScriptLex.LexTypes)'*';
             if (isAsyncGen) lexer.Match((ScriptLex.LexTypes)'*');
@@ -899,9 +907,10 @@ namespace DScript.Compiler
         }
 
         // Compile `x => expr`, `(x, y) => expr`, or `(params) => { block }`.
-        private void CompileArrowFunction()
+        // Pass isAsync: true for  `async (x) => expr` / `async x => expr`.
+        private void CompileArrowFunction(bool isAsync = false)
         {
-            var fnChunk = new Chunk { Name = "<arrow>", IsArrow = true, IsStrict = chunk.IsStrict };
+            var fnChunk = new Chunk { Name = "<arrow>", IsArrow = true, IsAsync = isAsync, IsStrict = chunk.IsStrict };
             var sourceStart = lexer.TokenStart;
             var paramDefaults = new List<(string ParamName, string DefaultSrc)>();
 
