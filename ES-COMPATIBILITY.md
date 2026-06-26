@@ -99,7 +99,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Static methods and properties | ✅ | |
 | Static initialisation blocks | ✅ | |
 | Private fields and methods (`#name`) | ✅ | Stored as string key `"#name"` |
-| `for...of` | ✅ | Arrays, generators, custom iterables |
+| `for...of` | ✅ | Arrays, generators, custom iterables; destructuring in loop header (`for(const [a,b] of ...)`, `for(const {k,v} of ...)`) |
 | `Symbol` | ✅ | `Symbol()`, `Symbol.for`, `Symbol.keyFor`, `Symbol.iterator`, `Symbol.asyncIterator`, `Symbol.hasInstance`, `Symbol.toPrimitive`, `Symbol.toStringTag` |
 | Custom iterables (`[Symbol.iterator]()`) | ✅ | |
 | Generators (`function*`, `yield`) | ✅ | Including `yield*` delegation |
