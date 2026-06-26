@@ -173,5 +173,31 @@ namespace DScript.Test
             Assert.That(r.jit, Is.EqualTo(r.interp));
             Assert.That(r.longTier, Is.GreaterThan(0));
         }
+
+        [Test]
+        public void OsrStringConcatStaysLinear()
+        {
+            // Regression: a JIT/OSR-compiled string-building loop must concatenate via
+            // the rope path (amortised O(1) per step), not inline string.Concat, which
+            // re-materialises the growing left side every iteration → O(n²). The broken
+            // path took ~17 s for 1e5 iterations; the rope path is well under a second.
+            // A plain string-concat loop (no standard library needed): the result is the
+            // running length so the test stays self-contained.
+            const string script =
+                "var s=''; var n=0; for(var i=0;i<100000;i++){ s = s + 'abcde'; n = n + 1; } __result__ = n;";
+
+            JitRegistry.Register(new ReflectionEmitJitCompiler());
+            var chunk = ScriptEngine.Compile(script);
+            var engine = new ScriptEngine();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            engine.Run(chunk);
+            sw.Stop();
+            JitRegistry.Clear();
+
+            Assert.That(engine.Root.GetParameter("__result__").GetParsableString(), Is.EqualTo("100000"));
+            Assert.That(chunk.OsrEntries.Count, Is.GreaterThan(0), "the loop must actually be OSR-compiled");
+            Assert.That(sw.ElapsedMilliseconds, Is.LessThan(5000),
+                "string-building loop must stay near-linear under the JIT (O(n²) regression)");
+        }
     }
 }

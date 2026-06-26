@@ -1508,15 +1508,16 @@ namespace DScript.Jit
             var fallback = il.DefineLabel();
             var done = il.DefineLabel();
 
-            // Specializations are tried in order — int, then double, then string —
-            // each falling through to the next on a guard miss, and finally to the
-            // generic MathsOp. Define entry labels only for the paths that apply.
+            // Specializations are tried in order — int, then double — each falling
+            // through to the next on a guard miss, and finally to the generic MathsOp.
+            // String concatenation is deliberately NOT specialised here: it is left to
+            // MathsOp, whose rope-based ConcatStrings keeps `s += x` amortised O(1) per
+            // step. Emitting string.Concat inline would re-materialise the left side
+            // every iteration, turning a string-building loop into O(n²).
             var dblOp = DoubleArithOp(op);
-            var hasString = (char)op == '+';
             var doubleLabel = dblOp.HasValue ? il.DefineLabel() : default;
-            var stringLabel = hasString ? il.DefineLabel() : default;
 
-            Label afterInt = dblOp.HasValue ? doubleLabel : (hasString ? stringLabel : fallback);
+            Label afterInt = dblOp.HasValue ? doubleLabel : fallback;
 
             // Int fast path guard: both operands must be integers (int32 or LargeInt).
             b.EmitIsAnyInt(aSlot);
@@ -1547,32 +1548,13 @@ namespace DScript.Jit
             // numeric promotion for +, -, *, /.
             if (dblOp.HasValue)
             {
-                var afterDouble = hasString ? stringLabel : fallback;
                 il.MarkLabel(doubleLabel);
-                EmitNumericGuard(b, aSlot, afterDouble);
-                EmitNumericGuard(b, bSlot, afterDouble);
+                EmitNumericGuard(b, aSlot, fallback);
+                EmitNumericGuard(b, bSlot, fallback);
                 b.EmitLoadFloat(aSlot);
                 b.EmitLoadFloat(bSlot);
                 il.Emit(dblOp.Value);
                 b.EmitFromDouble();
-                il.Emit(OpCodes.Br, done);
-            }
-
-            // String fast path for '+': both operands strings.
-            // result = ScriptVar.FromString(string.Concat(a.String, b.String)).
-            // Mixed string/number concatenation needs ToString coercion, so it is
-            // left to MathsOp.
-            if (hasString)
-            {
-                il.MarkLabel(stringLabel);
-                b.EmitIsString(aSlot);
-                il.Emit(OpCodes.Brfalse, fallback);
-                b.EmitIsString(bSlot);
-                il.Emit(OpCodes.Brfalse, fallback);
-                b.EmitLoadString(aSlot);
-                b.EmitLoadString(bSlot);
-                b.EmitStringConcat();
-                b.EmitFromString();
                 il.Emit(OpCodes.Br, done);
             }
 
