@@ -1,1 +1,114 @@
-const benchmark=(n,f)=>{const s=performance.now();const r=f();console.log(`${n}: ${(performance.now()-s).toFixed(2)}ms`,r)};benchmark("Arrays",()=>Array.from({length:1e6},(_,i)=>i).filter(x=>x&1).map(x=>x*3).reduce((a,b)=>a+b,0));benchmark("Objects",()=>{let s=0;for(let i=0;i<1e6;i++){const o={a:i,b:i+1,c:i+2,d:i+3};s+=o.a+o.b+o.c+o.d}return s});benchmark("JSON",()=>JSON.parse(JSON.stringify(Array.from({length:5e4},(_,i)=>({id:i,name:`User${i}`,active:i&1})))).length);benchmark("Map",()=>{const m=new Map();for(let i=0;i<5e5;i++)m.set(i,i);let s=0;for(let i=0;i<5e5;i++)s+=m.get(i);return s});benchmark("Set",()=>{const s=new Set();for(let i=0;i<5e5;i++)s.add(i);return s.has(123456)});benchmark("Regex",()=>{let t="";for(let i=0;i<5e4;i++)t+=`user${i}@test.com `;let s=0;for(const m of t.matchAll(/user(\d+)@test\.com/g))s+=+m[1];return s});benchmark("Strings",()=>{let s="";for(let i=0;i<1e5;i++)s+=i.toString(36);return s.length});benchmark("Closures",()=>{let s=0;for(let i=0;i<1e5;i++){const f=x=>()=>x; s+=f(i)()}return s});benchmark("Functions",()=>{function f(a,b,c){return a+b+c}let s=0;for(let i=0;i<1e7;i++)s+=f(i,1,2);return s});benchmark("Classes",()=>{class P{constructor(x,y){this.x=x;this.y=y}sum(){return this.x+this.y}}let s=0;for(let i=0;i<5e5;i++)s+=new P(i,i+1).sum();return s});benchmark("TypedArrays",()=>{const a=new Float64Array(1e6);for(let i=0;i<a.length;i++)a[i]=i;let s=0;for(let i=0;i<a.length;i++)s+=a[i];return s});benchmark("BigInt",()=>{let x=1n;for(let i=0;i<1e5;i++)x=x*3n+1n;return x.toString().length});benchmark("Sort",()=>Array.from({length:2e5},()=>Math.random()).sort((a,b)=>a-b)[0]);benchmark("Date",()=>{let s=0;for(let i=0;i<1e5;i++)s+=new Date(2025,0,(i%28)+1).getTime();return s});benchmark("Spread",()=>{let o={a:1,b:2,c:3};for(let i=0;i<1e5;i++)o={...o,d:i};return o.d});
+const benchmark = (n, f) => {
+    const s = performance.now();
+    const r = f();
+    console.log(`${n}: ${(performance.now()-s).toFixed(2)}ms`, r)
+};
+benchmark("Arrays", () => Array.from({
+    length: 1e6
+}, (_, i) => i).filter(x => x & 1).map(x => x * 3).reduce((a, b) => a + b, 0));
+benchmark("Objects", () => {
+    let s = 0;
+    for (let i = 0; i < 1e6; i++) {
+        const o = {
+            a: i,
+            b: i + 1,
+            c: i + 2,
+            d: i + 3
+        };
+        s += o.a + o.b + o.c + o.d
+    }
+    return s
+});
+benchmark("JSON", () => JSON.parse(JSON.stringify(Array.from({
+    length: 5e4
+}, (_, i) => ({
+    id: i,
+    name: `User${i}`,
+    active: i & 1
+})))).length);
+benchmark("Map", () => {
+    const m = new Map();
+    for (let i = 0; i < 5e5; i++) m.set(i, i);
+    let s = 0;
+    for (let i = 0; i < 5e5; i++) s += m.get(i);
+    return s
+});
+benchmark("Set", () => {
+    const s = new Set();
+    for (let i = 0; i < 5e5; i++) s.add(i);
+    return s.has(123456)
+});
+benchmark("Regex", () => {
+    let t = "";
+    for (let i = 0; i < 5e4; i++) t += `user${i}@test.com `;
+    let s = 0;
+    for (const m of t.matchAll(/user(\d+)@test\.com/g)) s += +m[1];
+    return s
+});
+benchmark("Strings", () => {
+    let s = "";
+    for (let i = 0; i < 1e5; i++) s += i.toString(36);
+    return s.length
+});
+benchmark("Closures", () => {
+    let s = 0;
+    for (let i = 0; i < 1e5; i++) {
+        const f = x => () => x;
+        s += f(i)()
+    }
+    return s
+});
+benchmark("Functions", () => {
+    function f(a, b, c) {
+        return a + b + c
+    }
+    let s = 0;
+    for (let i = 0; i < 1e7; i++) s += f(i, 1, 2);
+    return s
+});
+benchmark("Classes", () => {
+    class P {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y
+        }
+        sum() {
+            return this.x + this.y
+        }
+    }
+    let s = 0;
+    for (let i = 0; i < 5e5; i++) s += new P(i, i + 1).sum();
+    return s
+});
+benchmark("TypedArrays", () => {
+    const a = new Float64Array(1e6);
+    for (let i = 0; i < a.length; i++) a[i] = i;
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += a[i];
+    return s
+});
+benchmark("BigInt", () => {
+    let x = 1n;
+    for (let i = 0; i < 1e5; i++) x = x * 3n + 1n;
+    return x.toString().length
+});
+benchmark("Sort", () => Array.from({
+    length: 2e5
+}, () => Math.random()).sort((a, b) => a - b)[0]);
+benchmark("Date", () => {
+    let s = 0;
+    for (let i = 0; i < 1e5; i++) s += new Date(2025, 0, (i % 28) + 1).getTime();
+    return s
+});
+benchmark("Spread", () => {
+    let o = {
+        a: 1,
+        b: 2,
+        c: 3
+    };
+    for (let i = 0; i < 1e5; i++) o = {
+        ...o,
+        d: i
+    };
+    return o.d
+});
