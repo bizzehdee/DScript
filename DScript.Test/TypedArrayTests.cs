@@ -413,5 +413,288 @@ namespace DScript.Test
             Assert.That(RunInt("var r = Int32Array.BYTES_PER_ELEMENT;"),   Is.EqualTo(4));
             Assert.That(RunInt("var r = Uint8Array.BYTES_PER_ELEMENT;"),   Is.EqualTo(1));
         }
+
+        // ── TypedArray methods (coverage gap-fill) ────────────────────────────
+
+        [Test]
+        public void TypedArray_Every_TrueWhenAllMatch()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([2, 4, 6]); var r = a.every(function(v) { return v % 2 === 0; }) ? 1 : 0;"),
+                Is.EqualTo(1));
+        }
+
+        [Test]
+        public void TypedArray_Every_FalseOnFirstMismatch()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([2, 3, 6]); var r = a.every(function(v) { return v % 2 === 0; }) ? 1 : 0;"),
+                Is.EqualTo(0));
+        }
+
+        [Test]
+        public void TypedArray_Some_TrueWhenAnyMatch()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([1, 3, 4]); var r = a.some(function(v) { return v % 2 === 0; }) ? 1 : 0;"),
+                Is.EqualTo(1));
+        }
+
+        [Test]
+        public void TypedArray_Some_FalseWhenNoneMatch()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([1, 3, 5]); var r = a.some(function(v) { return v % 2 === 0; }) ? 1 : 0;"),
+                Is.EqualTo(0));
+        }
+
+        [Test]
+        public void TypedArray_FindIndex_ReturnsCorrectIndex()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([10, 20, 30]); var r = a.findIndex(function(v) { return v > 15; });"),
+                Is.EqualTo(1));
+        }
+
+        [Test]
+        public void TypedArray_FindIndex_MinusOneWhenNotFound()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([1, 2, 3]); var r = a.findIndex(function(v) { return v > 99; });"),
+                Is.EqualTo(-1));
+        }
+
+        [Test]
+        public void TypedArray_IndexOf_MinusOneWhenAbsent()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([10, 20, 30]); var r = a.indexOf(99);"),
+                Is.EqualTo(-1));
+        }
+
+        [Test]
+        public void TypedArray_Includes_FalseWhenAbsent()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([10, 20]); var r = a.includes(99) ? 1 : 0;"),
+                Is.EqualTo(0));
+        }
+
+        [Test]
+        public void TypedArray_Subarray_SharesBuffer()
+        {
+            // subarray returns a view into the same buffer — writes via sub are visible in parent.
+            Assert.That(RunInt(
+                "var a = new Int32Array([1, 2, 3, 4]); var b = a.subarray(1, 3); b[0] = 99; var r = a[1];"),
+                Is.EqualTo(99));
+        }
+
+        [Test]
+        public void TypedArray_Subarray_LengthCorrect()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([1, 2, 3, 4]); var b = a.subarray(1, 3); var r = b.length;"),
+                Is.EqualTo(2));
+        }
+
+        [Test]
+        public void TypedArray_CopyWithin_CopiesSegment()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([1, 2, 3, 4, 5]); a.copyWithin(0, 3); var r = a[0];"),
+                Is.EqualTo(4));
+        }
+
+        [Test]
+        public void TypedArray_Keys_ReturnsIndices()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([10, 20, 30]); var k = a.keys(); var r = k[1];"),
+                Is.EqualTo(1));
+        }
+
+        [Test]
+        public void TypedArray_Values_ReturnsElements()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([10, 20, 30]); var v = a.values(); var r = v[2];"),
+                Is.EqualTo(30));
+        }
+
+        [Test]
+        public void TypedArray_Entries_ReturnsPairs()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array([10, 20]); var e = a.entries(); var r = e[1][1];"),
+                Is.EqualTo(20));
+        }
+
+        [Test]
+        public void TypedArray_Set_FromTypedArray()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array(4); var b = new Int32Array([7, 8]); a.set(b, 1); var r = a[2];"),
+                Is.EqualTo(8));
+        }
+
+        [Test]
+        public void TypedArray_Reduce_NoInitialValue()
+        {
+            Assert.That(RunDouble(
+                "var a = new Float64Array([1.0, 2.0, 3.0]); var r = a.reduce(function(acc, v) { return acc + v; });"),
+                Is.EqualTo(6.0).Within(1e-12));
+        }
+
+        // ── ArrayBuffer.isView ────────────────────────────────────────────────
+
+        [Test]
+        public void ArrayBuffer_IsView_TrueForTypedArray()
+        {
+            Assert.That(RunInt(
+                "var a = new Int32Array(4); var r = ArrayBuffer.isView(a) ? 1 : 0;"),
+                Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ArrayBuffer_IsView_TrueForDataView()
+        {
+            Assert.That(RunInt(
+                "var buf = new ArrayBuffer(4); var dv = new DataView(buf); var r = ArrayBuffer.isView(dv) ? 1 : 0;"),
+                Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ArrayBuffer_IsView_FalseForPlainObject()
+        {
+            Assert.That(RunInt(
+                "var r = ArrayBuffer.isView({}) ? 1 : 0;"),
+                Is.EqualTo(0));
+        }
+
+        // ── DataView — remaining getters and setters ──────────────────────────
+
+        [Test]
+        public void DataView_GetSetInt8_RoundTrip()
+        {
+            Assert.That(RunInt(
+                "var dv = new DataView(new ArrayBuffer(4)); dv.setInt8(0, -5); var r = dv.getInt8(0);"),
+                Is.EqualTo(-5));
+        }
+
+        [Test]
+        public void DataView_GetSetInt16_LittleEndian()
+        {
+            Assert.That(RunInt(
+                "var dv = new DataView(new ArrayBuffer(4)); dv.setInt16(0, 1000, true); var r = dv.getInt16(0, true);"),
+                Is.EqualTo(1000));
+        }
+
+        [Test]
+        public void DataView_GetSetUint16_BigEndian()
+        {
+            Assert.That(RunInt(
+                "var dv = new DataView(new ArrayBuffer(4)); dv.setUint16(0, 0xABCD, false); var r = dv.getUint16(0, false);"),
+                Is.EqualTo(0xABCD));
+        }
+
+        [Test]
+        public void DataView_GetSetUint32_LittleEndian()
+        {
+            Assert.That(RunDouble(
+                "var dv = new DataView(new ArrayBuffer(8)); dv.setUint32(0, 3000000000, true); var r = dv.getUint32(0, true);"),
+                Is.EqualTo(3000000000.0).Within(1));
+        }
+
+        [Test]
+        public void DataView_GetSetFloat32_RoundTrip()
+        {
+            Assert.That(RunDouble(
+                "var dv = new DataView(new ArrayBuffer(4)); dv.setFloat32(0, 1.5, true); var r = dv.getFloat32(0, true);"),
+                Is.EqualTo(1.5).Within(1e-6));
+        }
+
+        // ── BigInt typed arrays ───────────────────────────────────────────────
+
+        [Test]
+        public void BigInt64Array_SetAndGet_RoundTrips()
+        {
+            // Write via Int32Array (low 4 bytes), read back via BigInt64Array (little-endian).
+            Assert.That(RunInt(
+                "var buf = new ArrayBuffer(8);" +
+                "var i32 = new Int32Array(buf);" +
+                "i32[0] = 42; i32[1] = 0;" + // sets bytes 0-3 to 42, bytes 4-7 to 0
+                "var big = new BigInt64Array(buf);" +
+                "var dv = new DataView(buf);" +
+                "var r = dv.getInt32(0, true);"), // read back the low 4 bytes
+                Is.EqualTo(42));
+        }
+
+        [Test]
+        public void BigUint64Array_SetAndGet_RoundTrips()
+        {
+            // Write via BigUint64Array, verify bytes via DataView
+            Assert.That(RunInt(
+                "var buf = new ArrayBuffer(8);" +
+                "var dv = new DataView(buf);" +
+                "dv.setInt32(0, 255, true); dv.setInt32(4, 0, true);" + // set 255 LE
+                "var big = new BigUint64Array(buf);" +
+                "var r = dv.getInt32(0, true);"), // read back
+                Is.EqualTo(255));
+        }
+
+        // ── DataView BigInt ───────────────────────────────────────────────────
+
+        [Test]
+        public void DataView_GetSetBigInt64_RoundTrip()
+        {
+            // Write 42n as BigInt64, read back low bytes via Int32 to avoid Number() conversion.
+            Assert.That(RunInt(
+                "var buf = new ArrayBuffer(8);" +
+                "var dv = new DataView(buf);" +
+                "dv.setBigInt64(0, 42n, true);" +
+                "var r = dv.getInt32(0, true);"),
+                Is.EqualTo(42));
+        }
+
+        [Test]
+        public void DataView_GetSetBigUint64_RoundTrip()
+        {
+            Assert.That(RunInt(
+                "var buf = new ArrayBuffer(8);" +
+                "var dv = new DataView(buf);" +
+                "dv.setBigUint64(0, 100n, true);" +
+                "var r = dv.getInt32(0, true);"),
+                Is.EqualTo(100));
+        }
+
+        // ── remaining typed array types ───────────────────────────────────────
+
+        [Test]
+        public void Uint16Array_SetAndGet_RoundTrips()
+        {
+            Assert.That(RunInt("var a = new Uint16Array(4); a[0]=60000; var r = a[0];"), Is.EqualTo(60000));
+        }
+
+        [Test]
+        public void Uint32Array_SetAndGet_RoundTrips()
+        {
+            Assert.That(RunDouble("var a = new Uint32Array(4); a[0]=3000000000; var r = a[0];"),
+                Is.EqualTo(3000000000.0).Within(1));
+        }
+
+        // ── BYTES_PER_ELEMENT static property ────────────────────────────────
+
+        [Test]
+        public void TypedArray_StaticBytesPerElement_AllTypes()
+        {
+            Assert.That(RunInt("var r = Int8Array.BYTES_PER_ELEMENT;"),         Is.EqualTo(1));
+            Assert.That(RunInt("var r = Uint8ClampedArray.BYTES_PER_ELEMENT;"), Is.EqualTo(1));
+            Assert.That(RunInt("var r = Int16Array.BYTES_PER_ELEMENT;"),        Is.EqualTo(2));
+            Assert.That(RunInt("var r = Uint16Array.BYTES_PER_ELEMENT;"),       Is.EqualTo(2));
+            Assert.That(RunInt("var r = Uint32Array.BYTES_PER_ELEMENT;"),       Is.EqualTo(4));
+            Assert.That(RunInt("var r = Float32Array.BYTES_PER_ELEMENT;"),      Is.EqualTo(4));
+            Assert.That(RunInt("var r = BigInt64Array.BYTES_PER_ELEMENT;"),     Is.EqualTo(8));
+            Assert.That(RunInt("var r = BigUint64Array.BYTES_PER_ELEMENT;"),    Is.EqualTo(8));
+        }
     }
 }
