@@ -160,5 +160,31 @@ namespace DScript.Test
             var src = "var r = 0; try { throw 1; } catch { r = 1; } finally { r = r + 10; }";
             Assert.That(Run(src).GetParameter("r").Int, Is.EqualTo(11));
         }
+
+        // ── nested try ────────────────────────────────────────────────────────
+
+        [Test]
+        public void NestedTry_InnerFinallyBeforeOuterCatch()
+        {
+            // try { try { throw 5; } finally {} } catch(e) {}
+            // This was a REPL parse error ("Expected Eof, found RTry") when the
+            // outer try was sent through EvalComplex (expression mode).
+            var src = "var r = 0; try { try { throw 5; } finally { r = 1; } } catch(e) { r = r + 10; }";
+            Assert.That(Run(src).GetParameter("r").Int, Is.EqualTo(11));
+        }
+
+        [Test]
+        public void NestedTry_InnerCatchOuterFinally()
+        {
+            var src = "var r = 0; try { try { throw 1; } catch(e) { r = 1; } } finally { r = r + 10; }";
+            Assert.That(Run(src).GetParameter("r").Int, Is.EqualTo(11));
+        }
+
+        [Test]
+        public void NestedTry_ThreeDeep()
+        {
+            var src = "var r = 0; try { try { try { throw 99; } catch(e) { r = e; } } finally {} } catch(e) {}";
+            Assert.That(Run(src).GetParameter("r").Int, Is.EqualTo(99));
+        }
     }
 }

@@ -183,10 +183,34 @@ static int RunRepl()
         {
             if (!isDeclaration)
             {
-                var result = engine.EvalComplex(line);
-                ScriptEngine.DrainMicroTasks();
-                if (result?.Var != null && !result.Var.IsUndefined)
-                    Console.WriteLine(result.Var.GetParsableString());
+                // Probe: can the line be parsed as an expression?  Statement-only
+                // constructs (try/if/for/while/switch/…) will throw here; fall
+                // back to statement execution so they don't produce a spurious
+                // "Expected Eof, found <keyword>" error.
+                bool isExpr;
+                try
+                {
+                    using var probe = new DScript.Compiler.DScriptCompiler();
+                    probe.CompileExpression(line);
+                    isExpr = true;
+                }
+                catch (ScriptException)
+                {
+                    isExpr = false;
+                }
+
+                if (isExpr)
+                {
+                    var result = engine.EvalComplex(line);
+                    ScriptEngine.DrainMicroTasks();
+                    if (result?.Var != null && !result.Var.IsUndefined)
+                        Console.WriteLine(result.Var.GetParsableString());
+                }
+                else
+                {
+                    engine.Execute(line);
+                    ScriptEngine.DrainMicroTasks();
+                }
             }
             else
             {
