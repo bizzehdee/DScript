@@ -573,6 +573,36 @@ namespace DScript
                                     tokenBuilder.Append((char)((hi << 4) | lo));
                                 }
                                 break;
+                            case 'u':
+                                {
+                                    GetNextChar(); // first hex digit or '{'
+                                    if (CurrentChar == '{')
+                                    {
+                                        // ES2015 \u{XXXXXX} variable-length code point escape.
+                                        GetNextChar();
+                                        var cp = 0;
+                                        while (CurrentChar != '}' && CurrentChar != (char)0)
+                                        {
+                                            cp = (cp << 4) | HexDigitValue(CurrentChar);
+                                            GetNextChar();
+                                        }
+                                        // CurrentChar == '}'; outer GetNextChar advances past it.
+                                        tokenBuilder.Append(cp <= 0xFFFF
+                                            ? ((char)cp).ToString()
+                                            : char.ConvertFromUtf32(cp));
+                                    }
+                                    else
+                                    {
+                                        // Classic \uXXXX — exactly 4 hex digits.
+                                        var cp = HexDigitValue(CurrentChar) << 12;
+                                        GetNextChar(); cp |= HexDigitValue(CurrentChar) << 8;
+                                        GetNextChar(); cp |= HexDigitValue(CurrentChar) << 4;
+                                        GetNextChar(); cp |= HexDigitValue(CurrentChar);
+                                        // outer GetNextChar advances past the 4th digit.
+                                        tokenBuilder.Append((char)cp);
+                                    }
+                                }
+                                break;
                             default:
                                 if (CurrentChar is >= '0' and <= '7')
                                 {

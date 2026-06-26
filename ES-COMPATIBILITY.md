@@ -66,6 +66,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | Number equality | ✅ | `===`/`==` compare exactly (not epsilon): `5.0 === 5` is true, `0.1 + 0.2 === 0.3` is false, `NaN === NaN` is false; `-0 === 0` is true but `Object.is(-0, 0)` is false |
 | Numeric literals exceeding int32 | ✅ | Decimal/hex/binary/octal literals above int32 parse as doubles (JS has no integer type); e.g. `1736855917056`, `0xFFFFFFFF` → `4294967295` |
 | Number → string coercion | ✅ | ECMAScript `Number::toString`: full fixed-point digits for magnitudes in `[1e-6, 1e21)`, exponential outside; e.g. `1.7e17` prints all 18 digits, `0.1+0.2` → `0.30000000000000004` |
+| String literal Unicode escapes (`\uXXXX`) | ✅ | All four-digit BMP code points; e.g. `"✓"` → `✓` |
 | `Date` object | ✅ | Constructor, static `now`/`parse`/`UTC`, all get/set/format methods |
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ✅ | Constructable via `new` or call; `message`, `name`, `stack` set; `instanceof Error` works through prototype chain; `Error.cause` (ES2022) not implemented |
 | `Function.prototype.bind` / `call` / `apply` | ✅ | |
@@ -124,6 +125,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `String.fromCharCode` / `fromCodePoint` | ✅ | |
 | `Number.EPSILON` etc. | ✅ | |
 | Binary (`0b`) and octal (`0o`) literals | ✅ | |
+| String literal Unicode code point escapes (`\u{XXXXXX}`) | ✅ | Variable-length; all Unicode code points including astral plane (> U+FFFF emitted as surrogate pairs) |
 | `import` / `export` (static ES modules) | ✅ | Named, namespace (`* as`), default, and re-export forms |
 | `ArrayBuffer` | ✅ | Constructor, `byteLength`, `slice` |
 | `DataView` | ✅ | All `getInt8`/`getUint8`/`getInt16`/`getUint16`/`getInt32`/`getUint32`/`getFloat32`/`getFloat64`/`getBigInt64`/`getBigUint64` and corresponding setters; big/little-endian parameter |
