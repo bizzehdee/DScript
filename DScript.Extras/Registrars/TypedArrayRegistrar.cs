@@ -85,9 +85,9 @@ namespace DScript.Extras.Registrars
                 int byteOffset;
                 int elementCount;
 
-                if (srcVar.IsUndefined || (srcVar.IsInt && !srcVar.IsObject))
+                if (srcVar.IsUndefined || (srcVar.IsNumeric && !srcVar.IsObject))
                 {
-                    // new TypedArray(length)
+                    // new TypedArray(length) — length may be a double literal (e.g. 1e6)
                     elementCount = srcVar.IsUndefined ? 0 : System.Math.Max(0, srcVar.Int);
                     abObj = new ArrayBufferObject(elementCount * bpe);
                     byteOffset = 0;
