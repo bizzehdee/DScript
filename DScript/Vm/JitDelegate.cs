@@ -54,4 +54,23 @@ namespace DScript.Vm
         /// </summary>
         JitDelegate Compile(Chunk chunk);
     }
+
+    /// <summary>
+    /// Optional capability for a back-end that can compile an on-stack-replacement
+    /// (OSR) entry: a delegate that resumes execution of <paramref name="chunk"/> at
+    /// a loop-header bytecode offset rather than at the function's start. The VM uses
+    /// this to tier up a loop in a frame that is already running (and so would never
+    /// reach the normal entry-time tier-up). The resulting delegate ignores its
+    /// <c>args</c> argument and shares all live state with the abandoned interpreter
+    /// frame through the <c>env</c> argument.
+    /// </summary>
+    public interface IOsrCompiler
+    {
+        /// <summary>
+        /// Compile an OSR entry that resumes <paramref name="chunk"/> at the
+        /// instruction whose source bytecode offset is <paramref name="resumeOffset"/>,
+        /// or return <c>null</c> if an OSR entry cannot be built for that point.
+        /// </summary>
+        JitDelegate CompileOsr(Chunk chunk, int resumeOffset);
+    }
 }

@@ -137,6 +137,7 @@ namespace DScript.Jit
                     }
                     case JitOpKind.NewObject:     stack.Push(NewObjectNode()); break;
                     case JitOpKind.NewArray:      stack.Push(NewArrayNode()); break;
+                    case JitOpKind.MakeClosure:   stack.Push(MakeClosureNode(instr.Closure)); break;
                     case JitOpKind.InitProp:
                     {
                         var value = stack.Pop();
@@ -228,6 +229,9 @@ namespace DScript.Jit
                 a.SetArrayIndex(index, valueNode(vm, args, env));
                 return a;
             };
+
+        private static JitDelegate MakeClosureNode(Chunk fnChunk) =>
+            (vm, args, env) => VirtualMachine.JitMakeClosure(env, fnChunk);
 
         private static JitDelegate NullNode() => (vm, args, env) => ScriptVar.CreateNull();
 

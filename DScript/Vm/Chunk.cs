@@ -332,6 +332,25 @@ namespace DScript.Vm
         private volatile JitDelegate compiledDelegate;
 
         /// <summary>
+        /// On-stack-replacement entry points, keyed by the loop-header bytecode offset
+        /// they resume at. Populated lazily by the VM when a loop in a still-running
+        /// frame gets hot (see <see cref="JitThresholds.OsrBackEdgeThreshold"/>). An
+        /// OSR entry runs the rest of the function starting at its loop header,
+        /// sharing live state with the abandoned interpreter frame through the
+        /// environment. Separate from <see cref="CompiledDelegate"/> (the entry-at-0
+        /// delegate), so the two tier-up paths don't interfere.
+        /// </summary>
+        public System.Collections.Generic.Dictionary<int, JitDelegate> OsrEntries { get; }
+            = new System.Collections.Generic.Dictionary<int, JitDelegate>();
+
+        /// <summary>
+        /// Loop-header offsets whose OSR compilation was declined (unsupported shape).
+        /// Tracked so the VM does not re-attempt compilation on every later back-edge.
+        /// </summary>
+        public System.Collections.Generic.HashSet<int> OsrDeclinedOffsets { get; }
+            = new System.Collections.Generic.HashSet<int>();
+
+        /// <summary>
         /// Returns true when this chunk is a worthwhile JIT candidate: it is still
         /// <see cref="JitStatus.Cold"/> and either its invocation count or its
         /// back-edge count has crossed the corresponding <see cref="JitThresholds"/>.

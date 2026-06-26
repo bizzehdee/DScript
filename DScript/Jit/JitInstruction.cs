@@ -96,6 +96,8 @@ namespace DScript.Jit
         Shift,
         /// <summary>Pop callee + N args, dispatch, push the result.</summary>
         Call,
+        /// <summary>Create a closure over the current environment and push it.</summary>
+        MakeClosure,
         /// <summary>Peek the receiver (keep it), push its named method.</summary>
         GetPropMethod,
         /// <summary>Pop the receiver, call its named method with no args, push the result.</summary>
@@ -130,9 +132,11 @@ namespace DScript.Jit
         public readonly ScriptLex.LexTypes Op;      // Binary
         public readonly ScriptVar MonoCallee;        // Call: first baked callee (monomorphic/bimorphic), or null
         public readonly ScriptVar MonoCallee1;       // Call: second baked callee (bimorphic only), or null
+        public readonly Chunk Closure;               // MakeClosure: the nested function's chunk
 
         private JitInstruction(JitOpKind kind, ConstantValue constant, int intValue,
-                               string name, ScriptLex.LexTypes op, ScriptVar monoCallee, ScriptVar monoCallee1 = null)
+                               string name, ScriptLex.LexTypes op, ScriptVar monoCallee,
+                               ScriptVar monoCallee1 = null, Chunk closure = null)
         {
             Kind = kind;
             Constant = constant;
@@ -141,6 +145,7 @@ namespace DScript.Jit
             Op = op;
             MonoCallee = monoCallee;
             MonoCallee1 = monoCallee1;
+            Closure = closure;
         }
 
         public static JitInstruction PushConst(ConstantValue c) =>
@@ -207,6 +212,8 @@ namespace DScript.Jit
             new(JitOpKind.Shift, null, 0, null, op, null);
         public static JitInstruction Call(int argc, ScriptVar callee0, ScriptVar callee1) =>
             new(JitOpKind.Call, null, argc, null, default, callee0, callee1);
+        public static JitInstruction MakeClosure(Chunk closure) =>
+            new(JitOpKind.MakeClosure, null, 0, null, default, null, null, closure);
         public static JitInstruction GetPropMethod(string name) =>
             new(JitOpKind.GetPropMethod, null, 0, name, default, null);
         public static JitInstruction GetPropCall0(string name) =>

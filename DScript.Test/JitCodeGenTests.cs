@@ -140,6 +140,31 @@ namespace DScript.Test
                 "inner", Chunk.JitStatus.Compiled);
         }
 
+        // ── MakeClosure: a hot function that declares a nested function ─────────
+
+        [Test]
+        public void HotFunctionDeclaringNestedFunction()
+        {
+            // `outer` is the hot (compiled) function and contains a MakeClosure for
+            // the nested `inner` declaration — exercises the JIT's MakeClosure path.
+            AssertMatches(
+                "function outer(n){ function inner(x){ return x + 1; } return inner(n); }\n" +
+                "var r=0; var i=0; while(i<1200){ r = outer(i); i = i + 1; }\n__result__ = r;",
+                "outer", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void HotFunctionMakingCapturingClosure()
+        {
+            // The nested `inner` captures `outer`'s parameter `n`; the closure is
+            // created inside the compiled `outer`, so the JIT-emitted MakeClosure
+            // must capture the live frame environment for the capture to resolve.
+            AssertMatches(
+                "function outer(n){ function inner(){ return n * 2; } return inner(); }\n" +
+                "var r=0; var i=0; while(i<1200){ r = outer(i); i = i + 1; }\n__result__ = r;",
+                "outer", Chunk.JitStatus.Compiled);
+        }
+
         // ── unary not, booleans, pop, fall-through return ───────────────────────
 
         [Test]

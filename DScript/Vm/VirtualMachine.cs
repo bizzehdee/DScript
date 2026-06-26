@@ -936,7 +936,34 @@ namespace DScript.Vm
                         var target = ReadOperand(code, ref ip);
                         // ip now equals the fallthrough offset (op + 5 bytes).
                         // A target before that is a loop back-edge.
-                        if (target < ip) chunk.BackEdgeCount++;
+                        if (target < ip)
+                        {
+                            chunk.BackEdgeCount++;
+
+                            // On-stack replacement: a loop in a frame that is already
+                            // running (and so will never tier up on invocation count)
+                            // gets compiled and resumed in JIT code at the loop header.
+                            // Live locals are shared through env; the operand stack is
+                            // empty at a structured back-edge, so nothing else migrates.
+                            if (genObj == null && gsState == null && !bypassJit
+                                && chunk.BackEdgeCount >= JitThresholds.OsrBackEdgeThreshold
+                                && JitRegistry.Current is IOsrCompiler osr
+                                && !chunk.OsrDeclinedOffsets.Contains(target))
+                            {
+                                if (!chunk.OsrEntries.TryGetValue(target, out var osrEntry))
+                                {
+                                    try { osrEntry = osr.CompileOsr(chunk, target); }
+                                    catch { osrEntry = null; }
+                                    if (osrEntry != null) chunk.OsrEntries[target] = osrEntry;
+                                    else chunk.OsrDeclinedOffsets.Add(target);
+                                }
+                                // Hand off: the OSR entry runs the rest of the function
+                                // and its result is this invocation's result. The Execute
+                                // finally block still runs on this return path.
+                                if (osrEntry != null)
+                                    return osrEntry(this, System.Array.Empty<ScriptVar>(), env);
+                            }
+                        }
                         ip = target;
                         break;
                     }
@@ -3314,6 +3341,15 @@ namespace DScript.Vm
         {
             arr.SetArrayIndex(index, value);
             return arr;
+        }
+
+        // MakeClosure opcode: create a function object that captures the current
+        // environment as its defining scope — identical to the interpreter's handler.
+        internal static ScriptVar JitMakeClosure(Environment env, Chunk fnChunk)
+        {
+            var fn = ScriptVar.CreateFunction();
+            fn.SetData(new VmFunction(fnChunk, env));
+            return fn;
         }
 
         // Full binary-operator semantics for JIT back-ends that do not inline

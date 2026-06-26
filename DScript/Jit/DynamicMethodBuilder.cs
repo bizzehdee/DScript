@@ -112,6 +112,8 @@ namespace DScript.Jit
             "JitInitProp", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo JitInitElemMethod = typeof(VirtualMachine).GetMethod(
             "JitInitElem", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly MethodInfo JitMakeClosureMethod = typeof(VirtualMachine).GetMethod(
+            "JitMakeClosure", BindingFlags.NonPublic | BindingFlags.Static);
         private static readonly MethodInfo MaterializeMethod = typeof(ConstantValue).GetMethod("Materialize", Type.EmptyTypes);
         private static readonly MethodInfo IntBinaryMethod  = typeof(VirtualMachine).GetMethod(
             "IntBinary", BindingFlags.NonPublic | BindingFlags.Static);
@@ -198,6 +200,18 @@ namespace DScript.Jit
 
         /// <summary>Push a fresh empty array (array-literal start).</summary>
         public void EmitNewArray() => IL.EmitCall(OpCodes.Call, JitNewArrayMethod, null);
+
+        /// <summary>
+        /// Create a closure over the current environment capturing
+        /// <paramref name="fnChunk"/> as the function body, and push it:
+        /// <c>JitMakeClosure(currentEnv, fnChunk)</c>.
+        /// </summary>
+        public void EmitMakeClosure(Chunk fnChunk)
+        {
+            EmitLoadEnv();
+            EmitLoadData(AddData(fnChunk), typeof(Chunk));
+            IL.EmitCall(OpCodes.Call, JitMakeClosureMethod, null);
+        }
 
         /// <summary>
         /// Add a named property to the object-literal under construction. The stack

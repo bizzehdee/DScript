@@ -37,7 +37,7 @@ namespace DScript.Jit
     /// operand semantics (its int fast path, double/string specialisations, and
     /// <c>MathsOp</c> fallback) the JIT output is value-identical to interpretation.
     /// </summary>
-    public sealed class ReflectionEmitJitCompiler : IJitCompiler
+    public sealed class ReflectionEmitJitCompiler : IJitCompiler, IOsrCompiler
     {
         public JitDelegate Compile(Chunk chunk)
         {
@@ -147,6 +147,7 @@ namespace DScript.Jit
                     case JitOpKind.LeaveBlock:
                     case JitOpKind.NewObject:
                     case JitOpKind.NewArray:
+                    case JitOpKind.MakeClosure:
                     case JitOpKind.InitProp:
                     case JitOpKind.InitElem:
                     case JitOpKind.GetIndex:
@@ -436,6 +437,7 @@ namespace DScript.Jit
                     case JitOpKind.LeaveBlock:
                     case JitOpKind.NewObject:
                     case JitOpKind.NewArray:
+                    case JitOpKind.MakeClosure:
                     case JitOpKind.InitProp:
                     case JitOpKind.InitElem:
                     case JitOpKind.GetIndex:
@@ -472,7 +474,38 @@ namespace DScript.Jit
             return sawDouble;
         }
 
-        private static JitDelegate CompileConservative(Chunk chunk, List<JitInstruction> instrs)
+        // Build an OSR entry: a conservative-tier compilation that, after its prologue,
+        // jumps straight to the loop header at <paramref name="resumeOffset"/> and runs
+        // the rest of the function from there. Live locals are shared with the abandoned
+        // interpreter frame through the env argument, so no operand-stack transfer is
+        // needed — which is sound only when the operand stack is empty at the resume
+        // point (true for structured for/while back-edges). Declines (returns null) when
+        // that does not hold or the shape is otherwise unsupported.
+        public JitDelegate CompileOsr(Chunk chunk, int resumeOffset)
+        {
+            var instrs = JitDecoder.Decode(chunk);
+            if (instrs == null) return null;
+
+            var resumeIndex = JitDecoder.OffsetToInstructionIndex(chunk, resumeOffset);
+            if (resumeIndex < 0 || resumeIndex >= instrs.Count) return null;
+
+            // Block scopes would require reconstructing the nested-env state at the
+            // resume point; the interpreter's env is already that nested env, but the
+            // emitted Enter/LeaveBlock bookkeeping assumes entry from the function root.
+            // Decline rather than risk a mismatched environment.
+            foreach (var instr in instrs)
+                if (instr.Kind is JitOpKind.EnterBlock or JitOpKind.LeaveBlock)
+                    return null;
+
+            // The operand stack must be empty where we resume (we transfer no operands).
+            if (!VerifyStackConsistency(instrs, out var depth)) return null;
+            if (depth[resumeIndex] != 0) return null;
+
+            return CompileConservative(chunk, instrs, resumeIndex);
+        }
+
+        private static JitDelegate CompileConservative(Chunk chunk, List<JitInstruction> instrs,
+                                                       int osrResumeIndex = -1)
         {
             // Verify operand-stack depth is consistent at every branch edge; decline
             // if not (guards against emitting invalid IL). For the structured jumps we
@@ -512,6 +545,17 @@ namespace DScript.Jit
                     or JitOpKind.JumpIfNullOrUndefined or JitOpKind.JumpIfDefined)
                     labels[instr.IntValue] = b.IL.DefineLabel();
 
+            // OSR entry: after the prologue (scratch locals + any block-env setup),
+            // jump straight to the resume point. The resume index is a loop-header /
+            // back-edge target, so it always has a label. Declarations and initialisers
+            // before it are skipped — they already ran in the interpreter frame.
+            if (osrResumeIndex >= 0)
+            {
+                if (!labels.TryGetValue(osrResumeIndex, out var resumeLabel))
+                    return null;
+                b.IL.Emit(OpCodes.Br, resumeLabel);
+            }
+
             var lastWasReturn = false;
             for (var i = 0; i < instrs.Count; i++)
             {
@@ -537,6 +581,7 @@ namespace DScript.Jit
                     case JitOpKind.LeaveBlock:    b.EmitLeaveBlock(currentEnv); break;
                     case JitOpKind.NewObject:     b.EmitNewObject(); break;
                     case JitOpKind.NewArray:      b.EmitNewArray(); break;
+                    case JitOpKind.MakeClosure:   b.EmitMakeClosure(instr.Closure); break;
                     case JitOpKind.InitProp:      b.EmitInitProp(instr.Name); break;
                     case JitOpKind.InitElem:      b.EmitInitElem(instr.IntValue); break;
                     case JitOpKind.PushUndefined: b.EmitPushUndefined(); break;
@@ -625,13 +670,17 @@ namespace DScript.Jit
             il.MarkLabel(fallThrough);
         }
 
+        private static bool VerifyStackConsistency(List<JitInstruction> instrs)
+            => VerifyStackConsistency(instrs, out _);
+
         // Abstract-interpret the operand-stack depth across all branch edges; return
         // false on any inconsistency or underflow (in which case the chunk is declined
-        // rather than risk invalid IL).
-        private static bool VerifyStackConsistency(List<JitInstruction> instrs)
+        // rather than risk invalid IL). On success <paramref name="depth"/> holds the
+        // operand-stack depth on entry to each instruction (−1 for unreached indices).
+        private static bool VerifyStackConsistency(List<JitInstruction> instrs, out int[] depth)
         {
             var n = instrs.Count;
-            var depth = new int[n];
+            depth = new int[n];
             for (var i = 0; i < n; i++) depth[i] = -1;
 
             var work = new Stack<(int index, int d)>();
@@ -697,7 +746,7 @@ namespace DScript.Jit
         {
             JitOpKind.PushConst or JitOpKind.PushIntLiteral or JitOpKind.PushVar
                 or JitOpKind.PushNull or JitOpKind.PushUndefined
-                or JitOpKind.NewObject or JitOpKind.NewArray => 1,
+                or JitOpKind.NewObject or JitOpKind.NewArray or JitOpKind.MakeClosure => 1,
             JitOpKind.InitProp or JitOpKind.InitElem => -1,    // pop value, keep object/array
             JitOpKind.GetProp or JitOpKind.Not or JitOpKind.SetVar or JitOpKind.GetPropCall0
                 or JitOpKind.Negate or JitOpKind.BitNot or JitOpKind.Typeof or JitOpKind.ToNumber => 0,

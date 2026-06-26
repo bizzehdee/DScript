@@ -41,13 +41,33 @@ namespace DScript.Jit
         public static List<JitInstruction> Decode(Chunk chunk) => Decode(chunk, out _);
 
         /// <summary>
+        /// Map a bytecode offset to the index of the first <see cref="JitInstruction"/>
+        /// decoded from it, for the given chunk. Returns <c>-1</c> if the chunk declines
+        /// or the offset is not an instruction boundary. Used by OSR to resolve a
+        /// loop-header offset to a resume index in the decoded stream.
+        /// </summary>
+        public static int OffsetToInstructionIndex(Chunk chunk, int offset)
+        {
+            Decode(chunk, out _, out var offsetToIndex);
+            if (offsetToIndex == null) return -1;
+            return offsetToIndex.TryGetValue(offset, out var idx) ? idx : -1;
+        }
+
+        public static List<JitInstruction> Decode(Chunk chunk, out string declineReason)
+            => Decode(chunk, out declineReason, out _);
+
+        /// <summary>
         /// Decode a chunk, also reporting <paramref name="declineReason"/> — null on
         /// success, otherwise a short human-readable reason the chunk cannot be JIT
-        /// compiled (used by <see cref="JitDiagnostics"/>).
+        /// compiled (used by <see cref="JitDiagnostics"/>) — and
+        /// <paramref name="offsetToIndex"/>, a map from each instruction's source
+        /// bytecode offset to its index in the decoded stream (null on decline).
         /// </summary>
-        public static List<JitInstruction> Decode(Chunk chunk, out string declineReason)
+        public static List<JitInstruction> Decode(Chunk chunk, out string declineReason,
+                                                  out Dictionary<int, int> offsetToIndex)
         {
             declineReason = null;
+            offsetToIndex = null;
 
             // Suspend/resume execution models are not linearisable here.
             if (chunk.IsGenerator || chunk.IsAsync)
@@ -243,6 +263,13 @@ namespace DScript.Jit
                         ip += 3;
                         break;
 
+                    case OpCode.MakeClosure:
+                        // Create a function object capturing the current environment.
+                        // The nested chunk is baked so the emitter can reconstruct it.
+                        instrs.Add(JitInstruction.MakeClosure(chunk.Functions[chunk.ReadInt(ip)]));
+                        ip += 4;
+                        break;
+
                     case OpCode.Call:
                     {
                         var site = ip; // operand-start: matches CallProfiles indexing
@@ -384,14 +411,14 @@ namespace DScript.Jit
             }
 
             // Resolve jump targets (bytecode offsets) to instruction indices.
-            var offsetToIndex = new Dictionary<int, int>(offsets.Count);
+            var map = new Dictionary<int, int>(offsets.Count);
             for (var i = 0; i < offsets.Count; i++)
-                if (!offsetToIndex.ContainsKey(offsets[i]))
-                    offsetToIndex[offsets[i]] = i;
+                if (!map.ContainsKey(offsets[i]))
+                    map[offsets[i]] = i;
 
             foreach (var ji in jumpIndices)
             {
-                if (!offsetToIndex.TryGetValue(instrs[ji].IntValue, out var targetIndex))
+                if (!map.TryGetValue(instrs[ji].IntValue, out var targetIndex))
                 {
                     declineReason = "unresolvable jump target";
                     return null; // target not at an instruction boundary we model
@@ -408,6 +435,7 @@ namespace DScript.Jit
                 };
             }
 
+            offsetToIndex = map;
             return instrs;
         }
 

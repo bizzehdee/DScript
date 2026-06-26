@@ -43,6 +43,15 @@ namespace DScript.Vm
         public const int BackEdgeThreshold = 10000;
 
         /// <summary>
+        /// Number of back-edges crossed within a single still-running interpreter
+        /// frame after which the VM attempts on-stack replacement (OSR): it compiles
+        /// the chunk and transfers control into the compiled code at the loop header,
+        /// so a long-running loop in a function that is only entered once (and would
+        /// therefore never tier up on invocation count) still gets compiled.
+        /// </summary>
+        public const int OsrBackEdgeThreshold = 10000;
+
+        /// <summary>
         /// Number of deoptimizations after which a chunk's speculative compilation is
         /// abandoned: it is recompiled with the conservative (never-deopting) tier
         /// instead. Compared against <see cref="Chunk.DeoptCount"/>.
