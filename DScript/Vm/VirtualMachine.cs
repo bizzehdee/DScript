@@ -166,6 +166,13 @@ namespace DScript.Vm
         }
         private readonly PropCacheEntry[] _propCache = new PropCacheEntry[256];
 
+        // Negative setter cache: when we look up a property name on a prototype chain
+        // and find no accessor (setter/non-writable), record (proto, name) so the next
+        // instance of the same class can skip the FindInParentClasses walk entirely.
+        // Keyed by prototype identity + name; valid as long as no accessor is defined
+        // on the prototype after the fact (an uncommon mutation pattern).
+        private System.Collections.Generic.Dictionary<(ScriptVar, string), bool> _noSetterCache;
+
         // --- resource limits ------------------------------------------------
         // Snapshotted from the engine at the start of each Run() call so the
         // hot Execute() loop reads a plain field, not a virtual property chain.
@@ -3004,16 +3011,29 @@ namespace DScript.Vm
             }
             else
             {
-                // Check prototype chain for a setter
+                // Check prototype chain for a setter — but skip the walk if we have
+                // already confirmed there is no setter for this (prototype, name) pair.
                 if (engine != null)
                 {
-                    var protoLink = engine.FindInParentClasses(obj, name);
-                    if (protoLink?.Setter != null)
+                    var proto = obj.FindChild(ScriptVar.PrototypeClassName);
+                    if (proto != null)
                     {
-                        InvokeCallable(protoLink.Setter, obj, new[] { value });
-                        return;
+                        _noSetterCache ??= new System.Collections.Generic.Dictionary<(ScriptVar, string), bool>();
+                        var cacheKey = (proto.Var, name);
+                        if (!_noSetterCache.TryGetValue(cacheKey, out bool noSetter) || !noSetter)
+                        {
+                            var protoLink = engine.FindInParentClasses(obj, name);
+                            if (protoLink?.Setter != null)
+                            {
+                                InvokeCallable(protoLink.Setter, obj, new[] { value });
+                                return;
+                            }
+                            if (protoLink != null && !protoLink.Writable) return;
+                            // No accessor found: record negative result for all future
+                            // instances using the same prototype object.
+                            if (protoLink == null) _noSetterCache[cacheKey] = true;
+                        }
                     }
-                    if (protoLink != null && !protoLink.Writable) return;
                 }
                 if (!obj.IsExtensible) return;
                 obj.AddChild(name, value);
