@@ -113,13 +113,40 @@ Keep `DScript.LanguageServer` up to date whenever the lexer, parser, or public A
 
 ## Benchmarking
 
-Any change to `DScript/ScriptLex.cs` or anything under `DScript/Vm/` must be benchmarked before and after:
+Any change to `DScript/ScriptLex.cs`, anything under `DScript/Vm/`, or anything under `DScript/Jit/` must be benchmarked before and after.
+
+### Primary benchmark: `bench.ds` via the CLI
+
+Benchmark with `bench.ds` run through the CLI first — it exercises the full engine the way real scripts do:
 
 ```
-dotnet run --project DScript.Benchmark --configuration Release
+dotnet build DScript.Cli --configuration Release
+dotnet DScript.Cli/bin/Release/net10.0/dscript-cli.dll bench.ds
 ```
 
-Record the `best ms` column for each workload. Variance between runs is normal; a consistent regression of more than ~5 % on any workload is not acceptable and must be investigated before committing. Note the before/after numbers in the commit message.
+Record each workload's reported ms before and after the change. Compare per workload and apply this policy to the **worst** regression observed:
+
+| Regression on any workload | Action |
+|---|---|
+| **> 10 %** | **Auto-rejected.** Do not commit. Fix the regression or abandon the change. |
+| **3 – 10 %** | Present the regression to the user with a clear argument for why the feature/improvement outweighs the performance cost. Only commit after the user agrees. |
+| **within 3 %** | Treated as noise; proceed. |
+
+Run enough repetitions to distinguish a real regression from variance before concluding (a single slow run is usually noise). Note the relevant before/after numbers in the commit message.
+
+### Secondary benchmark: `DScript.Benchmark`
+
+Use the micro-benchmark harness only when running `bench.ds` through the CLI doesn't isolate what's being changed (e.g. a specific JIT tier, an internal code path, or a workload `bench.ds` doesn't cover).
+
+**Target only the relevant workloads — do not run the full suite every time.** Pass `--filter` with a comma-separated list of section names or individual workload names:
+
+```
+dotnet run --project DScript.Benchmark --configuration Release -- --filter jit,fib
+```
+
+Section keys: `workloads`, `compile-once`, `optimizer`, `candidates`, `jit`, `showcase`. Filter tokens also match individual workload names (e.g. `--filter fib`). Pick the section(s)/workload(s) that actually exercise the code you changed; run the full suite (no `--filter`) only when a change is broad enough to plausibly affect everything.
+
+Record the `best ms` column for the workloads you ran. The same regression policy (>10 % reject, 3–10 % justify to the user, <3 % noise) applies.
 
 ## Code style
 
