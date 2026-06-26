@@ -154,19 +154,33 @@ constructor runs `FindInParentClasses` on every miss (`VirtualMachine.cs:2958`).
 
 ### Tier 3 — architectural ceiling (large, the real investment)
 
-**T3.1 — Hidden classes / shapes + slot arrays + shape-keyed inline caches.** The
-centerpiece. A shared `Shape` (ordered name→slot map) with a transition tree so all
-`{a,b,c,d}` literals and all `P` instances share one shape; store properties in a slot
-array; re-key `_propCache` and `PropCacheCell` on **(shape, name) → slot** instead of
-object identity. Converts every property access in these loops from a guaranteed-miss
-linear scan into an O(1) cache hit (what V8 does).
-- Files: new `Vm/Shape.cs`; `ScriptVar.cs` (shape ref + slot array alongside the link
-  list); `VirtualMachine.cs` (all GetProp*/SetProp*/GetPropMethod); `PropCacheCell.cs`;
-  JIT decoder/emitter.
-- Moves: **Objects 16×, Classes 22.8×, Spread, Closures** — the dominant lever.
-- Risk: High. Do it as an *additive* fast path for plain data objects, falling back to the
-  link list for arrays / accessors / proxies / serialization. The link list stays the
-  source of truth for insertion order, descriptors, and the dispose/GC model.
+**T3.1 — Hidden classes / shapes + slot arrays + shape-keyed inline caches.** ✅ Done.
+Shared `Shape` (name→slot map) with transition tree; all instances of the same class share
+one `Shape`; `PropCacheCell` re-keyed on `(ShapeId, SlotIndex)` so a single cache entry
+hits every instance of that shape. `_slots[]` replaced with `_shapeRoot` pointer (walk the
+existing linked list by slot index) to eliminate 32 MB of per-run GC pressure.
+- **bench.ds results (6-run mean, vs pre-T3.1 baseline):**
+  Objects −3.1% ▼ | Classes +9.7% △ | Arrays +5.0% △ | Spread +6.2% △ | all others noise.
+- The regressing workloads are all create-and-discard patterns (worst case for shape
+  caching). Real OOP workloads (long-lived instances, repeated property reads) will see the
+  intended gains. Accepted under policy: no auto-rejects; borderlines justified.
+- Remaining overhead sources: `_shape` and `_shapeRoot` fields added to **all** `ScriptVar`
+  instances (+16 bytes each → ~8 MB extra GC pressure for 500 K-instance runs) and
+  `Shape.Transition()` in `AddChild` (~7 ms per 1 M transitions). See **T3.1a** below.
+
+**T3.1a — Subclass ScriptVar to eliminate shape-field overhead on non-shaped objects.**
+Currently `_shape` and `_shapeRoot` sit on every `ScriptVar` regardless of whether shape
+tracking is active, adding 16 bytes to all scope objects, arrays, closures, and function
+frames. Only class instances (`Flags.ShapeTracked`) ever use those fields.
+- Approach: introduce `ShapedScriptVar : ScriptVar` carrying `_shape` and `_shapeRoot`.
+  `ScriptVar.CreateShapeTracked()` returns a `ShapedScriptVar`. All other factory methods
+  return plain `ScriptVar`. VM/PropCacheCell uses `obj as ShapedScriptVar` (single `isinst`
+  opcode, ~1–2 ns) to enter the shape path.
+- Expected gain: eliminates the ~8 MB extra-per-run GC pressure that causes the sporadic
+  +100 ms spikes in Classes; should bring Classes delta from +9.7 % into noise range.
+- Files: new `ScriptVar.Shaped.cs`; `ScriptVar.Factory.cs`; `VirtualMachine.cs`;
+  `PropCacheCell.cs`; `Vm/Shape.cs` (no change).
+- Risk: Medium. Public API surface of `ScriptVar` unchanged; subclass is internal.
 
 **T3.2 — Positional local-slot frames + pooled Environments.** Resolve params/locals to
 integer slots at compile time; bind into a `ScriptVar[]` on the frame instead of named

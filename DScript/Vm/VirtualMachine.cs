@@ -159,10 +159,15 @@ namespace DScript.Vm
         // through ce.Link.Var without requiring a cache invalidation.
         private struct PropCacheEntry
         {
-            public ScriptVar Object;         // reference equality
+            public string Name;              // interned string — ReferenceEquals is valid (both paths)
+            // Shape-keyed path (ShapeId > 0): keyed on hidden-class identity, works
+            // across all instances that share the same shape — no object identity check.
+            public int ShapeId;             // >0 = shape path; 0 = identity path / empty
+            public int SlotIndex;           // walk count from obj._shapeRoot (0 = _shapeRoot itself)
+            // Identity-keyed path (ShapeId == 0): keyed on object identity + shapeVersion.
+            public ScriptVar Object;        // reference equality
             public int ShapeVersion;
-            public string Name;              // interned string — ReferenceEquals is valid
-            public ScriptVarLink Link;       // points into the object's child list
+            public ScriptVarLink Link;      // points into the object's child list
         }
         private readonly PropCacheEntry[] _propCache = new PropCacheEntry[256];
 
@@ -617,62 +622,94 @@ namespace DScript.Vm
                         var name = chunk.Names[nameIdx];
                         var obj = Pop();
 
-                        // Inline property cache: 256-slot direct-mapped, hashed via
-                        // Fibonacci/multiplicative hashing so that names whose indices
-                        // share the same low byte are spread across distinct slots rather
-                        // than evicting each other on every access.
+                        // Inline property cache: 256-slot direct-mapped.
+                        // Two paths: shape-keyed (ShapeId>0, shared across all objects
+                        // with the same hidden class) and identity-keyed (ShapeId==0,
+                        // existing behaviour for non-shaped objects).
                         var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
-                        if (ReferenceEquals(ce.Object, obj) &&
-                            ce.ShapeVersion == obj.ShapeVersion &&
-                            ReferenceEquals(ce.Name, name) &&
-                            ce.Link != null)
+                        if (ReferenceEquals(ce.Name, name))
                         {
-                            Push(ce.Link.Getter != null
-                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
-                                : ce.Link.Var);
-                            break;
+                            if (ce.ShapeId > 0)
+                            {
+                                var shp = obj._shape;
+                                if (shp != null && ce.ShapeId == shp.Id)
+                                {
+                                    var sl = obj._shapeRoot;
+                                    for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
+                                    if (sl != null)
+                                    {
+                                        Push(sl.Getter != null
+                                            ? InvokeCallable(sl.Getter, obj, System.Array.Empty<ScriptVar>())
+                                            : sl.Var);
+                                        break;
+                                    }
+                                }
+                            }
+                            else if (ReferenceEquals(ce.Object, obj) &&
+                                     ce.ShapeVersion == obj.ShapeVersion &&
+                                     ce.Link != null)
+                            {
+                                Push(ce.Link.Getter != null
+                                    ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                    : ce.Link.Var);
+                                break;
+                            }
                         }
 
-                        // Cache miss: proxy [[Get]] trap first (proxies are never cached).
                         if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
 
-                        // Full lookup.
+                        // Shape miss: populate via slot if available.
+                        {
+                            var shp = obj._shape;
+                            if (shp != null && shp.Slots.TryGetValue(name, out var slotIdx))
+                            {
+                                var sl = obj._shapeRoot;
+                                for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
+                                if (sl != null)
+                                {
+                                    var propResult = sl.Getter != null
+                                        ? InvokeCallable(sl.Getter, obj, System.Array.Empty<ScriptVar>())
+                                        : sl.Var;
+                                    ce.Name = name; ce.ShapeId = shp.Id; ce.SlotIndex = slotIdx;
+                                    ce.Object = null; ce.Link = null;
+                                    Push(propResult);
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Full lookup (no shape or property not in shape).
                         var link = obj.FindChild(name);
                         if (link == null && engine != null)
                             link = engine.FindInParentClasses(obj, name);
 
-                        ScriptVar propResult;
+                        ScriptVar propResult2;
                         if (link != null)
                         {
                             if (link.Getter != null)
-                                propResult = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
+                                propResult2 = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
                             else
-                                propResult = link.Var;
-                            // Cache the link for objects/arrays (not for primitives or
-                            // values that fall back to built-ins like .length).
+                                propResult2 = link.Var;
                             if (obj.IsObject || obj.IsArray)
                             {
-                                ce.Object = obj;
-                                ce.ShapeVersion = obj.ShapeVersion;
-                                ce.Name = name;
-                                ce.Link = link;
+                                ce.Name = name; ce.ShapeId = 0;
+                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion; ce.Link = link;
                             }
                         }
                         else
                         {
-                            // Built-in virtual properties: not cached (rare fast path).
                             if (obj.IsArray && name == "length")
-                                propResult = ScriptVar.FromInt(obj.GetArrayLength());
+                                propResult2 = ScriptVar.FromInt(obj.GetArrayLength());
                             else if (obj.IsString && name == "length")
-                                propResult = ScriptVar.FromInt(obj.String.Length);
+                                propResult2 = ScriptVar.FromInt(obj.String.Length);
                             else if (name == "size" && obj.GetData() is INativeContainer container)
-                                propResult = ScriptVar.FromInt(container.GetSize());
+                                propResult2 = ScriptVar.FromInt(container.GetSize());
                             else
-                                propResult = ScriptVar.CreateUndefined();
+                                propResult2 = ScriptVar.CreateUndefined();
                         }
 
-                        Push(propResult);
+                        Push(propResult2);
                         break;
                     }
                     case OpCode.SetProp:
@@ -1380,7 +1417,7 @@ namespace DScript.Vm
                         // bind them directly into the call frame (no ScriptVar[]).
                         if (ctor != null && ctor.IsFunction && !ctor.IsNative)
                         {
-                            var instance = ScriptVar.CreateObject();
+                            var instance = ScriptVar.CreateShapeTracked();
                             instance.AddChild(ScriptVar.PrototypeClassName, ctor);
                             var result = InvokeVmFunctionFromStack(ctor, instance, argc);
                             sp--; // discard the constructor left below the (popped) args
@@ -1647,43 +1684,80 @@ namespace DScript.Vm
 
                         var cacheSlot = (int)((uint)nameIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
-                        if (ReferenceEquals(ce.Object, obj) &&
-                            ce.ShapeVersion == obj.ShapeVersion &&
-                            ReferenceEquals(ce.Name, name) &&
-                            ce.Link != null)
+                        if (ReferenceEquals(ce.Name, name))
                         {
-                            Push(ce.Link.Getter != null
-                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
-                                : ce.Link.Var);
-                            break;
+                            if (ce.ShapeId > 0)
+                            {
+                                var shp = obj._shape;
+                                if (shp != null && ce.ShapeId == shp.Id)
+                                {
+                                    var sl = obj._shapeRoot;
+                                    for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
+                                    if (sl != null)
+                                    {
+                                        Push(sl.Getter != null
+                                            ? InvokeCallable(sl.Getter, obj, System.Array.Empty<ScriptVar>())
+                                            : sl.Var);
+                                        break;
+                                    }
+                                }
+                            }
+                            else if (ReferenceEquals(ce.Object, obj) &&
+                                     ce.ShapeVersion == obj.ShapeVersion &&
+                                     ce.Link != null)
+                            {
+                                Push(ce.Link.Getter != null
+                                    ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                    : ce.Link.Var);
+                                break;
+                            }
                         }
 
                         if (obj.IsProxy) { Push(GetMember(obj, name)); break; }
 
+                        {
+                            var shp = obj._shape;
+                            if (shp != null && shp.Slots.TryGetValue(name, out var slotIdx))
+                            {
+                                var sl = obj._shapeRoot;
+                                for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
+                                if (sl != null)
+                                {
+                                    var propResult = sl.Getter != null
+                                        ? InvokeCallable(sl.Getter, obj, System.Array.Empty<ScriptVar>())
+                                        : sl.Var;
+                                    ce.Name = name; ce.ShapeId = shp.Id; ce.SlotIndex = slotIdx;
+                                    ce.Object = null; ce.Link = null;
+                                    Push(propResult);
+                                    break;
+                                }
+                            }
+                        }
+
                         var link = obj.FindChild(name);
                         if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
 
-                        ScriptVar propResult;
+                        ScriptVar propResult2;
                         if (link != null)
                         {
                             if (link.Getter != null)
-                                propResult = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
+                                propResult2 = InvokeCallable(link.Getter, obj, System.Array.Empty<ScriptVar>());
                             else
-                                propResult = link.Var;
+                                propResult2 = link.Var;
                             if (obj.IsObject || obj.IsArray)
                             {
-                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
-                                ce.Name = name; ce.Link = link;
+                                ce.Name = name; ce.ShapeId = 0;
+                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion; ce.Link = link;
                             }
                         }
                         else
                         {
-                            if (obj.IsArray && name == "length") propResult = ScriptVar.FromInt(obj.GetArrayLength());
-                            else if (obj.IsString && name == "length") propResult = ScriptVar.FromInt(obj.String.Length);
-                            else if (name == "size" && obj.GetData() is INativeContainer container2) propResult = ScriptVar.FromInt(container2.GetSize());
-                            else propResult = ScriptVar.CreateUndefined();
+                            if (obj.IsArray && name == "length") propResult2 = ScriptVar.FromInt(obj.GetArrayLength());
+                            else if (obj.IsString && name == "length") propResult2 = ScriptVar.FromInt(obj.String.Length);
+                            else if (name == "size" && obj.GetData() is INativeContainer container2) propResult2 = ScriptVar.FromInt(container2.GetSize());
+                            else propResult2 = ScriptVar.CreateUndefined();
                         }
-                        Push(propResult);
+                        Push(propResult2);
                         break;
                     }
                     case OpCode.SetPropN:
@@ -1781,43 +1855,80 @@ namespace DScript.Vm
                         var propName = chunk.Names[propIdx];
                         var cacheSlot = (int)((uint)propIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
-                        if (ReferenceEquals(ce.Object, obj) &&
-                            ce.ShapeVersion == obj.ShapeVersion &&
-                            ReferenceEquals(ce.Name, propName) &&
-                            ce.Link != null)
+                        if (ReferenceEquals(ce.Name, propName))
                         {
-                            Push(ce.Link.Getter != null
-                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
-                                : ce.Link.Var);
-                            break;
+                            if (ce.ShapeId > 0)
+                            {
+                                var shp = obj._shape;
+                                if (shp != null && ce.ShapeId == shp.Id)
+                                {
+                                    var sl = obj._shapeRoot;
+                                    for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
+                                    if (sl != null)
+                                    {
+                                        Push(sl.Getter != null
+                                            ? InvokeCallable(sl.Getter, obj, System.Array.Empty<ScriptVar>())
+                                            : sl.Var);
+                                        break;
+                                    }
+                                }
+                            }
+                            else if (ReferenceEquals(ce.Object, obj) &&
+                                     ce.ShapeVersion == obj.ShapeVersion &&
+                                     ce.Link != null)
+                            {
+                                Push(ce.Link.Getter != null
+                                    ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                    : ce.Link.Var);
+                                break;
+                            }
                         }
 
                         if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
 
+                        {
+                            var shp = obj._shape;
+                            if (shp != null && shp.Slots.TryGetValue(propName, out var slotIdx))
+                            {
+                                var sl = obj._shapeRoot;
+                                for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
+                                if (sl != null)
+                                {
+                                    var propResult = sl.Getter != null
+                                        ? InvokeCallable(sl.Getter, obj, System.Array.Empty<ScriptVar>())
+                                        : sl.Var;
+                                    ce.Name = propName; ce.ShapeId = shp.Id; ce.SlotIndex = slotIdx;
+                                    ce.Object = null; ce.Link = null;
+                                    Push(propResult);
+                                    break;
+                                }
+                            }
+                        }
+
                         var propLink = obj.FindChild(propName);
                         if (propLink == null && engine != null) propLink = engine.FindInParentClasses(obj, propName);
 
-                        ScriptVar propResult;
+                        ScriptVar propResult2;
                         if (propLink != null)
                         {
                             if (propLink.Getter != null)
-                                propResult = InvokeCallable(propLink.Getter, obj, System.Array.Empty<ScriptVar>());
+                                propResult2 = InvokeCallable(propLink.Getter, obj, System.Array.Empty<ScriptVar>());
                             else
-                                propResult = propLink.Var;
+                                propResult2 = propLink.Var;
                             if (obj.IsObject || obj.IsArray)
                             {
-                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
-                                ce.Name = propName; ce.Link = propLink;
+                                ce.Name = propName; ce.ShapeId = 0;
+                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion; ce.Link = propLink;
                             }
                         }
                         else
                         {
-                            if (obj.IsArray && propName == "length")         propResult = ScriptVar.FromInt(obj.GetArrayLength());
-                            else if (obj.IsString && propName == "length")   propResult = ScriptVar.FromInt(obj.String.Length);
-                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr) propResult = ScriptVar.FromInt(ctnr.GetSize());
-                            else propResult = ScriptVar.CreateUndefined();
+                            if (obj.IsArray && propName == "length")         propResult2 = ScriptVar.FromInt(obj.GetArrayLength());
+                            else if (obj.IsString && propName == "length")   propResult2 = ScriptVar.FromInt(obj.String.Length);
+                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr) propResult2 = ScriptVar.FromInt(ctnr.GetSize());
+                            else propResult2 = ScriptVar.CreateUndefined();
                         }
-                        Push(propResult);
+                        Push(propResult2);
                         break;
                     }
                     case OpCode.GetVarGetPropN:
@@ -1840,43 +1951,80 @@ namespace DScript.Vm
                         var propName = chunk.Names[propIdx];
                         var cacheSlot = (int)((uint)propIdx * 2654435761u >> 24);
                         ref var ce = ref _propCache[cacheSlot];
-                        if (ReferenceEquals(ce.Object, obj) &&
-                            ce.ShapeVersion == obj.ShapeVersion &&
-                            ReferenceEquals(ce.Name, propName) &&
-                            ce.Link != null)
+                        if (ReferenceEquals(ce.Name, propName))
                         {
-                            Push(ce.Link.Getter != null
-                                ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
-                                : ce.Link.Var);
-                            break;
+                            if (ce.ShapeId > 0)
+                            {
+                                var shp = obj._shape;
+                                if (shp != null && ce.ShapeId == shp.Id)
+                                {
+                                    var sl = obj._shapeRoot;
+                                    for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
+                                    if (sl != null)
+                                    {
+                                        Push(sl.Getter != null
+                                            ? InvokeCallable(sl.Getter, obj, System.Array.Empty<ScriptVar>())
+                                            : sl.Var);
+                                        break;
+                                    }
+                                }
+                            }
+                            else if (ReferenceEquals(ce.Object, obj) &&
+                                     ce.ShapeVersion == obj.ShapeVersion &&
+                                     ce.Link != null)
+                            {
+                                Push(ce.Link.Getter != null
+                                    ? InvokeCallable(ce.Link.Getter, obj, System.Array.Empty<ScriptVar>())
+                                    : ce.Link.Var);
+                                break;
+                            }
                         }
 
                         if (obj.IsProxy) { Push(GetMember(obj, propName)); break; }
 
+                        {
+                            var shp = obj._shape;
+                            if (shp != null && shp.Slots.TryGetValue(propName, out var slotIdx))
+                            {
+                                var sl = obj._shapeRoot;
+                                for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
+                                if (sl != null)
+                                {
+                                    var propResult = sl.Getter != null
+                                        ? InvokeCallable(sl.Getter, obj, System.Array.Empty<ScriptVar>())
+                                        : sl.Var;
+                                    ce.Name = propName; ce.ShapeId = shp.Id; ce.SlotIndex = slotIdx;
+                                    ce.Object = null; ce.Link = null;
+                                    Push(propResult);
+                                    break;
+                                }
+                            }
+                        }
+
                         var propLink = obj.FindChild(propName);
                         if (propLink == null && engine != null) propLink = engine.FindInParentClasses(obj, propName);
 
-                        ScriptVar propResult;
+                        ScriptVar propResult2;
                         if (propLink != null)
                         {
                             if (propLink.Getter != null)
-                                propResult = InvokeCallable(propLink.Getter, obj, System.Array.Empty<ScriptVar>());
+                                propResult2 = InvokeCallable(propLink.Getter, obj, System.Array.Empty<ScriptVar>());
                             else
-                                propResult = propLink.Var;
+                                propResult2 = propLink.Var;
                             if (obj.IsObject || obj.IsArray)
                             {
-                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion;
-                                ce.Name = propName; ce.Link = propLink;
+                                ce.Name = propName; ce.ShapeId = 0;
+                                ce.Object = obj; ce.ShapeVersion = obj.ShapeVersion; ce.Link = propLink;
                             }
                         }
                         else
                         {
-                            if (obj.IsArray && propName == "length")         propResult = ScriptVar.FromInt(obj.GetArrayLength());
-                            else if (obj.IsString && propName == "length")   propResult = ScriptVar.FromInt(obj.String.Length);
-                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr2) propResult = ScriptVar.FromInt(ctnr2.GetSize());
-                            else propResult = ScriptVar.CreateUndefined();
+                            if (obj.IsArray && propName == "length")         propResult2 = ScriptVar.FromInt(obj.GetArrayLength());
+                            else if (obj.IsString && propName == "length")   propResult2 = ScriptVar.FromInt(obj.String.Length);
+                            else if (propName == "size" && obj.GetData() is INativeContainer ctnr2) propResult2 = ScriptVar.FromInt(ctnr2.GetSize());
+                            else propResult2 = ScriptVar.CreateUndefined();
                         }
-                        Push(propResult);
+                        Push(propResult2);
                         break;
                     }
                     case OpCode.GetVarGetVarBinary:

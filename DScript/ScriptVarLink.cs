@@ -131,14 +131,14 @@ namespace DScript
         public ScriptVar Getter
         {
             get => _getter;
-            set { _getter = value; Owner?.BumpShapeVersion(); }
+            set { _getter = value; Owner?.BumpShapeVersionAndInvalidateShape(); }
         }
 
         /// <summary>Setter function for this accessor property. Setting it invalidates the owner's property cache.</summary>
         public ScriptVar Setter
         {
             get => _setter;
-            set { _setter = value; Owner?.BumpShapeVersion(); }
+            set { _setter = value; Owner?.BumpShapeVersionAndInvalidateShape(); }
         }
 
         /// <summary>True when this link has a get or set accessor (not a plain data property).</summary>

@@ -172,6 +172,15 @@ namespace DScript
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ScriptVar CreateObject() => Track(new ScriptVar(Flags.Object));
 
+        /// <summary>
+        /// Returns a new empty Object ScriptVar with hidden-class (shape) tracking enabled.
+        /// Use this for {} object literals (NewObject opcode) and JS-defined class instances
+        /// (New opcode fast path). All other objects use <see cref="CreateObject"/> which
+        /// has no shape overhead.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ScriptVar CreateShapeTracked() => Track(new ScriptVar(Flags.Object | Flags.ShapeTracked));
+
         /// <summary>Returns a new empty Array ScriptVar.</summary>
         // Pooling seam: same pattern as CreateObject().
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

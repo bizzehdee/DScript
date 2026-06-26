@@ -24,28 +24,66 @@ namespace DScript.Vm
 {
     /// <summary>
     /// A <b>bimorphic</b> (2-way) inline cache for one JIT-compiled property-read
-    /// site. The compiler bakes one instance per <c>GetProp</c> site; it remembers
-    /// up to two recently-seen objects, each with its shape version and resolved
-    /// link, so a site that alternates between two objects (or two shapes) hits the
-    /// cache instead of thrashing a single slot. Each entry is validated by object
-    /// identity and <see cref="ScriptVar.ShapeVersion"/>, so adding/removing a
-    /// property invalidates that entry. On a miss the new entry takes slot 0 and the
-    /// previous slot 0 is demoted to slot 1 (LRU); the older slot 1 is evicted.
+    /// site. Maintains two slots so a site that alternates between two object shapes
+    /// hits the cache instead of thrashing a single entry.
+    ///
+    /// <b>Shape-keyed path (preferred):</b> When the receiver is a plain shaped
+    /// object (<see cref="ScriptVar._shape"/> is non-null), the cache stores
+    /// <c>(ShapeId, SlotIndex)</c>. A hit requires only an integer comparison against
+    /// the shape ID — no object-identity check — so all instances that share the same
+    /// hidden class hit the same entry. <see cref="ScriptVar._shapeRoot"/> is walked
+    /// <c>SlotIndex</c> steps to reach the target link without a per-instance array.
+    ///
+    /// <b>Identity-keyed path (fallback):</b> For non-shaped objects (arrays, proxies,
+    /// host objects) the old behaviour is preserved: entries are keyed on object
+    /// identity and <see cref="ScriptVar.ShapeVersion"/>. Each entry stores the
+    /// resolved <see cref="ScriptVarLink"/> directly.
+    ///
+    /// On a slot-1 hit, that entry is promoted to slot 0 (LRU). On a miss the new
+    /// entry takes slot 0 and the previous slot 0 is demoted to slot 1; slot 1 is
+    /// evicted.
     /// </summary>
     public sealed class PropCacheCell
     {
+        // Shape-keyed slot 0 (ShapeId == 0 means empty / use identity path)
+        public int ShapeId0 { get; set; }
+        public int SlotIndex0 { get; set; }
+        // Shape-keyed slot 1
+        public int ShapeId1 { get; set; }
+        public int SlotIndex1 { get; set; }
+
+        // Identity-keyed slot 0
         public ScriptVar Object0 { get; set; }
         public int Version0 { get; set; }
         public ScriptVarLink Link0 { get; set; }
-
+        // Identity-keyed slot 1
         public ScriptVar Object1 { get; set; }
         public int Version1 { get; set; }
         public ScriptVarLink Link1 { get; set; }
 
-        /// <summary>Return the cached link for <paramref name="obj"/> at its current
-        /// shape, or null on a miss. A hit on slot 1 is promoted to slot 0.</summary>
+        /// <summary>
+        /// Return the cached link for <paramref name="obj"/> at its current shape,
+        /// or null on a miss. Shape-keyed entries are checked first; a slot-1 hit
+        /// is promoted to slot 0.
+        /// </summary>
         public ScriptVarLink Lookup(ScriptVar obj)
         {
+            // Shape-keyed path: one integer comparison, no object identity check.
+            var shape = obj._shape;
+            if (shape != null)
+            {
+                if (ShapeId0 == shape.Id && ShapeId0 > 0)
+                    return WalkShapeRoot(obj._shapeRoot, SlotIndex0);
+                if (ShapeId1 == shape.Id && ShapeId1 > 0)
+                {
+                    // promote slot 1 → slot 0
+                    (ShapeId0, SlotIndex0, ShapeId1, SlotIndex1) =
+                        (ShapeId1, SlotIndex1, ShapeId0, SlotIndex0);
+                    return WalkShapeRoot(obj._shapeRoot, SlotIndex0);
+                }
+            }
+
+            // Identity-keyed path (non-shaped objects or shape mismatch).
             if (ReferenceEquals(Object0, obj) && Version0 == obj.ShapeVersion && Link0 != null)
                 return Link0;
             if (ReferenceEquals(Object1, obj) && Version1 == obj.ShapeVersion && Link1 != null)
@@ -58,9 +96,34 @@ namespace DScript.Vm
             return null;
         }
 
-        /// <summary>Insert a freshly-resolved entry into slot 0, demoting slot 0 to slot 1.</summary>
+        private static ScriptVarLink WalkShapeRoot(ScriptVarLink root, int steps)
+        {
+            var link = root;
+            for (int i = 0; i < steps; i++) link = link?.Next;
+            return link;
+        }
+
+        /// <summary>
+        /// Insert a freshly-resolved entry for <paramref name="obj"/> /
+        /// <paramref name="link"/> into slot 0, demoting slot 0 to slot 1.
+        /// Prefers the shape-keyed path when the link is an own data property of a
+        /// shaped object; falls back to identity-keyed otherwise.
+        /// </summary>
         public void Insert(ScriptVar obj, ScriptVarLink link)
         {
+            if (link != null)
+            {
+                var shape = obj._shape;
+                // Use shape path only for own data properties (no accessors, owned by obj).
+                if (shape != null && link.Getter == null && ReferenceEquals(link.Owner, obj)
+                    && shape.Slots.TryGetValue(link.Name, out var slotIdx))
+                {
+                    ShapeId1 = ShapeId0; SlotIndex1 = SlotIndex0;
+                    ShapeId0 = shape.Id; SlotIndex0 = slotIdx;
+                    return;
+                }
+            }
+            // Identity-keyed path.
             Object1 = Object0; Version1 = Version0; Link1 = Link0;
             Object0 = obj; Version0 = obj.ShapeVersion; Link0 = link;
         }

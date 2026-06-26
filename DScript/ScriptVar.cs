@@ -29,6 +29,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using DScript.Vm;
 
 namespace DScript
 {
@@ -170,6 +171,20 @@ namespace DScript
         // The child linked list remains authoritative for for-in, serialisation, etc.
         private ScriptVar[] _elements;
 
+        // Hidden class / shape for this object. Non-null for plain non-array objects
+        // whose properties have all been added without getters/setters/deletions.
+        // When non-null, walking _shapeRoot by shape.Slots[name] steps gives the
+        // ScriptVarLink for that name, enabling O(1) reads keyed on (shape.Id, name)
+        // instead of FindChild.  The child linked list remains the source of truth;
+        // _shape/_shapeRoot are an acceleration layer only.
+        //
+        // _shapeRoot is the FIRST shape-tracked link added to this object
+        // (non-shape-tracked links like "prototype" may precede it in the linked list).
+        // Walking SlotIndex steps from _shapeRoot gives the link at that slot without
+        // allocating any per-instance array.
+        internal Shape _shape;
+        internal ScriptVarLink _shapeRoot;
+
         private static int _symbolCounter;
 
         public static ScriptVar CreateSymbol(string description = null)
@@ -263,6 +278,7 @@ namespace DScript
             NativeArrayIterator = 32768, // Fast-path iterator for arrays (no per-iteration allocation)
             Interned = 65536,           // Value is in the factory intern table — must not be disposed or mutated
             LargeInt = 131072,          // int64 integer whose value does not fit in int32
+            ShapeTracked = 262144,      // Opt-in to hidden-class tracking (set on {} literals and JS-defined class instances)
             NumericMask = Null | Double | Integer | LargeInt,
             VarTypeMask =  Double | Integer | LargeInt | String | Function | Object | Array | Null | Regexp | Symbol | BigInt | Proxy
         }
@@ -528,6 +544,15 @@ namespace DScript
 
         /// <summary>Increments the shape version so the VM's inline property cache re-validates.</summary>
         internal void BumpShapeVersion() => shapeVersion++;
+
+        // Called when an accessor (getter/setter) is installed on an existing link.
+        // Drops shape tracking because the slot can no longer represent a plain value.
+        internal void BumpShapeVersionAndInvalidateShape()
+        {
+            shapeVersion++;
+            _shape = null;
+            _shapeRoot = null;
+        }
 
         public void FreezeSelf()
         {
@@ -1006,6 +1031,24 @@ namespace DScript
                 childIndex[childName] = link;
             }
 
+            // Shape tracking: only for objects opted in via ShapeTracked, and only
+            // for user-visible properties (not the internal "prototype" link added by
+            // the New opcode — that is always accessed via FindInParentClasses, never
+            // via the shape cache, so including it would add cost with no benefit).
+            if ((flags & Flags.ShapeTracked) != 0 && childName != PrototypeClassName)
+            {
+                var cur = _shape ?? Shape.Empty;
+                if (!cur.Slots.ContainsKey(childName))
+                {
+                    _shape = cur.Transition(childName);
+                    // Record the first shape-tracked link; subsequent links are walked
+                    // from this root by slot index (avoids a per-instance array allocation).
+                    if (_shapeRoot == null) _shapeRoot = link;
+                }
+                // Duplicate name (rare): first occurrence is already at the correct
+                // walk position from _shapeRoot; leave _shape and _shapeRoot unchanged.
+            }
+
             // Invalidate array length cache if this is an array, as a numeric
             // child may have been added directly (bypassing SetArrayIndex)
             if (IsArray)
@@ -1074,6 +1117,10 @@ namespace DScript
             // removing a child may expose a shadowed duplicate name; rebuild lazily
             childIndexValid = false;
 
+            // Any deletion breaks the hidden-class invariant — fall back to link-list.
+            _shape = null;
+            _shapeRoot = null;
+
             // Invalidate array length cache and dense backing store if this is an array.
             // A removed element leaves a gap that _elements cannot represent correctly.
             if (IsArray)
@@ -1101,6 +1148,8 @@ namespace DScript
             childIndex?.Clear();
             childIndexValid = false;
             childCount = 0;
+            _shape = null;
+            _shapeRoot = null;
 
             // Invalidate array length cache
             if (IsArray)
@@ -1129,6 +1178,8 @@ namespace DScript
             childIndex?.Clear();
             childIndexValid = false;
             childCount = 0;
+            _shape = null;
+            _shapeRoot = null;
         }
 
         public ScriptVar ReturnVar
