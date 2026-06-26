@@ -2,14 +2,15 @@
 DScript CLI — run, profile, check, and REPL for .ds files.
 
 Usage:
-  dscript <script.ds>                     Run a script file
-  dscript run <script.ds>                 Run a script file (explicit verb)
-  dscript profile <script.ds>             Profile a script; write output.cpuprofile
-  dscript profile -o out.cpuprofile <..>  Profile with a custom output path
-  dscript check <script.ds>              Syntax-check only (no execution)
-  dscript repl                            Start an interactive REPL
-  dscript --help / -h                     Show this message
-  dscript --version / -v                  Show the version
+  dscript <script.ds>                            Run a script file
+  dscript run <script.ds>                        Run a script file (explicit verb)
+  dscript profile <script.ds>                    CPU-profile a script; write .cpuprofile
+  dscript profile --memory <script.ds>           CPU + memory profile; write .cpuprofile and .heapprofile
+  dscript profile -o out.cpuprofile <..>         Profile with a custom output path
+  dscript check <script.ds>                      Syntax-check only (no execution)
+  dscript repl                                   Start an interactive REPL
+  dscript --help / -h                            Show this message
+  dscript --version / -v                         Show the version
 */
 
 using DScript;
@@ -66,9 +67,13 @@ static int RunScript(string[] args)
 
 static int ProfileScript(string[] args)
 {
-    // Parse: [-o <outfile>] <script.ds>
+    // Parse: [--memory] [-o <outfile>] <script.ds>
     string? outPath = null;
+    bool withMemory = false;
     var rest = new List<string>(args);
+
+    var memIdx = rest.IndexOf("--memory");
+    if (memIdx >= 0) { withMemory = true; rest.RemoveAt(memIdx); }
 
     var oIdx = rest.IndexOf("-o");
     if (oIdx >= 0 && oIdx + 1 < rest.Count)
@@ -84,9 +89,12 @@ static int ProfileScript(string[] args)
     outPath ??= Path.ChangeExtension(path, ".cpuprofile");
 
     var source = File.ReadAllText(path);
-    var profiler = new CpuProfiler();
-    var engine   = MakeEngine(path, rest.Count > 1 ? [.. rest[1..]] : []);
-    engine.AttachProfiler(profiler);
+    var cpuProfiler = new CpuProfiler();
+    MemoryProfiler? memProfiler = withMemory ? new MemoryProfiler() : null;
+
+    var engine = MakeEngine(path, rest.Count > 1 ? [.. rest[1..]] : []);
+    engine.AttachProfiler(cpuProfiler);
+    memProfiler?.AttachTo(engine);
 
     try
     {
@@ -98,11 +106,25 @@ static int ProfileScript(string[] args)
         Console.Error.WriteLine($"Error: {ex.Message}");
         // Still write the profile — partial data is better than none.
     }
+    finally
+    {
+        memProfiler?.DetachFrom(engine);
+    }
 
-    var json = profiler.GetProfile();
-    File.WriteAllText(outPath, json);
-    Console.WriteLine($"Profile written to {outPath}");
+    var cpuJson = cpuProfiler.GetProfile();
+    File.WriteAllText(outPath, cpuJson);
+    Console.WriteLine($"CPU profile written to {outPath}");
     Console.WriteLine("Open in VS Code: Ctrl+Shift+P → Developer: Open CPU Profile");
+
+    if (memProfiler != null)
+    {
+        var heapPath = Path.ChangeExtension(outPath, ".heapprofile");
+        var heapJson = memProfiler.GetProfile();
+        File.WriteAllText(heapPath, heapJson);
+        Console.WriteLine($"Memory profile written to {heapPath}");
+        Console.WriteLine("Open in Chrome DevTools: Memory → Load profile");
+    }
+
     return 0;
 }
 
@@ -138,6 +160,8 @@ static int RunRepl()
     Console.WriteLine();
 
     var engine = MakeEngine("<repl>", []);
+    MemoryProfiler? activeMemProfiler = null;
+    CpuProfiler? activeCpuProfiler = null;
 
     // JIT is opt-in engine-wide; the REPL turns it on by default (reflection-emit
     // back-end) so hot functions tier up. Toggle via `.options jit ...`.
@@ -158,11 +182,16 @@ static int RunRepl()
             case ".quit":
                 goto done;
             case ".help":
-                Console.WriteLine("  .exit / .quit          — quit the REPL");
-                Console.WriteLine("  .help                  — show this message");
-                Console.WriteLine("  .options                    — show current options");
-                Console.WriteLine("  .options jit <value>        — on | off | reflection | closure  (default: reflection)");
-                Console.WriteLine("  .options optimisation <v>   — on | off  (compiler optimiser; default: on)");
+                Console.WriteLine("  .exit / .quit              — quit the REPL");
+                Console.WriteLine("  .help                      — show this message");
+                Console.WriteLine("  .options                        — show current options");
+                Console.WriteLine("  .options jit <value>            — on | off | reflection | closure  (default: reflection)");
+                Console.WriteLine("  .options optimisation <v>       — on | off  (compiler optimiser; default: on)");
+                Console.WriteLine("  .options profiler <value>       — cpu | memory | both | off");
+                Console.WriteLine("    cpu:    attach CPU profiler (function-level timing)");
+                Console.WriteLine("    memory: attach memory profiler (allocation tracking)");
+                Console.WriteLine("    both:   attach both profilers");
+                Console.WriteLine("    off:    detach profilers and print collected data");
                 Console.WriteLine("  Any DScript statement or expression is evaluated.");
                 Console.WriteLine("  State persists across inputs.");
                 continue;
@@ -170,7 +199,7 @@ static int RunRepl()
 
         if (line == ".options" || line.StartsWith(".options ", StringComparison.Ordinal))
         {
-            HandleOptionsCommand(engine, line);
+            HandleOptionsCommand(engine, line, ref activeCpuProfiler, ref activeMemProfiler);
             continue;
         }
 
@@ -233,10 +262,10 @@ done:
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// `.options [jit <value>] [optimisation <value>]` — inspect or change REPL
-// options. `jit` selects the JIT back-end (or off); `optimisation` toggles the
-// compiler's bytecode optimiser. Both default on for the REPL.
-static void HandleOptionsCommand(ScriptEngine engine, string line)
+// `.options [jit <value>] [optimisation <value>] [profiler <value>]` — inspect
+// or change REPL options at runtime.
+static void HandleOptionsCommand(ScriptEngine engine, string line,
+    ref CpuProfiler? cpuProfiler, ref MemoryProfiler? memProfiler)
 {
     var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
 
@@ -244,6 +273,7 @@ static void HandleOptionsCommand(ScriptEngine engine, string line)
     {
         Console.WriteLine($"  jit          = {DescribeJit()}");
         Console.WriteLine($"  optimisation = {(engine.EnableOptimizer ? "on" : "off")}");
+        Console.WriteLine($"  profiler     = {DescribeProfiler(cpuProfiler, memProfiler)}");
         return;
     }
 
@@ -256,10 +286,95 @@ static void HandleOptionsCommand(ScriptEngine engine, string line)
         case "optimization":
             HandleOptimisationOption(engine, parts);
             break;
+        case "profiler":
+            HandleProfilerOption(engine, parts, ref cpuProfiler, ref memProfiler);
+            break;
         default:
-            Console.WriteLine($"Unknown option '{parts[1]}'. Known options: jit, optimisation");
+            Console.WriteLine($"Unknown option '{parts[1]}'. Known options: jit, optimisation, profiler");
             break;
     }
+}
+
+static void HandleProfilerOption(ScriptEngine engine, string[] parts,
+    ref CpuProfiler? cpuProfiler, ref MemoryProfiler? memProfiler)
+{
+    if (parts.Length < 3)
+    {
+        Console.WriteLine($"  profiler = {DescribeProfiler(cpuProfiler, memProfiler)}");
+        Console.WriteLine("  usage: .options profiler <cpu|memory|both|off>");
+        return;
+    }
+
+    switch (parts[2].ToLowerInvariant())
+    {
+        case "off":
+        case "none":
+            memProfiler?.DetachFrom(engine);
+            if (memProfiler != null) PrintMemorySummary(memProfiler);
+            engine.DetachProfiler();
+            cpuProfiler = null;
+            memProfiler = null;
+            Console.WriteLine("profiler: off");
+            break;
+
+        case "cpu":
+            cpuProfiler = new CpuProfiler();
+            engine.AttachProfiler(cpuProfiler);
+            Console.WriteLine("profiler: cpu — function-level timing enabled; use .options profiler off to print summary");
+            break;
+
+        case "memory":
+            memProfiler = new MemoryProfiler();
+            memProfiler.AttachTo(engine);
+            Console.WriteLine("profiler: memory — allocation tracking enabled; use .options profiler off to print summary");
+            break;
+
+        case "both":
+            cpuProfiler = new CpuProfiler();
+            memProfiler = new MemoryProfiler();
+            engine.AttachProfiler(cpuProfiler);
+            memProfiler.AttachTo(engine);
+            Console.WriteLine("profiler: both — CPU and memory profiling enabled; use .options profiler off to print summary");
+            break;
+
+        default:
+            Console.WriteLine($"Unknown profiler value '{parts[2]}'. Use: cpu | memory | both | off");
+            break;
+    }
+}
+
+static void PrintMemorySummary(MemoryProfiler profiler)
+{
+    var json = profiler.GetProfile();
+    // Extract _summary section for quick console display
+    var summaryStart = json.IndexOf("\"_summary\":", StringComparison.Ordinal);
+    if (summaryStart < 0) return;
+    Console.WriteLine("  Memory profile summary:");
+
+    // Quick extraction of totalAllocations and totalBytes without full JSON parse
+    static long ExtractLong(string json, string key)
+    {
+        var idx = json.IndexOf($"\"{key}\":", StringComparison.Ordinal);
+        if (idx < 0) return 0;
+        idx += key.Length + 3;
+        var end = idx;
+        while (end < json.Length && (char.IsDigit(json[end]) || json[end] == '-')) end++;
+        return long.TryParse(json.AsSpan(idx, end - idx), out var v) ? v : 0;
+    }
+
+    var totalAlloc = ExtractLong(json, "totalAllocations");
+    var totalBytes = ExtractLong(json, "totalBytes");
+    Console.WriteLine($"    total allocations : {totalAlloc:N0}");
+    Console.WriteLine($"    total bytes       : {totalBytes:N0}");
+    Console.WriteLine($"  (full profile not saved — use 'dscript profile --memory' for a .heapprofile file)");
+}
+
+static string DescribeProfiler(CpuProfiler? cpuProfiler, MemoryProfiler? memProfiler)
+{
+    if (cpuProfiler != null && memProfiler != null) return "both";
+    if (cpuProfiler != null)                        return "cpu";
+    if (memProfiler != null)                        return "memory";
+    return "off";
 }
 
 static void HandleJitOption(string[] parts)
@@ -375,7 +490,7 @@ static void PrintHelp()
     Console.WriteLine("Usage:");
     Console.WriteLine("  dscript <script.ds> [args...]        Run a script");
     Console.WriteLine("  dscript run <script.ds> [args...]    Run a script (explicit verb)");
-    Console.WriteLine("  dscript profile [-o out] <script.ds> Run and produce a CPU profile");
+    Console.WriteLine("  dscript profile [-o out] [--memory] <script.ds>  Run and produce a CPU (and optionally memory) profile");
     Console.WriteLine("  dscript check <script.ds>            Syntax-check without running");
     Console.WriteLine("  dscript repl                         Start an interactive REPL");
     Console.WriteLine("  dscript --help / -h                  Show this message");
