@@ -127,6 +127,9 @@ static int CheckScript(string[] args)
 
 static int RunRepl()
 {
+    // Ensure emoji and other non-ASCII characters display correctly in the terminal.
+    Console.OutputEncoding = System.Text.Encoding.UTF8;
+
     Console.WriteLine($"DScript {Version} REPL  (type .exit to quit, .help for commands)");
     Console.WriteLine();
 

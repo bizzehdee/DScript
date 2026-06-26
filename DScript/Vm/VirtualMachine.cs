@@ -1152,6 +1152,22 @@ namespace DScript.Vm
                             Push(ScriptVar.CreateNativeArrayIterator(iterable));
                             break;
                         }
+                        // Strings iterate by Unicode code point (surrogate-pair-aware),
+                        // matching the JS string iterator spec.
+                        if (iterable.IsString)
+                        {
+                            var s = iterable.String;
+                            var codePointArr = ScriptVar.CreateArray();
+                            for (var si = 0; si < s.Length;)
+                            {
+                                var adv = char.IsHighSurrogate(s[si]) && si + 1 < s.Length
+                                          && char.IsLowSurrogate(s[si + 1]) ? 2 : 1;
+                                codePointArr.AppendArrayElement(ScriptVar.FromString(s.Substring(si, adv)));
+                                si += adv;
+                            }
+                            Push(ScriptVar.CreateNativeArrayIterator(codePointArr));
+                            break;
+                        }
                         // Unknown — return an immediately-done iterator
                         {
                             var doneIter = ScriptVar.CreateObject();

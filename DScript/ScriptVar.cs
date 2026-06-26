@@ -669,8 +669,8 @@ namespace DScript
             var ePos = str.IndexOf('E');
             if (ePos >= 0)
             {
-                exp = int.Parse(str.Substring(ePos + 1), CultureInfo.InvariantCulture);
-                str = str.Substring(0, ePos);
+                exp = int.Parse(str.AsSpan(ePos + 1), CultureInfo.InvariantCulture);
+                str = str[..ePos];
             }
 
             // Recover the raw digit string and n = position of the decimal point.
