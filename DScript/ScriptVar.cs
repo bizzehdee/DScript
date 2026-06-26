@@ -164,6 +164,11 @@ namespace DScript
         private long intData;
         private double doubleData;
         private int cachedArrayLength = -1;  // -1 means not cached
+        // Dense backing store for contiguous integer-indexed elements.
+        // Non-null only for arrays built contiguously. Indexed reads use this first
+        // (O(1) pointer load vs dictionary lookup), then fall back to the child list.
+        // The child linked list remains authoritative for for-in, serialisation, etc.
+        private ScriptVar[] _elements;
 
         private static int _symbolCounter;
 
@@ -876,6 +881,7 @@ namespace DScript
             scriptData = null;
             RemoveAllChildren();
             cachedArrayLength = 0;  // Empty array has length 0
+            _elements = null;
         }
 
         public ScriptVar Ref()
@@ -940,9 +946,12 @@ namespace DScript
         }
 
         // Marks the lookup index stale; it is rebuilt on the next FindChild.
+        // Also discards the dense elements backing store because child names may
+        // have been renamed (e.g. shift/unshift renames indices).
         internal void InvalidateChildIndex()
         {
             childIndexValid = false;
+            _elements = null;
         }
 
         public ScriptVarLink FindChildOrCreate(string childName, Flags varFlags = Flags.Undefined, bool readOnly = false)
@@ -1065,10 +1074,12 @@ namespace DScript
             // removing a child may expose a shadowed duplicate name; rebuild lazily
             childIndexValid = false;
 
-            // Invalidate array length cache if this is an array
+            // Invalidate array length cache and dense backing store if this is an array.
+            // A removed element leaves a gap that _elements cannot represent correctly.
             if (IsArray)
             {
                 cachedArrayLength = -1;
+                _elements = null;
             }
         }
 
@@ -1133,14 +1144,32 @@ namespace DScript
 
         public ScriptVar GetArrayIndex(int idx)
         {
+            // Fast path: O(1) array element load from the dense backing store.
+            if (_elements != null && (uint)idx < (uint)_elements.Length)
+                return _elements[idx] ?? new ScriptVar(Flags.Null);
             var link = FindChild(IndexName(idx));
-            if (link != null) return link.Var;
-
-            return new ScriptVar(Flags.Null);
+            return link?.Var ?? new ScriptVar(Flags.Null);
         }
 
         public void SetArrayIndex(int idx, ScriptVar value)
         {
+            // Update the dense backing store for contiguous writes (idx within 1 of length).
+            if (idx >= 0 && (_elements != null || idx <= (cachedArrayLength >= 0 ? cachedArrayLength : 0) + 1))
+            {
+                if (!value.IsUndefined)
+                {
+                    if (_elements == null)
+                        _elements = new ScriptVar[System.Math.Max(4, idx + 1)];
+                    else if (idx >= _elements.Length)
+                        System.Array.Resize(ref _elements, System.Math.Max(_elements.Length * 2, idx + 1));
+                    _elements[idx] = value;
+                }
+                else if (_elements != null && idx < _elements.Length)
+                {
+                    _elements[idx] = null;
+                }
+            }
+
             var name = IndexName(idx);
             var link = FindChild(name);
 
@@ -1178,6 +1207,14 @@ namespace DScript
         internal void AppendArrayElement(ScriptVar value)
         {
             var len = GetArrayLength(); // O(1) when cache is valid (maintained below)
+
+            // Grow the dense backing store.
+            if (_elements == null)
+                _elements = new ScriptVar[System.Math.Max(4, len + 1)];
+            else if (len >= _elements.Length)
+                System.Array.Resize(ref _elements, System.Math.Max(len + 1, _elements.Length * 2));
+            _elements[len] = value;
+
             AddChild(IndexName(len), value); // AddChild invalidates cachedArrayLength
             cachedArrayLength = len + 1;     // restore immediately
         }

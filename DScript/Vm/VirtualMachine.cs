@@ -2994,6 +2994,17 @@ namespace DScript.Vm
                 return; // out-of-bounds writes silently ignored (per spec)
             }
 
+            // Route array numeric-index writes through SetArrayIndex so the dense
+            // backing store (_elements) stays in sync with the child linked list.
+            if (obj.IsArray && name.Length > 0 && (uint)(name[0] - '0') <= 9u
+                && int.TryParse(name, System.Globalization.NumberStyles.None,
+                                System.Globalization.CultureInfo.InvariantCulture, out int arrSetIdx)
+                && arrSetIdx >= 0)
+            {
+                obj.SetArrayIndex(arrSetIdx, value);
+                return;
+            }
+
             var link = obj.FindChild(name);
             if (link != null)
             {
