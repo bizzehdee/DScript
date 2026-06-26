@@ -53,14 +53,17 @@ namespace DScript.Jit
 
         // Reflection handles for the operations emitted code calls.
         private static readonly MethodInfo IsIntGetter      = Prop(typeof(ScriptVar), "IsInt");
+        private static readonly MethodInfo IsAnyIntGetter   = Prop(typeof(ScriptVar), "IsAnyInt");
         private static readonly MethodInfo IsDoubleGetter   = Prop(typeof(ScriptVar), "IsDouble");
         private static readonly MethodInfo IsStringGetter   = Prop(typeof(ScriptVar), "IsString");
         private static readonly MethodInfo IsNullGetter      = Prop(typeof(ScriptVar), "IsNull");
         private static readonly MethodInfo IsUndefinedGetter = Prop(typeof(ScriptVar), "IsUndefined");
         private static readonly MethodInfo IntGetter        = Prop(typeof(ScriptVar), "Int");
+        private static readonly MethodInfo LongGetter       = Prop(typeof(ScriptVar), "Long");
         private static readonly MethodInfo BoolGetter        = Prop(typeof(ScriptVar), "Bool");
         private static readonly MethodInfo FloatGetter      = Prop(typeof(ScriptVar), "Float");
         private static readonly MethodInfo FromIntMethod    = typeof(ScriptVar).GetMethod("FromInt", new[] { typeof(int) });
+        private static readonly MethodInfo FromLongMethod   = typeof(ScriptVar).GetMethod("FromLong", new[] { typeof(long) });
         private static readonly MethodInfo FromDoubleMethod = typeof(ScriptVar).GetMethod("FromDouble", new[] { typeof(double) });
         private static readonly MethodInfo FromStringMethod = typeof(ScriptVar).GetMethod("FromString", new[] { typeof(string) });
         private static readonly MethodInfo CreateUndefinedMethod = typeof(ScriptVar).GetMethod("CreateUndefined", Type.EmptyTypes);
@@ -332,6 +335,13 @@ namespace DScript.Jit
             IL.EmitCall(OpCodes.Callvirt, IsIntGetter, null);
         }
 
+        /// <summary>Emit <c>a.IsAnyInt</c> — true for both int32 and LargeInt (int64) values.</summary>
+        public void EmitIsAnyInt(LocalBuilder local)
+        {
+            EmitLoadLocal(local);
+            IL.EmitCall(OpCodes.Callvirt, IsAnyIntGetter, null);
+        }
+
         public void EmitIsDouble(LocalBuilder local)
         {
             EmitLoadLocal(local);
@@ -350,6 +360,16 @@ namespace DScript.Jit
             EmitLoadLocal(local);
             IL.EmitCall(OpCodes.Callvirt, IntGetter, null);
         }
+
+        /// <summary>Push <c>local.Long</c> (int64, without truncation for LargeInt values).</summary>
+        public void EmitLoadLong(LocalBuilder local)
+        {
+            EmitLoadLocal(local);
+            IL.EmitCall(OpCodes.Callvirt, LongGetter, null);
+        }
+
+        /// <summary>Push <c>local.Long</c> and also add <c>FromLong</c> to box it back.</summary>
+        public void EmitFromLong() => IL.EmitCall(OpCodes.Call, FromLongMethod, null);
 
         /// <summary>Push <c>local.Float</c>.</summary>
         public void EmitLoadFloat(LocalBuilder local)
@@ -479,8 +499,8 @@ namespace DScript.Jit
         public void EmitIntBinaryCall(LocalBuilder a, LocalBuilder b, ScriptLex.LexTypes op,
                                       LocalBuilder resultSlot, Label onUnhandled)
         {
-            EmitLoadInt(a);
-            EmitLoadInt(b);
+            EmitLoadLong(a);  // IntBinary now takes (long, long, ...)
+            EmitLoadLong(b);
             EmitLdcI4((int)op);
             IL.Emit(OpCodes.Ldloca, resultSlot);          // out ScriptVar
             IL.EmitCall(OpCodes.Call, IntBinaryMethod, null);

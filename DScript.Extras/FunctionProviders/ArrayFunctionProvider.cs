@@ -267,6 +267,29 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar = arr;
         }
 
+        // Return the declared parameter count of a VM function callback, or int.MaxValue
+        // for native/unknown functions. Used to skip passing index/array arguments that
+        // the callback never reads — eliminates 2 ScriptVar allocations per iteration on
+        // callbacks like `x => x * 2` that declare only one parameter.
+        private static int CallbackArity(ScriptVar callback)
+        {
+            if (callback.GetData() is DScript.Vm.VmFunction fn)
+            {
+                var rest = fn.Body.RestParamIndex;
+                return rest >= 0 ? rest : fn.Body.Parameters.Count;
+            }
+            return int.MaxValue; // native callback: always pass all args
+        }
+
+        // Invoke a (element, index?, array?) callback with only the args it declared.
+        private static ScriptVar InvokeCallback(ScriptEngine engine, ScriptVar callback, int arity,
+            ScriptVar elem, int index, ScriptVar arr)
+        {
+            if (arity <= 1) return engine.CallFunction(callback, null, elem);
+            if (arity == 2) return engine.CallFunction(callback, null, elem, ScriptVar.FromInt(index));
+            return engine.CallFunction(callback, null, elem, ScriptVar.FromInt(index), arr);
+        }
+
         // JS array comparators may return any number; List.Sort needs -1/0/1. Use the
         // SIGN of the (possibly fractional) result — taking .Int truncated comparators
         // like (a,b)=>a-b on doubles to 0, leaving the array unsorted. NaN sorts as 0.
@@ -319,12 +342,12 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
 
             var.ReturnVar.SetArray();
             for (var x = 0; x < len; x++)
             {
-                var mapped = engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr);
-                var.ReturnVar.SetArrayIndex(x, mapped);
+                var.ReturnVar.SetArrayIndex(x, InvokeCallback(engine, callback, arity, arr.GetArrayIndex(x), x, arr));
             }
         }
 
@@ -335,17 +358,15 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
 
             var.ReturnVar.SetArray();
             var outIdx = 0;
             for (var x = 0; x < len; x++)
             {
                 var element = arr.GetArrayIndex(x);
-                var keep = engine.CallFunction(callback, null, element, ScriptVar.FromInt(x), arr);
-                if (keep.Bool)
-                {
+                if (InvokeCallback(engine, callback, arity, element, x, arr).Bool)
                     var.ReturnVar.SetArrayIndex(outIdx++, element.DeepCopy());
-                }
             }
         }
 
@@ -356,11 +377,10 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
 
             for (var x = 0; x < len; x++)
-            {
-                engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr);
-            }
+                InvokeCallback(engine, callback, arity, arr.GetArrayIndex(x), x, arr);
         }
 
         [ScriptMethod("reduce", "callback", "initial")]
@@ -370,6 +390,7 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
 
             var accumulator = var.GetParameter("initial");
             var start = 0;
@@ -383,7 +404,14 @@ namespace DScript.Extras.FunctionProviders
 
             for (var x = start; x < len; x++)
             {
-                accumulator = engine.CallFunction(callback, null, accumulator, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr);
+                // reduce callback: (acc, elem, index?, array?) — shift arity by 1 for acc
+                var elem = arr.GetArrayIndex(x);
+                if (arity <= 2)
+                    accumulator = engine.CallFunction(callback, null, accumulator, elem);
+                else if (arity == 3)
+                    accumulator = engine.CallFunction(callback, null, accumulator, elem, ScriptVar.FromInt(x));
+                else
+                    accumulator = engine.CallFunction(callback, null, accumulator, elem, ScriptVar.FromInt(x), arr);
             }
 
             var.ReturnVar = accumulator;
@@ -398,10 +426,11 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
             for (var x = 0; x < len; x++)
             {
                 var elem = arr.GetArrayIndex(x);
-                if (engine.CallFunction(callback, null, elem, ScriptVar.FromInt(x), arr).Bool)
+                if (InvokeCallback(engine, callback, arity, elem, x, arr).Bool)
                 {
                     var.ReturnVar = elem;
                     return;
@@ -417,9 +446,10 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
             for (var x = 0; x < len; x++)
             {
-                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr).Bool)
+                if (InvokeCallback(engine, callback, arity, arr.GetArrayIndex(x), x, arr).Bool)
                 {
                     var.ReturnVar.Int = x;
                     return;
@@ -435,10 +465,11 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
             for (var x = len - 1; x >= 0; x--)
             {
                 var elem = arr.GetArrayIndex(x);
-                if (engine.CallFunction(callback, null, elem, ScriptVar.FromInt(x), arr).Bool)
+                if (InvokeCallback(engine, callback, arity, elem, x, arr).Bool)
                 {
                     var.ReturnVar = elem;
                     return;
@@ -454,9 +485,10 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
             for (var x = len - 1; x >= 0; x--)
             {
-                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr).Bool)
+                if (InvokeCallback(engine, callback, arity, arr.GetArrayIndex(x), x, arr).Bool)
                 {
                     var.ReturnVar.Int = x;
                     return;
@@ -472,9 +504,10 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
             for (var x = 0; x < len; x++)
             {
-                if (engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr).Bool)
+                if (InvokeCallback(engine, callback, arity, arr.GetArrayIndex(x), x, arr).Bool)
                 {
                     var.ReturnVar.Int = 1;
                     return;
@@ -490,9 +523,10 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
             for (var x = 0; x < len; x++)
             {
-                if (!engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr).Bool)
+                if (!InvokeCallback(engine, callback, arity, arr.GetArrayIndex(x), x, arr).Bool)
                 {
                     var.ReturnVar.Int = 0;
                     return;
@@ -547,10 +581,11 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
             var mapped = ScriptVar.CreateUndefined();
             mapped.SetArray();
             for (var x = 0; x < len; x++)
-                mapped.SetArrayIndex(x, engine.CallFunction(callback, null, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr));
+                mapped.SetArrayIndex(x, InvokeCallback(engine, callback, arity, arr.GetArrayIndex(x), x, arr));
             var result = ScriptVar.CreateUndefined();
             result.SetArray();
             FlattenInto(result, mapped, 1);
@@ -723,10 +758,17 @@ namespace DScript.Extras.FunctionProviders
                 getElem = i => iterable.FindChild(i.ToString())?.Var ?? ScriptVar.CreateUndefined();
             }
 
+            var mapArity = mapFn.IsFunction ? CallbackArity(mapFn) : 0;
             for (var i = 0; i < len; i++)
             {
                 var elem = getElem(i);
-                var mapped = mapFn.IsFunction ? engine.CallFunction(mapFn, null, elem, ScriptVar.FromInt(i)) : elem.DeepCopy();
+                ScriptVar mapped;
+                if (!mapFn.IsFunction)
+                    mapped = elem.DeepCopy();
+                else if (mapArity <= 1)
+                    mapped = engine.CallFunction(mapFn, null, elem);
+                else
+                    mapped = engine.CallFunction(mapFn, null, elem, ScriptVar.FromInt(i));
                 result.SetArrayIndex(i, mapped);
             }
             var.ReturnVar = result;
@@ -752,6 +794,7 @@ namespace DScript.Extras.FunctionProviders
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
             var len = arr.GetArrayLength();
+            var arity = CallbackArity(callback);
 
             var accumulator = var.GetParameter("initial");
             var start = len - 1;
@@ -763,7 +806,15 @@ namespace DScript.Extras.FunctionProviders
             }
 
             for (var x = start; x >= 0; x--)
-                accumulator = engine.CallFunction(callback, null, accumulator, arr.GetArrayIndex(x), ScriptVar.FromInt(x), arr);
+            {
+                var elem = arr.GetArrayIndex(x);
+                if (arity <= 2)
+                    accumulator = engine.CallFunction(callback, null, accumulator, elem);
+                else if (arity == 3)
+                    accumulator = engine.CallFunction(callback, null, accumulator, elem, ScriptVar.FromInt(x));
+                else
+                    accumulator = engine.CallFunction(callback, null, accumulator, elem, ScriptVar.FromInt(x), arr);
+            }
 
             var.ReturnVar = accumulator;
         }

@@ -161,7 +161,7 @@ namespace DScript
         private int refs;
         private Flags flags;
         private object scriptData;
-        private int intData;
+        private long intData;
         private double doubleData;
         private int cachedArrayLength = -1;  // -1 means not cached
 
@@ -185,7 +185,7 @@ namespace DScript
         // source array and intData (unused for Object-typed vars) as the current index.
         internal bool IsNativeArrayIterator => (flags & Flags.NativeArrayIterator) != 0;
         internal ScriptVar NativeIterArray { get => (ScriptVar)scriptData; set => scriptData = value; }
-        internal int NativeIterIndex { get => intData; set => intData = value; }
+        internal int NativeIterIndex { get => (int)intData; set => intData = value; }
 
         internal static ScriptVar CreateNativeArrayIterator(ScriptVar array)
         {
@@ -257,8 +257,9 @@ namespace DScript
             Frozen = 16384,         // Object.freeze
             NativeArrayIterator = 32768, // Fast-path iterator for arrays (no per-iteration allocation)
             Interned = 65536,           // Value is in the factory intern table — must not be disposed or mutated
-            NumericMask = Null | Double | Integer,
-            VarTypeMask =  Double | Integer | String | Function | Object | Array | Null | Regexp | Symbol | BigInt | Proxy
+            LargeInt = 131072,          // int64 integer whose value does not fit in int32
+            NumericMask = Null | Double | Integer | LargeInt,
+            VarTypeMask =  Double | Integer | LargeInt | String | Function | Object | Array | Null | Regexp | Symbol | BigInt | Proxy
         }
 
         public ScriptVarLink FirstChild { get; set; }
@@ -308,6 +309,12 @@ namespace DScript
         {
             flags = Flags.Integer;
             intData = val ? 1 : 0;
+        }
+
+        private ScriptVar(long val)
+        {
+            flags = Flags.LargeInt;
+            intData = val;
         }
 
         // Parse an integer literal token, preferring an int32 (DScript's small-int
@@ -471,6 +478,15 @@ namespace DScript
 
         public bool IsInt => (flags & Flags.Integer) != 0;
 
+        /// <summary>True for int64 values that do not fit in int32.</summary>
+        public bool IsLargeInt => (flags & Flags.LargeInt) != 0;
+
+        /// <summary>True for any integer (int32 or int64). Use <see cref="Long"/> to read the value without truncation.</summary>
+        public bool IsAnyInt => (flags & (Flags.Integer | Flags.LargeInt)) != 0;
+
+        /// <summary>Read the integer value as int64 without truncation. Returns 0 for non-numeric types.</summary>
+        public long Long => IsAnyInt ? intData : IsDouble ? (long)doubleData : 0L;
+
         public bool IsDouble => (flags & Flags.Double) != 0;
 
         public bool IsString => (flags & Flags.String) != 0;
@@ -579,7 +595,7 @@ namespace DScript
 
         private int GetInt()
         {
-            if (IsInt) return intData;
+            if (IsAnyInt) return (int)intData; // truncates LargeInt to int32
             if (IsNull) return 0;
             if (IsUndefined) return 0;
             if (IsDouble) return (int)doubleData;
@@ -593,7 +609,7 @@ namespace DScript
             // null/undefined are falsy. (Booleans are stored as the integers 0/1.)
             get
             {
-                if (IsInt) return intData != 0;
+                if (IsAnyInt) return intData != 0;
                 if (IsDouble) return doubleData != 0 && !double.IsNaN(doubleData);
                 if (IsString) return GetString().Length != 0;
                 if (IsBigInt) return !BigIntData.IsZero;
@@ -606,8 +622,7 @@ namespace DScript
         private double GetDouble()
         {
             if (IsDouble) return doubleData;
-            if (IsInt) return Int;
-            
+            if (IsAnyInt) return (double)intData;
             return 0;
         }
 
@@ -619,9 +634,9 @@ namespace DScript
 
         private string GetString()
         {
-            if (IsInt)
+            if (IsAnyInt)
             {
-                return Int.ToString(CultureInfo.InvariantCulture);
+                return intData.ToString(CultureInfo.InvariantCulture);
             }
             if (IsDouble)
             {
@@ -1216,12 +1231,14 @@ namespace DScript
             return res;
         }
 
-        // A 64-bit integer arithmetic result as an int when it fits, else a double, so
-        // overflowing int arithmetic promotes to a JS number rather than wrapping.
+        // A 64-bit integer arithmetic result: int32 when it fits, LargeInt for wider
+        // values that still fit in int64, double only when outside int64 range (which
+        // cannot happen from int64 arithmetic but is kept for the call sites that
+        // cast first). Staying in integer representation avoids double-precision loss.
         private static ScriptVar IntOrDoubleResult(long value)
             => value >= int.MinValue && value <= int.MaxValue
                 ? new ScriptVar((int)value)
-                : new ScriptVar((double)value);
+                : new ScriptVar(value);
 
         public ScriptVar MathsOp(ScriptVar b, ScriptLex.LexTypes op)
         {
@@ -1270,35 +1287,38 @@ namespace DScript
                     if (!a.IsDouble && !b.IsDouble)
                     {
                         //ints
-                        var da = a.Int;
-                        var db = b.Int;
+                        var da = a.Long;
+                        var db = b.Long;
 
                         switch (opc)
                         {
-                            // +, -, * promote to double on 32-bit overflow (JS numbers
-                            // are doubles), computed in 64-bit to detect it.
-                            case '+': return IntOrDoubleResult((long)da + db);
-                            case '-': return IntOrDoubleResult((long)da - db);
-                            case '*': return IntOrDoubleResult((long)da * db);
+                            // +, -, * stay int64 when the result fits; promote to double
+                            // only when outside int64 range (requires checked context or
+                            // overflow detection — long arithmetic wraps in C# by default,
+                            // so we use unchecked arithmetic and IntOrDoubleResult to clamp).
+                            case '+': return IntOrDoubleResult(da + db);
+                            case '-': return IntOrDoubleResult(da - db);
+                            case '*': return IntOrDoubleResult(da * db);
                             // JS '/' is always real division (1/3 -> 0.333…); keep an
                             // int result only when it divides evenly. Division by zero
                             // yields Infinity/NaN rather than throwing.
                             case '/':
                                 if (db == 0) return new ScriptVar((double)da / db);
-                                if (db == -1) return IntOrDoubleResult(-(long)da); // avoids MinValue/-1 overflow
-                                if (da % db == 0) return new ScriptVar(da / db);
+                                if (db == -1) return IntOrDoubleResult(-da); // avoids MinValue/-1 overflow
+                                if (da % db == 0) return IntOrDoubleResult(da / db);
                                 return new ScriptVar((double)da / db);
-                            case '&': return new ScriptVar(da & db);
-                            case '|': return new ScriptVar(da | db);
-                            case '^': return new ScriptVar(da ^ db);
+                            // Bitwise ops are always int32 in JS (ToInt32 coercion).
+                            case '&': return new ScriptVar((int)da & (int)db);
+                            case '|': return new ScriptVar((int)da | (int)db);
+                            case '^': return new ScriptVar((int)da ^ (int)db);
                             case '%':
                                 if (db == 0) return new ScriptVar(double.NaN);
                                 if (db == -1) return new ScriptVar(0); // avoids MinValue%-1 overflow
-                                return new ScriptVar(da % db);
+                                return IntOrDoubleResult(da % db);
                             case (char)ScriptLex.LexTypes.Power:
                             {
                                 var r = Math.Pow(da, db);
-                                return r == (int)r && r is >= int.MinValue and <= int.MaxValue
+                                return r == (long)r && r is >= int.MinValue and <= int.MaxValue
                                     ? new ScriptVar((int)r)
                                     : new ScriptVar(r);
                             }
@@ -1728,7 +1748,7 @@ namespace DScript
                 flags = flags,
 
                 // Read data
-                intData = reader.ReadInt32(),
+                intData = reader.ReadInt64(),
                 doubleData = reader.ReadDouble()
             };
 

@@ -767,7 +767,7 @@ namespace DScript.Vm
                         RecordBinaryOpTypes(binProf, site, a, b);
                         // int-vs-int fast path (e.g. `s + i` between two variables):
                         // compute directly, skipping MathsOp's flag checks + dispatch.
-                        if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
+                        if (a.IsAnyInt && b.IsAnyInt && IntBinary(a.Long, b.Long, operatorCode, out var fast))
                         {
                             Push(fast);
                         }
@@ -797,8 +797,8 @@ namespace DScript.Vm
                         bcp.RightTypes |= rightFlag;
                         // Int-vs-int-literal fast path: compute directly, skipping
                         // both the constant ScriptVar materialization and MathsOp.
-                        if (constant.Kind == ConstantKind.Int && a.IsInt &&
-                            IntBinary(a.Int, constant.IntValue, operatorCode, out var fast))
+                        if (constant.Kind == ConstantKind.Int && a.IsAnyInt &&
+                            IntBinary(a.Long, (long)constant.IntValue, operatorCode, out var fast))
                         {
                             Push(fast);
                         }
@@ -820,7 +820,7 @@ namespace DScript.Vm
                         ref var bip = ref binProf[site];
                         bip.LeftTypes  |= TypeFlagOf(a);
                         bip.RightTypes |= Chunk.BinaryTypeFlags.Int;
-                        if (a.IsInt && IntBinary(a.Int, intValue, operatorCode, out var fast))
+                        if (a.IsAnyInt && IntBinary(a.Long, (long)intValue, operatorCode, out var fast))
                             Push(fast);
                         else
                             Push(a.MathsOp(ScriptVar.FromInt(intValue), operatorCode));
@@ -841,7 +841,7 @@ namespace DScript.Vm
                         // fall back to MathsOp for the (rare) non-numeric cases
                         // Negating integer 0 yields IEEE -0.0 (a double), so 1/(-0) is
                         // -Infinity and Object.is(-0, 0) is false, matching JS.
-                        if (a.IsInt) Push(a.Int == 0 ? ScriptVar.FromDouble(-0.0) : ScriptVar.FromInt(-a.Int));
+                        if (a.IsAnyInt) Push(a.Long == 0 ? ScriptVar.FromDouble(-0.0) : IntOrDouble(-a.Long));
                         else if (a.IsDouble) Push(ScriptVar.FromDouble(-a.Float));
                         else if (a.IsBigInt) Push(ScriptVar.CreateBigInt(-a.BigIntData));
                         else Push(Zero.MathsOp(a, (ScriptLex.LexTypes)'-'));
@@ -1843,7 +1843,7 @@ namespace DScript.Vm
                         var a = link1 != null ? link1.Var : SharedUndefined;
                         var b = link2 != null ? link2.Var : SharedUndefined;
                         RecordBinaryOpTypes(binProf, site, a, b);
-                        if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
+                        if (a.IsAnyInt && b.IsAnyInt && IntBinary(a.Long, b.Long, operatorCode, out var fast))
                             Push(fast);
                         else
                             Push(a.MathsOp(b, operatorCode));
@@ -1862,7 +1862,7 @@ namespace DScript.Vm
                         var a = link1 != null ? link1.Var : SharedUndefined;
                         var b = link2 != null ? link2.Var : SharedUndefined;
                         RecordBinaryOpTypes(binProf, site, a, b);
-                        if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, operatorCode, out var fast))
+                        if (a.IsAnyInt && b.IsAnyInt && IntBinary(a.Long, b.Long, operatorCode, out var fast))
                             Push(fast);
                         else
                             Push(a.MathsOp(b, operatorCode));
@@ -3280,7 +3280,7 @@ namespace DScript.Vm
 
         internal static ScriptVar JitNegate(ScriptVar a)
         {
-            if (a.IsInt) return ScriptVar.FromInt(-a.Int);
+            if (a.IsAnyInt) return IntOrDouble(-a.Long);
             if (a.IsDouble) return ScriptVar.FromDouble(-a.Float);
             if (a.IsBigInt) return ScriptVar.CreateBigInt(-a.BigIntData);
             return Zero.MathsOp(a, (ScriptLex.LexTypes)'-');
@@ -3321,45 +3321,45 @@ namespace DScript.Vm
         // opcode handler — integer fast path, else MathsOp.
         internal static ScriptVar JitBinary(ScriptVar a, ScriptVar b, ScriptLex.LexTypes op)
         {
-            if (a.IsInt && b.IsInt && IntBinary(a.Int, b.Int, op, out var fast))
+            if (a.IsAnyInt && b.IsAnyInt && IntBinary(a.Long, b.Long, op, out var fast))
                 return fast;
             return a.MathsOp(b, op);
         }
 
         // internal (not private) so the JIT emitter in DScript.Jit can call it
         // directly for the integer fast path it does not inline.
-        // A 64-bit arithmetic result as an int when it fits, else a double — so
-        // integer arithmetic that overflows 32 bits promotes to a JS number rather
-        // than wrapping.
+        // A 64-bit arithmetic result as an int32 when it fits, LargeInt for wider
+        // int64 values, and double only for true floating-point results. Keeping
+        // results as integers avoids promoting hot accumulator loops to double.
         private static ScriptVar IntOrDouble(long value)
             => value >= int.MinValue && value <= int.MaxValue
                 ? ScriptVar.FromInt((int)value)
-                : ScriptVar.FromDouble(value);
+                : ScriptVar.FromLong(value);
 
-        internal static bool IntBinary(int a, int b, ScriptLex.LexTypes op, out ScriptVar result)
+        internal static bool IntBinary(long a, long b, ScriptLex.LexTypes op, out ScriptVar result)
         {
             switch ((char)op)
             {
-                // JS numbers are doubles; +, -, * must not wrap at 32 bits. Compute in
-                // 64-bit and promote to double when the result leaves the int range
-                // (an int*int product always fits in a long).
-                case '+': result = IntOrDouble((long)a + b); return true;
-                case '-': result = IntOrDouble((long)a - b); return true;
-                case '*': result = IntOrDouble((long)a * b); return true;
+                // JS numbers are doubles; +, -, * stay int64 while they fit. Only
+                // promote to LargeInt or double when the result leaves int32 range.
+                case '+': result = IntOrDouble(a + b); return true;
+                case '-': result = IntOrDouble(a - b); return true;
+                case '*': result = IntOrDouble(a * b); return true;
                 // JS '/' is always real division (1/3 -> 0.333…). Keep an int result
                 // only when it divides evenly, so 10/2 stays an int fast path.
                 case '/':
                     if (b == 0) { result = ScriptVar.FromDouble((double)a / b); return true; }
-                    if (b == -1) { result = IntOrDouble(-(long)a); return true; } // avoids MinValue/-1 overflow
-                    if (a % b == 0) { result = ScriptVar.FromInt(a / b); return true; }
+                    if (b == -1) { result = IntOrDouble(-a); return true; } // avoids MinValue/-1 overflow
+                    if (a % b == 0) { result = IntOrDouble(a / b); return true; }
                     result = ScriptVar.FromDouble((double)a / b); return true;
-                case '&': result = ScriptVar.FromInt(a & b); return true;
-                case '|': result = ScriptVar.FromInt(a | b); return true;
-                case '^': result = ScriptVar.FromInt(a ^ b); return true;
+                // Bitwise ops always apply JS ToInt32 coercion.
+                case '&': result = ScriptVar.FromInt((int)a & (int)b); return true;
+                case '|': result = ScriptVar.FromInt((int)a | (int)b); return true;
+                case '^': result = ScriptVar.FromInt((int)a ^ (int)b); return true;
                 case '%':
                     if (b == 0) { result = ScriptVar.FromDouble(double.NaN); return true; }
                     if (b == -1) { result = ScriptVar.FromInt(0); return true; } // avoids MinValue%-1 overflow
-                    result = ScriptVar.FromInt(a % b); return true;
+                    result = IntOrDouble(a % b); return true;
                 case (char)ScriptLex.LexTypes.Equal:  result = a == b ? SharedTrue : SharedFalse; return true;
                 case (char)ScriptLex.LexTypes.NEqual: result = a != b ? SharedTrue : SharedFalse; return true;
                 case '<':                              result = a <  b ? SharedTrue : SharedFalse; return true;

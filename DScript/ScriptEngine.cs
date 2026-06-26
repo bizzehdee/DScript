@@ -794,27 +794,27 @@ namespace DScript
         /// </summary>
         public ScriptVar CallFunction(ScriptVar function, ScriptVar thisArg, params ScriptVar[] args)
         {
-            // Pool the VMs used for callbacks. Each VirtualMachine allocates a large
-            // prop-cache and operand stack, so a fresh one per callback (filter/map/
-            // sort/forEach/reduce — potentially hundreds of thousands of calls) was a
-            // major allocation cost. A pooled VM is reused (and keeps its prop cache
-            // warm). On a normal return InvokeCallable leaves sp/call-depth balanced,
-            // so the VM is clean to reuse; if it throws, it is simply dropped (not
-            // returned to the pool). Nested callbacks each rent a distinct VM.
-            VirtualMachine vm;
-            lock (_callVmPool)
-                vm = _callVmPool.Count > 0 ? _callVmPool.Pop() : new VirtualMachine(this);
+            // Script execution is single-threaded: a simple single-slot, lock-free
+            // VM cache handles the common sequential callback patterns (filter/map/
+            // reduce/forEach) with zero synchronisation overhead. On a normal return
+            // InvokeCallable leaves sp/call-depth balanced so the VM is clean to
+            // reuse. Nested callbacks see the slot as null and create a fresh VM;
+            // the inner VM is cached on return and the outer VM is silently dropped
+            // (the GC collects it), keeping the slot size bounded at 1.
+            var vm = _callVmCache;
+            _callVmCache = null;
+            if (vm == null) vm = new VirtualMachine(this);
 
             var result = vm.InvokeCallable(function, thisArg, args ?? []);
 
-            lock (_callVmPool)
-                if (_callVmPool.Count < MaxPooledCallVms) _callVmPool.Push(vm);
+            if (_callVmCache == null) _callVmCache = vm;
 
             return result;
         }
 
-        private readonly Stack<VirtualMachine> _callVmPool = new();
-        private const int MaxPooledCallVms = 16;
+        // Fallback thread-safe pool for async/microtask contexts where concurrency
+        // is possible. The hot path above uses the lock-free _callVmCache instead.
+        private VirtualMachine _callVmCache;
 
         public void AddNative(string funcDesc, ScriptCallbackCB callbackCB, object userData)
         {

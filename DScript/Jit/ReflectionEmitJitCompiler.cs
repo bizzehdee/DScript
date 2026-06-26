@@ -729,7 +729,60 @@ namespace DScript.Jit
         {
             var il = b.IL;
 
-            // Materialize the argument array from the stack (top-down), then the callee.
+            // Fast path: monomorphic site where the sole callee is inline-eligible.
+            // Avoid building the argArray entirely for the hot inline branch:
+            // 1. Store args into per-slot locals (no allocation)
+            // 2. Emit the callee identity guard
+            // 3. On hit: splice the inline body reading from the per-arg locals
+            // 4. On miss: build the array from the saved locals, then general-dispatch
+            // This eliminates one ScriptVar[] allocation per inlined call site.
+            if (callee1 == null && callee0 != null &&
+                TryGetInlineBody(callee0, argc, out var inlineChunk, out var inlineBody))
+            {
+                // Allocate per-argument locals (argc ≤ InlineBudget ≤ 24, so bounded).
+                var argLocals = new LocalBuilder[argc];
+                for (var j = 0; j < argc; j++)
+                    argLocals[j] = b.DeclareLocal(typeof(ScriptVar));
+
+                // Stack at entry: [callee, arg0, ..., arg{argc-1}] (top = last arg)
+                // Pop in reverse order to restore left-to-right layout.
+                for (var j = argc - 1; j >= 0; j--)
+                    b.EmitStoreLocal(argLocals[j]);
+                b.EmitStoreLocal(calleeSlot);   // pop callee
+
+                var done  = il.DefineLabel();
+                var miss  = il.DefineLabel();
+
+                // Identity guard: if runtime callee != baked callee → miss
+                b.EmitLoadLocal(calleeSlot);
+                b.EmitLoadData(b.AddData(callee0), typeof(ScriptVar));
+                il.Emit(OpCodes.Ceq);
+                il.Emit(OpCodes.Brfalse, miss);
+
+                // Guard hit: splice the body reading parameters directly from per-arg locals
+                // — no ScriptVar[] allocation on the hot path.
+                var captured = ((VmFunction)callee0.GetData()).Captured;
+                EmitInlinedBody(b, inlineChunk, inlineBody, captured, argLocals, argArr, tmp, calleeSlot, rSlot);
+                il.Emit(OpCodes.Br, done);
+
+                // Guard miss: build argArr, general dispatch.
+                il.MarkLabel(miss);
+                b.EmitNewScriptVarArray(argc);
+                b.EmitStoreLocal(argArr);
+                for (var j = 0; j < argc; j++)
+                {
+                    b.EmitLoadLocal(argArr);
+                    b.EmitLdcI4(j);
+                    b.EmitLoadLocal(argLocals[j]);
+                    b.EmitStoreElemRef();
+                }
+                EmitGeneralCall(b, calleeSlot, argArr);
+
+                il.MarkLabel(done);
+                return;
+            }
+
+            // General case: build the argArray first, then try up to 2 inline guards.
             b.EmitNewScriptVarArray(argc);
             b.EmitStoreLocal(argArr);
             for (var j = argc - 1; j >= 0; j--)
@@ -742,17 +795,17 @@ namespace DScript.Jit
             }
             b.EmitStoreLocal(calleeSlot);              // pop callee
 
-            var done = il.DefineLabel();
+            var done2 = il.DefineLabel();
 
             // One guarded inline path per inline-eligible baked callee (≤2). A callee
             // that isn't inline-eligible gets no guard — it would dispatch identically
             // to the general path, so the guard would be dead weight.
-            EmitInlineGuard(b, callee0, argc, calleeSlot, argArr, tmp, rSlot, done);
-            EmitInlineGuard(b, callee1, argc, calleeSlot, argArr, tmp, rSlot, done);
+            EmitInlineGuard(b, callee0, argc, calleeSlot, argArr, tmp, rSlot, done2);
+            EmitInlineGuard(b, callee1, argc, calleeSlot, argArr, tmp, rSlot, done2);
 
             // Fallback: dispatch on the runtime callee (handles misses + non-inlined).
             EmitGeneralCall(b, calleeSlot, argArr);
-            il.MarkLabel(done);
+            il.MarkLabel(done2);
         }
 
         // If <paramref name="callee"/> is inline-eligible, emit: guard runtimeCallee ==
@@ -851,6 +904,16 @@ namespace DScript.Jit
                                             List<JitInstruction> body, Environment captured,
                                             LocalBuilder argArr,
                                             LocalBuilder aSlot, LocalBuilder bSlot, LocalBuilder rSlot)
+            => EmitInlinedBody(b, calleeChunk, body, captured, null, argArr, aSlot, bSlot, rSlot);
+
+        // Overload used by the monomorphic fast path: reads parameters directly from
+        // <paramref name="argLocals"/> (per-arg CLR locals) instead of from argArr,
+        // eliminating the ScriptVar[] allocation entirely in the hot inline case.
+        private static void EmitInlinedBody(DynamicMethodBuilder b, Chunk calleeChunk,
+                                            List<JitInstruction> body, Environment captured,
+                                            LocalBuilder[] argLocals,
+                                            LocalBuilder argArr,
+                                            LocalBuilder aSlot, LocalBuilder bSlot, LocalBuilder rSlot)
         {
             var il = b.IL;
             var labels = new Dictionary<int, Label>();
@@ -872,8 +935,16 @@ namespace DScript.Jit
                     case JitOpKind.PushVar:
                     {
                         var p = calleeChunk.Parameters.IndexOf(instr.Name);
-                        if (p >= 0) b.EmitLoadArgElement(argArr, p);
-                        else        b.EmitLoadNamedVarFrom(instr.Name, captured);
+                        if (p >= 0)
+                        {
+                            // Use per-arg locals when available, otherwise fall back to argArr.
+                            if (argLocals != null && p < argLocals.Length)
+                                b.EmitLoadLocal(argLocals[p]);
+                            else
+                                b.EmitLoadArgElement(argArr, p);
+                        }
+                        else
+                            b.EmitLoadNamedVarFrom(instr.Name, captured);
                         break;
                     }
                     case JitOpKind.PushNull:       b.EmitPushNull(); break;
@@ -927,10 +998,10 @@ namespace DScript.Jit
 
             Label afterInt = dblOp.HasValue ? doubleLabel : (hasString ? stringLabel : fallback);
 
-            // Int fast path guard: both operands must be integers.
-            b.EmitIsInt(aSlot);
+            // Int fast path guard: both operands must be integers (int32 or LargeInt).
+            b.EmitIsAnyInt(aSlot);
             il.Emit(OpCodes.Brfalse, afterInt);
-            b.EmitIsInt(bSlot);
+            b.EmitIsAnyInt(bSlot);
             il.Emit(OpCodes.Brfalse, afterInt);
 
             var inlineOp = InlineBitwiseIntOp(op);
@@ -1031,7 +1102,7 @@ namespace DScript.Jit
         private static void EmitNumericGuard(DynamicMethodBuilder b, LocalBuilder slot, Label onFail)
         {
             var ok = b.IL.DefineLabel();
-            b.EmitIsInt(slot);
+            b.EmitIsAnyInt(slot);  // int32 or LargeInt are both numeric
             b.IL.Emit(OpCodes.Brtrue, ok);
             b.EmitIsDouble(slot);
             b.IL.Emit(OpCodes.Brfalse, onFail);

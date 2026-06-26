@@ -334,6 +334,11 @@ static string DescribeJit() => JitRegistry.Current switch
 
 static ScriptEngine MakeEngine(string scriptPath, string[] scriptArgs)
 {
+    // Enable the JIT so hot functions tier up during run/profile.
+    // The REPL re-registers below; calling Register twice is harmless.
+    if (JitRegistry.Current == null)
+        JitRegistry.Register(new ReflectionEmitJitCompiler());
+
     var engine = new ScriptEngine();
     new EngineFunctionLoader().RegisterFunctions(engine);
 

@@ -134,6 +134,19 @@ namespace DScript
             return Track(new ScriptVar(value));
         }
 
+        /// <summary>
+        /// Returns a ScriptVar for the given int64 value.
+        /// Delegates to <see cref="FromInt"/> when the value fits in int32 (intern-friendly);
+        /// allocates a LargeInt ScriptVar only for wider values.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ScriptVar FromLong(long value)
+        {
+            if (value >= int.MinValue && value <= int.MaxValue)
+                return FromInt((int)value);
+            return Track(new ScriptVar(value));
+        }
+
         /// <summary>Returns a new Double ScriptVar.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ScriptVar FromDouble(double value) => Track(new ScriptVar(value));
