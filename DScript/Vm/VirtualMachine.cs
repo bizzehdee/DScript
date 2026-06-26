@@ -1042,13 +1042,11 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        // Fast path: a compiled function called with its args already
-                        // on the operand stack. Bind them directly into the call
-                        // frame instead of materializing a ScriptVar[] per call.
                         var callee = stack[sp - argc - 1];
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
+                            // Fast path: VM function — bind args directly, no ScriptVar[].
                             var result = InvokeVmFunctionFromStack(callee, null, argc);
                             sp--; // discard the callee left below the (already popped) args
                             Push(result);
@@ -1068,6 +1066,7 @@ namespace DScript.Vm
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
+                            // Fast path: VM function — bind args directly, no ScriptVar[].
                             var receiver = stack[sp - argc - 2];
                             var result = InvokeVmFunctionFromStack(callee, receiver, argc);
                             sp -= 2; // discard callee and receiver below the args
@@ -2350,6 +2349,43 @@ namespace DScript.Vm
 
             try { return Execute(vmfn.Body, callEnv) ?? ScriptVar.CreateUndefined(); }
             finally { _profiler?.Leave(); _callDepth--; }
+        }
+
+        // Allocation-free fast paths for 1/2/3-argument callbacks (map/filter/reduce/
+        // sort comparator). For VM functions: push args directly onto the operand stack
+        // and call InvokeVmFunctionFromStack — zero ScriptVar[] allocation. For native
+        // and proxy callables: fall back to InvokeCallable with a fixed-size array.
+        internal ScriptVar InvokeCallable1(ScriptVar callee, ScriptVar thisArg, ScriptVar arg1)
+        {
+            if (callee != null && callee.IsFunction && !callee.IsNative)
+            {
+                Push(arg1);
+                return InvokeVmFunctionFromStack(callee, thisArg, 1) ?? SharedUndefined;
+            }
+            return InvokeCallable(callee, thisArg, [arg1]) ?? SharedUndefined;
+        }
+
+        internal ScriptVar InvokeCallable2(ScriptVar callee, ScriptVar thisArg, ScriptVar arg1, ScriptVar arg2)
+        {
+            if (callee != null && callee.IsFunction && !callee.IsNative)
+            {
+                Push(arg1);
+                Push(arg2);
+                return InvokeVmFunctionFromStack(callee, thisArg, 2) ?? SharedUndefined;
+            }
+            return InvokeCallable(callee, thisArg, [arg1, arg2]) ?? SharedUndefined;
+        }
+
+        internal ScriptVar InvokeCallable3(ScriptVar callee, ScriptVar thisArg, ScriptVar arg1, ScriptVar arg2, ScriptVar arg3)
+        {
+            if (callee != null && callee.IsFunction && !callee.IsNative)
+            {
+                Push(arg1);
+                Push(arg2);
+                Push(arg3);
+                return InvokeVmFunctionFromStack(callee, thisArg, 3) ?? SharedUndefined;
+            }
+            return InvokeCallable(callee, thisArg, [arg1, arg2, arg3]) ?? SharedUndefined;
         }
 
         // Invoke a compiled (non-native) function whose arguments are sitting on

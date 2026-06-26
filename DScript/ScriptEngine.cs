@@ -812,6 +812,36 @@ namespace DScript
             return result;
         }
 
+        // Allocation-free fast paths for 1/2/3-argument callbacks used by array
+        // higher-order methods. Eliminates the per-call ScriptVar[] allocation that
+        // the `params ScriptVar[]` overload of CallFunction always produces.
+        public ScriptVar CallCallback1(ScriptVar fn, ScriptVar thisArg, ScriptVar arg1)
+        {
+            var vm = _callVmCache; _callVmCache = null;
+            if (vm == null) vm = new VirtualMachine(this);
+            var result = vm.InvokeCallable1(fn, thisArg, arg1);
+            if (_callVmCache == null) _callVmCache = vm;
+            return result;
+        }
+
+        public ScriptVar CallCallback2(ScriptVar fn, ScriptVar thisArg, ScriptVar arg1, ScriptVar arg2)
+        {
+            var vm = _callVmCache; _callVmCache = null;
+            if (vm == null) vm = new VirtualMachine(this);
+            var result = vm.InvokeCallable2(fn, thisArg, arg1, arg2);
+            if (_callVmCache == null) _callVmCache = vm;
+            return result;
+        }
+
+        public ScriptVar CallCallback3(ScriptVar fn, ScriptVar thisArg, ScriptVar arg1, ScriptVar arg2, ScriptVar arg3)
+        {
+            var vm = _callVmCache; _callVmCache = null;
+            if (vm == null) vm = new VirtualMachine(this);
+            var result = vm.InvokeCallable3(fn, thisArg, arg1, arg2, arg3);
+            if (_callVmCache == null) _callVmCache = vm;
+            return result;
+        }
+
         // Fallback thread-safe pool for async/microtask contexts where concurrency
         // is possible. The hot path above uses the lock-free _callVmCache instead.
         private VirtualMachine _callVmCache;

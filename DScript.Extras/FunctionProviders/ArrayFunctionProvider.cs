@@ -282,12 +282,13 @@ namespace DScript.Extras.FunctionProviders
         }
 
         // Invoke a (element, index?, array?) callback with only the args it declared.
+        // Uses the allocation-free CallCallback1/2/3 fast paths for VM-function callbacks.
         private static ScriptVar InvokeCallback(ScriptEngine engine, ScriptVar callback, int arity,
             ScriptVar elem, int index, ScriptVar arr)
         {
-            if (arity <= 1) return engine.CallFunction(callback, null, elem);
-            if (arity == 2) return engine.CallFunction(callback, null, elem, ScriptVar.FromInt(index));
-            return engine.CallFunction(callback, null, elem, ScriptVar.FromInt(index), arr);
+            if (arity <= 1) return engine.CallCallback1(callback, null, elem);
+            if (arity == 2) return engine.CallCallback2(callback, null, elem, ScriptVar.FromInt(index));
+            return engine.CallCallback3(callback, null, elem, ScriptVar.FromInt(index), arr);
         }
 
         // JS array comparators may return any number; List.Sort needs -1/0/1. Use the
@@ -295,7 +296,7 @@ namespace DScript.Extras.FunctionProviders
         // like (a,b)=>a-b on doubles to 0, leaving the array unsorted. NaN sorts as 0.
         private static int CompareSign(ScriptEngine engine, ScriptVar compare, ScriptVar a, ScriptVar b)
         {
-            var c = engine.CallFunction(compare, null, a, b).Float;
+            var c = engine.CallCallback2(compare, null, a, b).Float;
             return c < 0 ? -1 : c > 0 ? 1 : 0;
         }
 
@@ -407,9 +408,9 @@ namespace DScript.Extras.FunctionProviders
                 // reduce callback: (acc, elem, index?, array?) — shift arity by 1 for acc
                 var elem = arr.GetArrayIndex(x);
                 if (arity <= 2)
-                    accumulator = engine.CallFunction(callback, null, accumulator, elem);
+                    accumulator = engine.CallCallback2(callback, null, accumulator, elem);
                 else if (arity == 3)
-                    accumulator = engine.CallFunction(callback, null, accumulator, elem, ScriptVar.FromInt(x));
+                    accumulator = engine.CallCallback3(callback, null, accumulator, elem, ScriptVar.FromInt(x));
                 else
                     accumulator = engine.CallFunction(callback, null, accumulator, elem, ScriptVar.FromInt(x), arr);
             }
@@ -766,9 +767,9 @@ namespace DScript.Extras.FunctionProviders
                 if (!mapFn.IsFunction)
                     mapped = elem.DeepCopy();
                 else if (mapArity <= 1)
-                    mapped = engine.CallFunction(mapFn, null, elem);
+                    mapped = engine.CallCallback1(mapFn, null, elem);
                 else
-                    mapped = engine.CallFunction(mapFn, null, elem, ScriptVar.FromInt(i));
+                    mapped = engine.CallCallback2(mapFn, null, elem, ScriptVar.FromInt(i));
                 result.SetArrayIndex(i, mapped);
             }
             var.ReturnVar = result;
