@@ -3118,7 +3118,11 @@ namespace DScript.Vm
 
         private static Chunk.BinaryTypeFlags TypeFlagOf(ScriptVar v)
         {
-            if (v.IsInt)    return Chunk.BinaryTypeFlags.Int;
+            // Both int32 and LargeInt (int64) are integers in DScript and share the
+            // same arithmetic path (VirtualMachine.IntBinary), so profile them alike —
+            // otherwise an accumulator that grows past int32 is misclassified as
+            // "Other" and defeats every integer speculation tier.
+            if (v.IsAnyInt) return Chunk.BinaryTypeFlags.Int;
             if (v.IsDouble) return Chunk.BinaryTypeFlags.Double;
             if (v.IsString) return Chunk.BinaryTypeFlags.String;
             return Chunk.BinaryTypeFlags.Other;

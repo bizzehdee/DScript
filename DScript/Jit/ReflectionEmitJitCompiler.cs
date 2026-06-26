@@ -39,6 +39,14 @@ namespace DScript.Jit
     /// </summary>
     public sealed class ReflectionEmitJitCompiler : IJitCompiler, IOsrCompiler
     {
+        /// <summary>
+        /// Diagnostic counter: total number of OSR unboxed-long loop-tier entries this
+        /// back-end has successfully compiled (as opposed to falling back to the
+        /// conservative OSR entry). Exposed so tests and tuning can confirm the fast
+        /// tier actually engaged. Monotonic; compare deltas across a run.
+        /// </summary>
+        public static long OsrLongLoopCompilations { get; private set; }
+
         public JitDelegate Compile(Chunk chunk)
         {
             var instrs = JitDecoder.Decode(chunk);
@@ -489,19 +497,482 @@ namespace DScript.Jit
             var resumeIndex = JitDecoder.OffsetToInstructionIndex(chunk, resumeOffset);
             if (resumeIndex < 0 || resumeIndex >= instrs.Count) return null;
 
-            // Block scopes would require reconstructing the nested-env state at the
-            // resume point; the interpreter's env is already that nested env, but the
-            // emitted Enter/LeaveBlock bookkeeping assumes entry from the function root.
-            // Decline rather than risk a mismatched environment.
-            foreach (var instr in instrs)
-                if (instr.Kind is JitOpKind.EnterBlock or JitOpKind.LeaveBlock)
-                    return null;
-
             // The operand stack must be empty where we resume (we transfer no operands).
             if (!VerifyStackConsistency(instrs, out var depth)) return null;
             if (depth[resumeIndex] != 0) return null;
 
-            return CompileConservative(chunk, instrs, resumeIndex);
+            // Block scopes: the interpreter hands us its current env, which already is
+            // the block env at the resume point — so resuming *inside* a block entered
+            // in the (skipped) prologue is fine; the conservative tier pre-seeds its
+            // current-env local from that env. What is NOT safe is a LeaveBlock in the
+            // resumed region that would pop a block entered before the resume point —
+            // that would move the env above the level we resumed at. Decline only when
+            // the reachable region's block nesting goes below where it started.
+            var reach = ReachableFrom(instrs, resumeIndex);
+            var ordered = new List<int>(reach);
+            ordered.Sort();
+            var blockDepth = 0;
+            foreach (var i in ordered)
+            {
+                if (instrs[i].Kind == JitOpKind.EnterBlock) blockDepth++;
+                else if (instrs[i].Kind == JitOpKind.LeaveBlock && --blockDepth < 0) return null;
+            }
+
+            // The conservative entry is always the safe baseline. Try the faster
+            // unboxed-long loop tier on top, falling back to the conservative entry on
+            // a type miss at its guard. If the chunk can't even be compiled
+            // conservatively, there is no OSR entry.
+            var conservative = CompileConservative(chunk, instrs, resumeIndex);
+            if (conservative == null) return null;
+
+            var fast = TryCompileOsrLongLoop(chunk, instrs, resumeIndex, depth, conservative);
+            return fast ?? conservative;
+        }
+
+        // ── speculative unboxed-LONG loop tier (OSR only) ────────────────────────
+        // Compile the reachable loop region as raw int64 flowing through IL: scalar
+        // variables become CLR `long` registers (no per-iteration env lookup or
+        // boxing), monomorphic int-leaf calls are inlined as raw long arithmetic, and
+        // values are written back to the environment only at each function exit. The
+        // whole IL operand stack is uniformly `long`, so no per-slot type tracking is
+        // needed. Soundness rests on three compile-time facts: (1) every binary site is
+        // profiled int-only, (2) every assignment's RHS is an int-typed expression
+        // (int const / int arithmetic / int-returning inlined call), so once a register
+        // holds an int it stays one, and (3) inlined callees read only their own
+        // parameters, so they cannot observe the (deliberately stale) environment. An
+        // entry guard loads each register from the environment and, on any non-integer,
+        // defers to the conservative OSR entry — so reuse across frames with differing
+        // types stays correct without any deopt machinery. Returns null to decline.
+        private static JitDelegate TryCompileOsrLongLoop(Chunk chunk, List<JitInstruction> instrs,
+                                                         int resumeIndex, int[] depth, JitDelegate fallback)
+        {
+            // Decline the long tier (the caller falls back to the conservative OSR
+            // entry). The reason string documents each decline at its call site.
+            static JitDelegate Decline(string reason) { _ = reason; return null; }
+
+            // (1) No binary site may have been *observed* with a string/object operand.
+            // Sites with no profile yet (None) are allowed: they are typically code after
+            // the loop that has not executed when OSR fires, and correctness does not rest
+            // on the profile anyway — every value in the region flows as a long by
+            // construction (guarded-int registers, integer constants, int-leaf call
+            // results), and the entry guard hands off to the conservative tier if any
+            // register is not actually an integer. The profile only lets us cheaply
+            // decline loops already seen running on strings/objects.
+            const Chunk.BinaryTypeFlags numeric = Chunk.BinaryTypeFlags.Int | Chunk.BinaryTypeFlags.Double;
+            var profiles = chunk.GetBinaryOpProfiles();
+            if (profiles.Count == 0) return Decline("no profiles");
+            foreach (var (_, p) in profiles)
+                if ((p.LeftTypes & ~numeric) != 0 || (p.RightTypes & ~numeric) != 0)
+                    return Decline($"non-numeric profile L={p.LeftTypes} R={p.RightTypes}");
+
+            // Region reachable from the resume point, as a contiguous [lo, hi] window.
+            var reach = ReachableFrom(instrs, resumeIndex);
+            var lo = int.MaxValue;
+            var hi = -1;
+            foreach (var idx in reach) { if (idx < lo) lo = idx; if (idx > hi) hi = idx; }
+            if (hi < 0) return null;
+
+            // Identify inlinable calls and the callee-push instructions they elide.
+            var calleeSkip = new HashSet<int>();
+            var inlineAt = new Dictionary<int, (Chunk c, List<JitInstruction> body)>();
+            if (!AnalyzeLongLoopCalls(instrs, lo, hi, depth, calleeSkip, inlineAt))
+                return Decline("call not inlinable");
+
+            // Promotable scalar registers: every variable referenced in the region that
+            // is not an elided callee push.
+            var regsOrder = new List<string>();
+            var regSet = new HashSet<string>();
+            for (var i = lo; i <= hi; i++)
+            {
+                if (calleeSkip.Contains(i)) continue;
+                var instr = instrs[i];
+                if (instr.Name != null && IsVarRef(instr.Kind) && regSet.Add(instr.Name))
+                    regsOrder.Add(instr.Name);
+            }
+            // A name used as a callee must not also be a register (i.e. reassigned in the
+            // region) — that would make the elided push unsound.
+            foreach (var i in calleeSkip)
+                if (regSet.Contains(instrs[i].Name)) return null; // callee name also assigned in region
+
+            // Every region instruction must be long-emittable; jumps must stay in-region.
+            for (var i = lo; i <= hi; i++)
+            {
+                if (calleeSkip.Contains(i)) continue;
+                var instr = instrs[i];
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:
+                        if (!TryConstAsLong(instr.Constant, out _))
+                            return Decline($"non-integer const at {i}");
+                        break;
+                    case JitOpKind.Binary:
+                        if (!IsLongLoopBinary(instr.Op)) return Decline($"binary {(char)instr.Op} at {i}");
+                        break;
+                    case JitOpKind.Call:
+                        if (!inlineAt.ContainsKey(i)) return Decline($"non-inlined call at {i}");
+                        break;
+                    case JitOpKind.Jump:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                        if (instr.IntValue < lo || instr.IntValue > hi) return Decline($"jump escapes [{lo},{hi}] at {i}->{instr.IntValue}");
+                        break;
+                    case JitOpKind.PushIntLiteral:
+                    case JitOpKind.PushVar:
+                    case JitOpKind.SetVar:
+                    case JitOpKind.SetVarPop:
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:
+                    case JitOpKind.Not:
+                    case JitOpKind.Pop:
+                    case JitOpKind.Return:
+                        break;
+                    case JitOpKind.PushUndefined:
+                        // Only valid as the operand of a fall-through `return undefined`
+                        // (anywhere else it would put a non-long on the long stack).
+                        if (i >= hi || instrs[i + 1].Kind != JitOpKind.Return)
+                            return Decline($"PushUndefined not before Return at {i}");
+                        break;
+                    default:
+                        return Decline($"unsupported {instr.Kind} at {i}");
+                }
+            }
+
+            // ── emit ──────────────────────────────────────────────────────────────
+            var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
+            var il = b.IL;
+            var svTemp = b.DeclareLocal(typeof(ScriptVar));
+            var fallbackIndex = b.AddData(fallback);
+            var strict = chunk.IsStrict;
+
+            var regs = new Dictionary<string, LocalBuilder>();
+            foreach (var name in regsOrder) regs[name] = b.DeclareLocal(typeof(long));
+
+            var maxArgc = 0;
+            foreach (var kv in inlineAt)
+                if (kv.Value.c.Parameters.Count > maxArgc) maxArgc = kv.Value.c.Parameters.Count;
+            var argTemps = new LocalBuilder[maxArgc];
+            for (var j = 0; j < maxArgc; j++) argTemps[j] = b.DeclareLocal(typeof(long));
+
+            var miss = il.DefineLabel();
+
+            // Entry guard: load every register from the environment; any non-integer
+            // hands off to the conservative OSR entry.
+            foreach (var name in regsOrder)
+                b.EmitResolveGuardedLong(name, regs[name], svTemp, miss);
+
+            var labels = new Dictionary<int, Label>();
+            for (var i = lo; i <= hi; i++)
+            {
+                var instr = instrs[i];
+                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                    labels[instr.IntValue] = il.DefineLabel();
+            }
+            if (!labels.TryGetValue(resumeIndex, out var resumeLabel)) return null;
+            il.Emit(OpCodes.Br, resumeLabel);
+
+            for (var i = lo; i <= hi; i++)
+            {
+                if (labels.TryGetValue(i, out var here)) il.MarkLabel(here);
+                if (calleeSkip.Contains(i)) continue; // callee push elided
+
+                var instr = instrs[i];
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:      TryConstAsLong(instr.Constant, out var cv); b.EmitLdcI8(cv); break;
+                    case JitOpKind.PushIntLiteral: b.EmitLdcI8(instr.IntValue); break;
+                    case JitOpKind.PushVar:        b.EmitLoadLocal(regs[instr.Name]); break;
+                    case JitOpKind.SetVar:         il.Emit(OpCodes.Dup); b.EmitStoreLocal(regs[instr.Name]); break;
+                    case JitOpKind.SetVarPop:      b.EmitStoreLocal(regs[instr.Name]); break;
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:   break;
+                    case JitOpKind.Pop:            il.Emit(OpCodes.Pop); break;
+                    case JitOpKind.Not:            il.Emit(OpCodes.Ldc_I8, 0L); il.Emit(OpCodes.Ceq); b.EmitConvI8(); break;
+                    case JitOpKind.Binary:         EmitLongBinary(b, instr.Op); break;
+                    case JitOpKind.Jump:           il.Emit(OpCodes.Br, labels[instr.IntValue]); break;
+                    case JitOpKind.JumpIfFalse:    il.Emit(OpCodes.Brfalse, labels[instr.IntValue]); break;
+                    case JitOpKind.JumpIfTrue:     il.Emit(OpCodes.Brtrue, labels[instr.IntValue]); break;
+                    case JitOpKind.Call:           EmitInlinedLongCall(b, inlineAt[i].c, inlineAt[i].body, argTemps); break;
+                    case JitOpKind.PushUndefined:  break; // operand of a fall-through return undefined; see Return
+                    case JitOpKind.Return:
+                        // Write registers back so globals/outer locals observe the final
+                        // value, then produce the result. A `return undefined`
+                        // (PushUndefined immediately before) has no long on the stack.
+                        foreach (var name in regsOrder) b.EmitWriteBackLong(name, regs[name], strict);
+                        if (i > lo && instrs[i - 1].Kind == JitOpKind.PushUndefined)
+                            b.EmitPushUndefined();
+                        else
+                            b.EmitBoxLong();
+                        il.Emit(OpCodes.Ret);
+                        break;
+                }
+            }
+
+            // Fall-through past the region (dead when the region ends in Return, but
+            // keeps the IL well-formed): write back and return undefined.
+            foreach (var name in regsOrder) b.EmitWriteBackLong(name, regs[name], strict);
+            b.EmitPushUndefined();
+            il.Emit(OpCodes.Ret);
+
+            // Type miss: defer to the conservative OSR entry (reads fresh from env).
+            il.MarkLabel(miss);
+            b.EmitInvokeJitDelegate(fallbackIndex);
+            il.Emit(OpCodes.Ret);
+
+            OsrLongLoopCompilations++;
+            return b.Finish(appendRet: false);
+        }
+
+        // A constant usable as a raw int64 in the long-loop tier: an int constant, or a
+        // double constant whose value is an exact integer within the 2^53 range where
+        // doubles represent integers precisely (so treating it as long can't diverge
+        // from the interpreter's numeric result). e.g. the loop bound 1e7.
+        private static bool TryConstAsLong(ConstantValue c, out long value)
+        {
+            if (c.Kind == ConstantKind.Int) { value = c.IntValue; return true; }
+            if (c.Kind == ConstantKind.Double)
+            {
+                var d = c.DoubleValue;
+                if (!double.IsNaN(d) && !double.IsInfinity(d) &&
+                    d == System.Math.Floor(d) && System.Math.Abs(d) < 9007199254740992.0)
+                {
+                    value = (long)d;
+                    return true;
+                }
+            }
+            value = 0;
+            return false;
+        }
+
+        // Binary operators the long-loop tier handles: +,-,* (unchecked int64, matching
+        // VirtualMachine.IntBinary which also wraps via IntOrDouble) and comparisons
+        // (0/1 results). Division, modulo, bitwise and shifts can yield doubles or
+        // 32-bit-coerced results that don't stay in long flow, so they are declined.
+        private static bool IsLongLoopBinary(ScriptLex.LexTypes op) => (char)op switch
+        {
+            '+' or '-' or '*' => true,
+            _ => IsIntComparison(op),
+        };
+
+        // Raw int64 binary op over two longs on the IL stack. Comparisons emit a 0/1
+        // value (i4 then conv.i8) matching IntBinary's boolean results.
+        private static void EmitLongBinary(DynamicMethodBuilder b, ScriptLex.LexTypes op)
+        {
+            var il = b.IL;
+            switch ((char)op)
+            {
+                case '+': il.Emit(OpCodes.Add); return;
+                case '-': il.Emit(OpCodes.Sub); return;
+                case '*': il.Emit(OpCodes.Mul); return;
+            }
+            switch (op)
+            {
+                case (ScriptLex.LexTypes)'<':   il.Emit(OpCodes.Clt); b.EmitConvI8(); break;
+                case (ScriptLex.LexTypes)'>':   il.Emit(OpCodes.Cgt); b.EmitConvI8(); break;
+                case ScriptLex.LexTypes.LEqual: il.Emit(OpCodes.Cgt); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); b.EmitConvI8(); break;
+                case ScriptLex.LexTypes.GEqual: il.Emit(OpCodes.Clt); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); b.EmitConvI8(); break;
+                case ScriptLex.LexTypes.Equal:  il.Emit(OpCodes.Ceq); b.EmitConvI8(); break;
+                case ScriptLex.LexTypes.NEqual: il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); b.EmitConvI8(); break;
+            }
+        }
+
+        // Splice a pure-int param-only leaf callee inline, in long form. The arguments
+        // are already on the IL stack as longs (the callee push was elided); pop them
+        // into per-parameter temps, then emit the body reading params from those temps.
+        private static void EmitInlinedLongCall(DynamicMethodBuilder b, Chunk calleeChunk,
+                                                List<JitInstruction> body, LocalBuilder[] argTemps)
+        {
+            var il = b.IL;
+            var argc = calleeChunk.Parameters.Count;
+            for (var j = argc - 1; j >= 0; j--) b.EmitStoreLocal(argTemps[j]);
+
+            var labels = new Dictionary<int, Label>();
+            foreach (var instr in body)
+                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                    labels[instr.IntValue] = il.DefineLabel();
+            var end = il.DefineLabel();
+
+            for (var i = 0; i < body.Count; i++)
+            {
+                if (labels.TryGetValue(i, out var here)) il.MarkLabel(here);
+                var instr = body[i];
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:      b.EmitLdcI8(instr.Constant.IntValue); break;
+                    case JitOpKind.PushIntLiteral: b.EmitLdcI8(instr.IntValue); break;
+                    case JitOpKind.PushVar:        b.EmitLoadLocal(argTemps[calleeChunk.Parameters.IndexOf(instr.Name)]); break;
+                    case JitOpKind.Not:            il.Emit(OpCodes.Ldc_I8, 0L); il.Emit(OpCodes.Ceq); b.EmitConvI8(); break;
+                    case JitOpKind.Binary:         EmitLongBinary(b, instr.Op); break;
+                    case JitOpKind.Jump:           il.Emit(OpCodes.Br, labels[instr.IntValue]); break;
+                    case JitOpKind.JumpIfFalse:    il.Emit(OpCodes.Brfalse, labels[instr.IntValue]); break;
+                    case JitOpKind.JumpIfTrue:     il.Emit(OpCodes.Brtrue, labels[instr.IntValue]); break;
+                    case JitOpKind.Return:         il.Emit(OpCodes.Br, end); break;
+                }
+            }
+            il.MarkLabel(end);
+        }
+
+        // Instruction indices reachable from <paramref name="start"/> by fall-through
+        // and any jump target — used to bound the OSR loop region.
+        private static HashSet<int> ReachableFrom(List<JitInstruction> instrs, int start)
+        {
+            var seen = new HashSet<int>();
+            var work = new Stack<int>();
+            work.Push(start);
+            while (work.Count > 0)
+            {
+                var i = work.Pop();
+                if (i < 0 || i >= instrs.Count || !seen.Add(i)) continue;
+                var instr = instrs[i];
+                switch (instr.Kind)
+                {
+                    case JitOpKind.Return:
+                        break; // terminal
+                    case JitOpKind.Jump:
+                        work.Push(instr.IntValue);
+                        break;
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                    case JitOpKind.JumpIfFalseOrPop:
+                    case JitOpKind.JumpIfTrueOrPop:
+                    case JitOpKind.JumpIfNullOrUndefined:
+                    case JitOpKind.JumpIfDefined:
+                        work.Push(instr.IntValue);
+                        work.Push(i + 1);
+                        break;
+                    default:
+                        work.Push(i + 1);
+                        break;
+                }
+            }
+            return seen;
+        }
+
+        // For each Call in [lo, hi], find the instruction that produced its callee and,
+        // when the callee is the baked monomorphic callee and an inline-eligible
+        // pure-int param-only leaf, record the inline body and mark the callee push for
+        // elision. Returns false (decline) if any call cannot be inlined this way.
+        private static bool AnalyzeLongLoopCalls(List<JitInstruction> instrs, int lo, int hi, int[] depth,
+                                                 HashSet<int> calleeSkip,
+                                                 Dictionary<int, (Chunk c, List<JitInstruction> body)> inlineAt)
+        {
+            var prod = new List<int>(); // operand-stack of producer instruction indices
+            for (var i = lo; i <= hi; i++)
+            {
+                // Resync at merge points: a structured back-edge / branch target has an
+                // empty operand stack, so any partial producer state is stale.
+                if (i >= 0 && i < depth.Length && depth[i] == 0) prod.Clear();
+
+                var instr = instrs[i];
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:
+                    case JitOpKind.PushIntLiteral:
+                    case JitOpKind.PushVar:
+                    case JitOpKind.PushNull:
+                    case JitOpKind.PushUndefined:
+                        prod.Add(i);
+                        break;
+                    case JitOpKind.Not:
+                        // replaces top
+                        if (prod.Count > 0) { prod[prod.Count - 1] = i; }
+                        break;
+                    case JitOpKind.Binary:
+                        if (prod.Count >= 2) { prod.RemoveAt(prod.Count - 1); prod[prod.Count - 1] = i; }
+                        break;
+                    case JitOpKind.SetVar:
+                        if (prod.Count > 0) prod[prod.Count - 1] = i; // pops value, pushes value
+                        break;
+                    case JitOpKind.SetVarPop:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                    case JitOpKind.Return:
+                    case JitOpKind.Pop:
+                        if (prod.Count > 0) prod.RemoveAt(prod.Count - 1);
+                        break;
+                    case JitOpKind.Call:
+                    {
+                        var argc = instr.IntValue;
+                        if (prod.Count < argc + 1) return false; // shape we don't model
+                        var calleeProducer = prod[prod.Count - argc - 1];
+                        // Callee must be a plain PushVar of the baked monomorphic callee.
+                        if (instr.MonoCallee == null || instr.MonoCallee1 != null) return false;
+                        var producerInstr = instrs[calleeProducer];
+                        if (producerInstr.Kind != JitOpKind.PushVar) return false;
+                        if (!TryGetIntLeafInlineBody(instr.MonoCallee, argc, out var calleeChunk, out var body))
+                            return false;
+                        inlineAt[i] = (calleeChunk, body);
+                        calleeSkip.Add(calleeProducer);
+                        // Collapse the call's operands to a single produced value.
+                        for (var k = 0; k < argc + 1; k++) prod.RemoveAt(prod.Count - 1);
+                        prod.Add(i);
+                        break;
+                    }
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:
+                    case JitOpKind.Jump:
+                        break; // no operand-stack effect
+                    default:
+                        return false; // unsupported in a long-loop region with calls
+                }
+            }
+            return true;
+        }
+
+        // A callee is long-inline-eligible when it is a small leaf that reads ONLY its
+        // own parameters (no free variables — so it cannot observe the deliberately
+        // stale environment), uses only int constants and long-safe arithmetic /
+        // comparisons, and returns. No property reads, calls, closures, or non-int
+        // constants. May contain control flow.
+        private static bool TryGetIntLeafInlineBody(ScriptVar callee, int argc, out Chunk calleeChunk,
+                                                    out List<JitInstruction> body)
+        {
+            calleeChunk = null;
+            body = null;
+
+            if (callee == null || !callee.IsFunction || callee.IsNative) return false;
+            if (callee.GetData() is not VmFunction vmfn) return false;
+
+            var c = vmfn.Body;
+            if (c.MakesClosure || c.IsGenerator || c.IsAsync) return false;
+            if (c.RestParamIndex != -1 || c.Parameters.Count != argc) return false;
+
+            var instrs = JitDecoder.Decode(c);
+            if (instrs == null || instrs.Count == 0 || instrs.Count > InlineBudget) return false;
+            if (instrs[instrs.Count - 1].Kind != JitOpKind.Return) return false;
+
+            foreach (var instr in instrs)
+            {
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushIntLiteral:
+                    case JitOpKind.Not:
+                    case JitOpKind.Jump:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                    case JitOpKind.Return:
+                        break;
+                    case JitOpKind.PushConst:
+                        if (instr.Constant.Kind != ConstantKind.Int) return false;
+                        break;
+                    case JitOpKind.PushVar:
+                        if (!c.Parameters.Contains(instr.Name)) return false; // free var → reject
+                        break;
+                    case JitOpKind.Binary:
+                        if (!IsLongLoopBinary(instr.Op)) return false;
+                        break;
+                    default:
+                        return false;
+                }
+            }
+
+            if (!VerifyStackConsistency(instrs)) return false;
+
+            calleeChunk = c;
+            body = instrs;
+            return true;
         }
 
         private static JitDelegate CompileConservative(Chunk chunk, List<JitInstruction> instrs,

@@ -123,6 +123,7 @@ namespace DScript.Jit
             "Deoptimize", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly ConstructorInfo DeoptFrameCtor = typeof(DeoptFrame).GetConstructor(
             new[] { typeof(Chunk), typeof(ScriptVar[]), typeof(Environment) });
+        private static readonly MethodInfo JitDelegateInvoke = typeof(JitDelegate).GetMethod("Invoke");
 
         private static MethodInfo Prop(
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type t,
@@ -614,6 +615,67 @@ namespace DScript.Jit
             EmitLoadLocal(svTemp);
             IL.EmitCall(OpCodes.Callvirt, IntGetter, null);
             EmitStoreLocal(intLocal);                    // []
+        }
+
+        // ── speculative unboxed-LONG loop tier (used by OSR) ─────────────────────
+
+        /// <summary>
+        /// Entry guard for the long-register loop tier: resolve <paramref name="name"/>,
+        /// branch to <paramref name="miss"/> if it is not an integer (int32 or LargeInt),
+        /// otherwise cache its 64-bit <c>.Long</c> value into <paramref name="longLocal"/>.
+        /// The IL stack is empty when the branch to <paramref name="miss"/> is taken.
+        /// </summary>
+        public void EmitResolveGuardedLong(string name, LocalBuilder longLocal, LocalBuilder svTemp, Label miss)
+        {
+            EmitLoadEnv();
+            EmitLoadData(AddData(name), typeof(string));
+            IL.EmitCall(OpCodes.Call, JitGetVarMethod, null);
+            EmitStoreLocal(svTemp);
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IsAnyIntGetter, null);
+            IL.Emit(OpCodes.Brfalse, miss);
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, LongGetter, null);
+            EmitStoreLocal(longLocal);
+        }
+
+        /// <summary>
+        /// Write a long register back to its variable binding in the environment:
+        /// <c>JitSetVar(env, name, FromLong(reg), strict)</c>. Emitted at every exit of
+        /// the long-loop region so globals/outer locals observe the final value.
+        /// </summary>
+        public void EmitWriteBackLong(string name, LocalBuilder longLocal, bool strict)
+        {
+            EmitLoadEnv();
+            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadLocal(longLocal);
+            IL.EmitCall(OpCodes.Call, FromLongMethod, null);   // box long -> ScriptVar
+            IL.Emit(strict ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+            IL.EmitCall(OpCodes.Call, JitSetVarMethod, null);
+        }
+
+        /// <summary>Push a raw <c>long</c> constant.</summary>
+        public void EmitLdcI8(long value) => IL.Emit(OpCodes.Ldc_I8, value);
+
+        /// <summary>Sign-extend the <c>int</c> on top of the stack to <c>long</c>.</summary>
+        public void EmitConvI8() => IL.Emit(OpCodes.Conv_I8);
+
+        /// <summary>Box the <c>long</c> on top of the stack into a <see cref="ScriptVar"/> via <c>FromLong</c>.</summary>
+        public void EmitBoxLong() => IL.EmitCall(OpCodes.Call, FromLongMethod, null);
+
+        /// <summary>
+        /// Invoke a baked fallback <see cref="JitDelegate"/> with this method's own
+        /// <c>(vm, args, env)</c> arguments and leave its result on the stack — used by
+        /// the long-loop tier's entry guard to defer to the conservative OSR entry on a
+        /// type miss.
+        /// </summary>
+        public void EmitInvokeJitDelegate(int dataIndex)
+        {
+            EmitLoadData(dataIndex, typeof(JitDelegate));
+            EmitLoadVm();
+            EmitLoadArgs();
+            EmitLoadEnv();
+            IL.EmitCall(OpCodes.Callvirt, JitDelegateInvoke, null);
         }
 
         /// <summary>
