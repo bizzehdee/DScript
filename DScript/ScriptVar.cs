@@ -795,8 +795,7 @@ namespace DScript
             {
                 return "number";
             }
-            if (IsObject) return "object";
-            if (IsArray) return "array";
+            if (IsObject || IsArray) return "object";
             if (IsFunction) return "function";
             if (IsString) return "string";
             if (IsNull) return "null";
