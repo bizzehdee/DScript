@@ -184,12 +184,14 @@ static int RunRepl()
             if (!isDeclaration)
             {
                 var result = engine.EvalComplex(line);
+                ScriptEngine.DrainMicroTasks();
                 if (result?.Var != null && !result.Var.IsUndefined)
                     Console.WriteLine(result.Var.GetParsableString());
             }
             else
             {
                 engine.Execute(line);
+                ScriptEngine.DrainMicroTasks();
             }
         }
         catch (Exception ex)

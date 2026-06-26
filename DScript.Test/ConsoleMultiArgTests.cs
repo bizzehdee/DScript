@@ -26,7 +26,7 @@ namespace DScript.Test
 
         [Test]
         public void LogTwoArgs()
-            => Assert.That(Capture("console.log('Checksum:', 12345);").TrimEnd(), Is.EqualTo("\"Checksum:\" 12345"));
+            => Assert.That(Capture("console.log('Checksum:', 12345);").TrimEnd(), Is.EqualTo("Checksum: 12345"));
 
         [Test]
         public void LogThreeArgs()
@@ -34,7 +34,7 @@ namespace DScript.Test
 
         [Test]
         public void LogSingleArg_Unchanged()
-            => Assert.That(Capture("console.log('single');").TrimEnd(), Is.EqualTo("\"single\""));
+            => Assert.That(Capture("console.log('single');").TrimEnd(), Is.EqualTo("single"));
 
         [Test]
         public void LogNoArgs_PrintsBlankLine()
@@ -42,11 +42,11 @@ namespace DScript.Test
 
         [Test]
         public void LogMixedTypes()
-            => Assert.That(Capture("console.log('x', 1, 2.5);").TrimEnd(), Is.EqualTo("\"x\" 1 2.5"));
+            => Assert.That(Capture("console.log('x', 1, 2.5);").TrimEnd(), Is.EqualTo("x 1 2.5"));
 
         [Test]
         public void InfoPrefixWithMultipleArgs()
-            => Assert.That(Capture("console.info('a', 'b');").TrimEnd(), Is.EqualTo("[INFO] \"a\" \"b\""));
+            => Assert.That(Capture("console.info('a', 'b');").TrimEnd(), Is.EqualTo("[INFO] a b"));
 
         private static string CaptureErr(string code)
         {
@@ -61,6 +61,6 @@ namespace DScript.Test
 
         [Test]
         public void ErrorMultipleArgs()
-            => Assert.That(CaptureErr("console.error('oops', 42);").TrimEnd(), Is.EqualTo("\"oops\" 42"));
+            => Assert.That(CaptureErr("console.error('oops', 42);").TrimEnd(), Is.EqualTo("oops 42"));
     }
 }

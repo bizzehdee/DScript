@@ -86,8 +86,8 @@ namespace DScript.Test
         public void ConsoleLog_WritesValueToStdOut()
         {
             RunScript("console.log(\"hello\");");
-            // GetParsableString preserves JS string quoting, so check for content.
-            Assert.That(StdOut, Does.Contain("hello"));
+            // Strings log as their raw value — no surrounding JS quotes.
+            Assert.That(StdOut, Is.EqualTo("hello"));
         }
 
         [Test]

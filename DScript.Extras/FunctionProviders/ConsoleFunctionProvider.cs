@@ -53,19 +53,25 @@ namespace DScript.Extras.FunctionProviders
 
         private static string Indent() => new string(' ', _indentLevel * 2);
 
+        // Format a single console.log argument: strings print as their raw value
+        // (no quotes), everything else uses GetParsableString().  This matches
+        // Node.js behaviour where console.log("hi") outputs  hi  not  "hi".
+        private static string FormatValue(ScriptVar v)
+            => v.IsString ? v.String : v.GetParsableString();
+
         // Join all variadic arguments with a single space, matching console.log's
         // multi-argument behaviour. `args` is the rest-parameter array.
         private static string FormatArgs(ScriptVar args)
         {
             var len = args.GetArrayLength();
             if (len == 0) return string.Empty;
-            if (len == 1) return args.GetArrayIndex(0).GetParsableString();
+            if (len == 1) return FormatValue(args.GetArrayIndex(0));
 
             var sb = new StringBuilder();
             for (var i = 0; i < len; i++)
             {
                 if (i > 0) sb.Append(' ');
-                sb.Append(args.GetArrayIndex(i).GetParsableString());
+                sb.Append(FormatValue(args.GetArrayIndex(i)));
             }
             return sb.ToString();
         }
