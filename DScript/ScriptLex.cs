@@ -748,13 +748,22 @@ namespace DScript
                             if (CurrentChar == '/')
                             {
                                 var regexStr = tokenBuilder.ToString().Substring(1);
-                                try
+
+                                // Skip ECMAScript lex-time validation for patterns that contain
+                                // Unicode property escapes (\p{...} / \P{...}).  ECMAScript mode
+                                // rejects them, but the runtime translates them via
+                                // TranslateUnicodeProperties() when the /u flag is present, so
+                                // deferring to runtime is correct.
+                                if (!regexStr.Contains(@"\p{") && !regexStr.Contains(@"\P{"))
                                 {
-                                    _ = new Regex(regexStr, RegexOptions.ECMAScript);
-                                }
-                                catch (Exception ex)
-                                {
-                                    throw new ScriptException("Invalid RegEx", ex);
+                                    try
+                                    {
+                                        _ = new Regex(regexStr, RegexOptions.ECMAScript);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        throw new ScriptException("Invalid RegEx", ex);
+                                    }
                                 }
 
                                 do
