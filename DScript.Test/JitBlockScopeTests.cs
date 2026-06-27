@@ -87,14 +87,18 @@ namespace DScript.Test
         }
 
         [Test]
-        public void ClosureBackendDeclinesBlocks()
+        public void ClosureBackendCompilesBlocks()
         {
+            // The closure back-end threads the current environment through its block
+            // driver, so block scopes (and shadowing) now compile and must match the
+            // interpreter: the inner `let r` shadow must not leak into the outer `r`.
             var src =
                 "function f(x){ let r = x; { let r = x + 100; } return r; }\n" +
                 "var r=0; var i=0; while(i<1200){ r = f(7); i = i + 1; }\n__result__ = r;";
             var jit = Run(src, new ClosureThreadedJitCompiler());
-            Assert.That(jit.f.JitState, Is.EqualTo(Chunk.JitStatus.Failed), "closure declines block scopes");
+            Assert.That(jit.f.JitState, Is.EqualTo(Chunk.JitStatus.Compiled), "closure compiles block scopes");
             Assert.That(jit.result, Is.EqualTo(Run(src, null).result));
+            Assert.That(jit.result, Is.EqualTo("7"));
         }
     }
 }

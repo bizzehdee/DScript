@@ -3459,6 +3459,10 @@ namespace DScript.Vm
         internal static Environment JitEnterBlock(Environment env)
             => new(ScriptVar.CreateObject(), env, isBlockScope: true);
 
+        // Leave a block scope for JIT-compiled code, mirroring LeaveBlock: restore the
+        // parent environment saved by the matching JitEnterBlock.
+        internal static Environment JitLeaveBlock(Environment env) => env.Parent;
+
         // Variable declarations for JIT-compiled code, mirroring the Declare* opcodes.
         internal static void JitDeclareVar(Environment env, string name)
         {

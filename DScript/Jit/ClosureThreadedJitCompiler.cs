@@ -40,7 +40,7 @@ namespace DScript.Jit
     /// only the lowering differs. Host code selects it via
     /// <c>JitRegistry.Register(new ClosureThreadedJitCompiler())</c>.
     /// </summary>
-    public sealed class ClosureThreadedJitCompiler : IJitCompiler
+    public sealed class ClosureThreadedJitCompiler : IJitCompiler, IOsrCompiler
     {
         public JitDelegate Compile(Chunk chunk)
         {
@@ -48,26 +48,144 @@ namespace DScript.Jit
             if (instrs == null)
                 return null; // declined by the shared front-end
 
-            // The closure back-end models expressions, not arbitrary control flow;
-            // decline any chunk containing branches (handled by the Reflection.Emit
-            // back-end only).
+            var blocks = BuildBlocks(instrs, chunk.IsStrict, out _);
+            if (blocks == null)
+                return null; // unsupported control flow / op — VM keeps interpreting
+
+            return RunFromBlock(blocks, 0);
+        }
+
+        // On-stack replacement: compile the chunk and resume execution at the basic
+        // block whose leader is <paramref name="resumeOffset"/> (a loop header). Live
+        // locals flow through the shared <c>env</c>; the operand stack is empty at a
+        // structured back-edge, so nothing else needs migrating.
+        public JitDelegate CompileOsr(Chunk chunk, int resumeOffset)
+        {
+            var instrs = JitDecoder.Decode(chunk);
+            if (instrs == null)
+                return null;
+
+            var resumeIdx = JitDecoder.OffsetToInstructionIndex(chunk, resumeOffset);
+            if (resumeIdx < 0)
+                return null;
+
+            var blocks = BuildBlocks(instrs, chunk.IsStrict, out var idxToBlock);
+            if (blocks == null)
+                return null;
+
+            // The resume point must coincide with a block leader (loop headers are
+            // jump targets, so they always are — but decline defensively otherwise).
+            if (!idxToBlock.TryGetValue(resumeIdx, out var startBlock))
+                return null;
+
+            return RunFromBlock(blocks, startBlock);
+        }
+
+        // Partition the decoded instruction stream into basic blocks. Block leaders
+        // are index 0, every jump target, and every instruction following a branch or
+        // return. Each block is compiled with the shared expression builder
+        // (<see cref="CompileBlock"/>); the operand stack is empty at every structured
+        // block boundary, so blocks compose without migrating stack state. Returns
+        // null to decline the whole chunk (unsupported op, or a non-empty operand
+        // stack across a boundary — e.g. short-circuit operators).
+        private static Block[] BuildBlocks(List<JitInstruction> instrs, bool strict,
+                                           out Dictionary<int, int> idxToBlock)
+        {
+            idxToBlock = null;
+            var n = instrs.Count;
+            if (n == 0) return null;
+
+            // Decline control-flow / opcodes the block model does not yet handle:
+            // short-circuit and optional-chaining jumps keep a value live across the
+            // boundary; method calls need receiver threading the block model lacks.
+            // (Block scopes — EnterBlock/LeaveBlock — are supported via the driver's
+            // threaded current environment.)
             foreach (var instr in instrs)
-                if (instr.Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue
-                    or JitOpKind.JumpIfFalseOrPop or JitOpKind.JumpIfTrueOrPop
+                if (instr.Kind is JitOpKind.JumpIfFalseOrPop or JitOpKind.JumpIfTrueOrPop
                     or JitOpKind.JumpIfNullOrUndefined or JitOpKind.JumpIfDefined
-                    or JitOpKind.GetPropMethod or JitOpKind.GetPropCall0 or JitOpKind.CallMethod
-                    or JitOpKind.EnterBlock or JitOpKind.LeaveBlock)
+                    or JitOpKind.GetPropMethod or JitOpKind.GetPropCall0 or JitOpKind.CallMethod)
                     return null;
 
-            // Build a tree of value-producing nodes. Expression statements (Pop) are
-            // collected as side-effecting nodes to run, in order, before the result.
-            var strict = chunk.IsStrict;
-            var stack = new Stack<JitDelegate>();
-            var effects = new List<JitDelegate>();
-            JitDelegate result = null;
-
-            foreach (var instr in instrs)
+            // 1. Mark leaders.
+            var isLeader = new bool[n];
+            isLeader[0] = true;
+            for (var i = 0; i < n; i++)
             {
+                var k = instrs[i].Kind;
+                if (k is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                {
+                    var target = instrs[i].IntValue;
+                    if (target < 0 || target >= n) return null;
+                    isLeader[target] = true;
+                    if (i + 1 < n) isLeader[i + 1] = true;
+                }
+                else if (k == JitOpKind.Return && i + 1 < n)
+                {
+                    isLeader[i + 1] = true;
+                }
+            }
+
+            // 2. Number the blocks and map each leader index to its block index.
+            var map = new Dictionary<int, int>();
+            var starts = new List<int>();
+            for (var i = 0; i < n; i++)
+                if (isLeader[i]) { map[i] = starts.Count; starts.Add(i); }
+
+            // 3. Compile each block.
+            var blocks = new Block[starts.Count];
+            for (var b = 0; b < starts.Count; b++)
+            {
+                var start = starts[b];
+                var end = b + 1 < starts.Count ? starts[b + 1] : n;
+                var blk = CompileBlock(instrs, start, end, strict, map);
+                if (blk == null) return null;
+                blocks[b] = blk;
+            }
+
+            idxToBlock = map;
+            return blocks;
+        }
+
+        // Compile one basic block [start, end). All but the terminating instruction
+        // are folded into the shared expression builder; the terminator (Jump /
+        // JumpIfFalse / JumpIfTrue / Return) decides the successor block(s). The
+        // operand stack must be empty at a Jump/fallthrough boundary and hold exactly
+        // the branch condition / return value at a conditional/return boundary —
+        // anything else declines the chunk.
+        private static Block CompileBlock(List<JitInstruction> instrs, int start, int end,
+                                          bool strict, Dictionary<int, int> idx2blk)
+        {
+            var stack = new Stack<JitDelegate>();
+            var body = new List<BodyStep>();
+
+            for (var i = start; i < end; i++)
+            {
+                var instr = instrs[i];
+
+                // Terminators end the block.
+                if (instr.Kind == JitOpKind.Jump)
+                {
+                    if (stack.Count != 0) return null;
+                    return Block.Goto(body.ToArray(), idx2blk[instr.IntValue]);
+                }
+                if (instr.Kind == JitOpKind.JumpIfFalse)
+                {
+                    if (stack.Count != 1) return null;
+                    return Block.Branch(body.ToArray(), stack.Pop(), TermKind.BranchFalse,
+                                        idx2blk[instr.IntValue], idx2blk[i + 1]);
+                }
+                if (instr.Kind == JitOpKind.JumpIfTrue)
+                {
+                    if (stack.Count != 1) return null;
+                    return Block.Branch(body.ToArray(), stack.Pop(), TermKind.BranchTrue,
+                                        idx2blk[instr.IntValue], idx2blk[i + 1]);
+                }
+                if (instr.Kind == JitOpKind.Return)
+                {
+                    if (stack.Count != 1) return null;
+                    return Block.Ret(body.ToArray(), stack.Pop());
+                }
+
                 switch (instr.Kind)
                 {
                     case JitOpKind.PushConst:      stack.Push(ConstNode(instr.Constant)); break;
@@ -150,7 +268,9 @@ namespace DScript.Jit
                         break;
                     }
                     case JitOpKind.SetVar:        stack.Push(SetVarNode(instr.Name, stack.Pop(), strict)); break;
-                    case JitOpKind.SetVarPop:     effects.Add(SetVarNode(instr.Name, stack.Pop(), strict)); break;
+                    case JitOpKind.SetVarPop:     body.Add(Eff(SetVarNode(instr.Name, stack.Pop(), strict))); break;
+                    case JitOpKind.EnterBlock:    body.Add(EnterBlockStep); break;
+                    case JitOpKind.LeaveBlock:    body.Add(LeaveBlockStep); break;
                     case JitOpKind.SetProp:
                     {
                         var value = stack.Pop();
@@ -162,7 +282,7 @@ namespace DScript.Jit
                     {
                         var value = stack.Pop();
                         var obj = stack.Pop();
-                        effects.Add(SetPropNode(obj, instr.Name, value, strict));
+                        body.Add(Eff(SetPropNode(obj, instr.Name, value, strict)));
                         break;
                     }
                     case JitOpKind.NewObject:     stack.Push(NewObjectNode()); break;
@@ -182,15 +302,95 @@ namespace DScript.Jit
                         stack.Push(InitElemNode(arr, value, instr.IntValue));
                         break;
                     }
-                    case JitOpKind.DeclareVar:    effects.Add(DeclareNode(instr.Name, JitDeclareKind.Var)); break;
-                    case JitOpKind.DeclareLocal:  effects.Add(DeclareNode(instr.Name, JitDeclareKind.Local)); break;
-                    case JitOpKind.DeclareConst:  effects.Add(DeclareNode(instr.Name, JitDeclareKind.Const)); break;
-                    case JitOpKind.Pop:     effects.Add(stack.Pop()); break;
-                    case JitOpKind.Return:  result = stack.Pop(); break;
+                    case JitOpKind.DeclareVar:    body.Add(Eff(DeclareNode(instr.Name, JitDeclareKind.Var))); break;
+                    case JitOpKind.DeclareLocal:  body.Add(Eff(DeclareNode(instr.Name, JitDeclareKind.Local))); break;
+                    case JitOpKind.DeclareConst:  body.Add(Eff(DeclareNode(instr.Name, JitDeclareKind.Const))); break;
+                    case JitOpKind.Pop:     body.Add(Eff(stack.Pop())); break;
                 }
             }
 
-            return FinishNode(effects.ToArray(), result);
+            // Fell off the end without a terminator: fall through to the next block.
+            // (Well-formed chunks end in Return, so this only happens for a block that
+            // was split purely because the following instruction is a jump target.)
+            if (stack.Count != 0 || end >= instrs.Count) return null;
+            return Block.Fall(body.ToArray(), idx2blk[end]);
+        }
+
+        // One step of a block body: a side-effecting expression node or a block-scope
+        // env change (EnterBlock/LeaveBlock). The current environment is threaded by
+        // ref so EnterBlock/LeaveBlock can rebind it for every following step and block.
+        private delegate void BodyStep(VirtualMachine vm, ScriptVar[] args, ref Environment env);
+
+        // Wrap a value/effect node (which reads env by value) as a body step.
+        private static BodyStep Eff(JitDelegate node) =>
+            (VirtualMachine vm, ScriptVar[] args, ref Environment env) => node(vm, args, env);
+
+        // Block-scope steps: push a fresh child env / restore the parent.
+        private static readonly BodyStep EnterBlockStep =
+            (VirtualMachine vm, ScriptVar[] args, ref Environment env) => env = VirtualMachine.JitEnterBlock(env);
+
+        private static readonly BodyStep LeaveBlockStep =
+            (VirtualMachine vm, ScriptVar[] args, ref Environment env) => env = VirtualMachine.JitLeaveBlock(env);
+
+        // Drive the compiled basic blocks from <paramref name="startBlock"/> until a
+        // Return. Locals live in <c>env</c>, which is threaded across blocks so block
+        // scopes entered in one block stay in effect for later ones; the per-block
+        // operand stack is empty at entry, so a block's steps run, then its terminator
+        // picks the successor.
+        private static JitDelegate RunFromBlock(Block[] blocks, int startBlock) =>
+            (vm, args, env) =>
+            {
+                var curEnv = env;
+                var bb = startBlock;
+                while (true)
+                {
+                    var b = blocks[bb];
+                    var steps = b.Body;
+                    for (var i = 0; i < steps.Length; i++)
+                        steps[i](vm, args, ref curEnv);
+
+                    switch (b.Kind)
+                    {
+                        case TermKind.Return:
+                            return b.Value != null ? b.Value(vm, args, curEnv) : ScriptVar.CreateUndefined();
+                        case TermKind.Jump:
+                            bb = b.Target;
+                            break;
+                        case TermKind.BranchFalse:
+                            bb = b.Value(vm, args, curEnv).Bool ? b.Next : b.Target;
+                            break;
+                        default: // BranchTrue
+                            bb = b.Value(vm, args, curEnv).Bool ? b.Target : b.Next;
+                            break;
+                    }
+                }
+            };
+
+        // Terminator kinds for a basic block.
+        private enum TermKind { Jump, BranchFalse, BranchTrue, Return }
+
+        // A compiled basic block: body steps to run in order, then a terminator.
+        // <see cref="Value"/> is the branch condition (BranchFalse/True) or the
+        // returned value (Return); null for an unconditional Jump.
+        private sealed class Block
+        {
+            public BodyStep[] Body;
+            public JitDelegate Value;
+            public TermKind Kind;
+            public int Target; // taken successor / unconditional target
+            public int Next;   // not-taken successor (conditional branches only)
+
+            public static Block Goto(BodyStep[] body, int target) =>
+                new() { Body = body, Kind = TermKind.Jump, Target = target };
+
+            public static Block Fall(BodyStep[] body, int target) =>
+                new() { Body = body, Kind = TermKind.Jump, Target = target };
+
+            public static Block Branch(BodyStep[] body, JitDelegate cond, TermKind kind, int target, int next) =>
+                new() { Body = body, Value = cond, Kind = kind, Target = target, Next = next };
+
+            public static Block Ret(BodyStep[] body, JitDelegate value) =>
+                new() { Body = body, Value = value, Kind = TermKind.Return };
         }
 
         // Each factory captures only its own parameters, so closures built in a loop
@@ -329,14 +529,6 @@ namespace DScript.Jit
                 var a = arrNode(vm, args, env);
                 a.AppendArrayElement(valueNode(vm, args, env));
                 return a;
-            };
-
-        private static JitDelegate FinishNode(JitDelegate[] effects, JitDelegate result) =>
-            (vm, args, env) =>
-            {
-                for (var i = 0; i < effects.Length; i++)
-                    effects[i](vm, args, env);
-                return result != null ? result(vm, args, env) : ScriptVar.CreateUndefined();
             };
     }
 }
