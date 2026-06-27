@@ -48,7 +48,7 @@ namespace DScript.Jit
             if (instrs == null)
                 return null; // declined by the shared front-end
 
-            var blocks = BuildBlocks(instrs, chunk.IsStrict, out _);
+            var blocks = BuildBlocks(instrs, chunk.IsStrict, chunk, null, allowInline: true, out _);
             if (blocks == null)
                 return null; // unsupported control flow / op — VM keeps interpreting
 
@@ -69,7 +69,7 @@ namespace DScript.Jit
             if (resumeIdx < 0)
                 return null;
 
-            var blocks = BuildBlocks(instrs, chunk.IsStrict, out var idxToBlock);
+            var blocks = BuildBlocks(instrs, chunk.IsStrict, chunk, null, allowInline: true, out var idxToBlock);
             if (blocks == null)
                 return null;
 
@@ -88,7 +88,13 @@ namespace DScript.Jit
         // block boundary, so blocks compose without migrating stack state. Returns
         // null to decline the whole chunk (unsupported op, or a non-empty operand
         // stack across a boundary — e.g. short-circuit operators).
-        private static Block[] BuildBlocks(List<JitInstruction> instrs, bool strict,
+        // <paramref name="currentChunk"/> is the chunk being compiled (to bar inlining
+        // a self-recursive call); <paramref name="paramMap"/> maps parameter names to
+        // positional <c>args</c> slots when compiling an inlined callee body (null for a
+        // normal env-based compile); <paramref name="allowInline"/> permits inlining
+        // monomorphic calls (false inside an already-inlined body, bounding depth).
+        private static Block[] BuildBlocks(List<JitInstruction> instrs, bool strict, Chunk currentChunk,
+                                           Dictionary<string, int> paramMap, bool allowInline,
                                            out Dictionary<int, int> idxToBlock)
         {
             idxToBlock = null;
@@ -137,7 +143,7 @@ namespace DScript.Jit
             {
                 var start = starts[b];
                 var end = b + 1 < starts.Count ? starts[b + 1] : n;
-                var blk = CompileBlock(instrs, start, end, strict, map);
+                var blk = CompileBlock(instrs, start, end, strict, map, currentChunk, paramMap, allowInline);
                 if (blk == null) return null;
                 blocks[b] = blk;
             }
@@ -153,7 +159,8 @@ namespace DScript.Jit
         // the branch condition / return value at a conditional/return boundary —
         // anything else declines the chunk.
         private static Block CompileBlock(List<JitInstruction> instrs, int start, int end,
-                                          bool strict, Dictionary<int, int> idx2blk)
+                                          bool strict, Dictionary<int, int> idx2blk, Chunk currentChunk,
+                                          Dictionary<string, int> paramMap, bool allowInline)
         {
             var stack = new Stack<JitDelegate>();
             var body = new List<BodyStep>();
@@ -190,7 +197,10 @@ namespace DScript.Jit
                 {
                     case JitOpKind.PushConst:      stack.Push(ConstNode(instr.Constant)); break;
                     case JitOpKind.PushIntLiteral: stack.Push(IntLitNode(instr.IntValue)); break;
-                    case JitOpKind.PushVar:        stack.Push(VarNode(instr.Name)); break;
+                    case JitOpKind.PushVar:
+                        stack.Push(paramMap != null && paramMap.TryGetValue(instr.Name, out var pvi)
+                            ? ParamNode(pvi) : VarNode(instr.Name));
+                        break;
                     case JitOpKind.GetProp:        stack.Push(GetPropNode(stack.Pop(), instr.Name)); break;
                     case JitOpKind.PushNull:       stack.Push(NullNode()); break;
                     case JitOpKind.PushUndefined:  stack.Push(UndefinedNode()); break;
@@ -234,7 +244,8 @@ namespace DScript.Jit
                         for (var j = instr.IntValue - 1; j >= 0; j--)
                             argNodes[j] = stack.Pop();
                         var callee = stack.Pop();
-                        stack.Push(CallNode(callee, argNodes));
+                        var inlined = allowInline ? TryInlineCall(instr, callee, argNodes, currentChunk) : null;
+                        stack.Push(inlined ?? CallNode(callee, argNodes));
                         break;
                     }
                     case JitOpKind.New:
@@ -267,8 +278,14 @@ namespace DScript.Jit
                         stack.Push(AppendElemNode(arr, value));
                         break;
                     }
-                    case JitOpKind.SetVar:        stack.Push(SetVarNode(instr.Name, stack.Pop(), strict)); break;
-                    case JitOpKind.SetVarPop:     body.Add(Eff(SetVarNode(instr.Name, stack.Pop(), strict))); break;
+                    case JitOpKind.SetVar:
+                        stack.Push(paramMap != null && paramMap.TryGetValue(instr.Name, out var svi)
+                            ? SetParamNode(svi, stack.Pop()) : SetVarNode(instr.Name, stack.Pop(), strict));
+                        break;
+                    case JitOpKind.SetVarPop:
+                        body.Add(Eff(paramMap != null && paramMap.TryGetValue(instr.Name, out var svpi)
+                            ? SetParamNode(svpi, stack.Pop()) : SetVarNode(instr.Name, stack.Pop(), strict)));
+                        break;
                     case JitOpKind.EnterBlock:    body.Add(EnterBlockStep); break;
                     case JitOpKind.LeaveBlock:    body.Add(LeaveBlockStep); break;
                     case JitOpKind.SetProp:
@@ -401,6 +418,98 @@ namespace DScript.Jit
         private static JitDelegate IntLitNode(int v) => (vm, args, env) => ScriptVar.FromInt(v);
 
         private static JitDelegate VarNode(string name) => (vm, args, env) => VirtualMachine.JitGetVar(env, name);
+
+        // Positional parameter access inside an inlined callee body: the call site binds
+        // arguments into the JitDelegate `args` array, so a parameter read/write is an
+        // index, not a name lookup. (Only used when compiling with a paramMap.)
+        private static JitDelegate ParamNode(int index) => (vm, args, env) => args[index];
+
+        private static JitDelegate SetParamNode(int index, JitDelegate value) =>
+            (vm, args, env) =>
+            {
+                var v = value(vm, args, env);
+                args[index] = v;
+                return v;
+            };
+
+        // Try to inline a monomorphic call to a small script function: bind its
+        // parameters positionally and run its compiled body directly, skipping the
+        // InvokeCallable frame setup (env + this + name-bound params + arg array). A
+        // runtime identity guard falls back to a full call if the callee differs from
+        // the one that was profiled. Returns null to decline (use the normal CallNode).
+        private static JitDelegate TryInlineCall(JitInstruction instr, JitDelegate calleeNode,
+                                                 JitDelegate[] argNodes, Chunk currentChunk)
+        {
+            var mono = instr.MonoCallee;
+            if (mono == null || instr.MonoCallee1 != null) return null; // need a monomorphic site
+            if (!mono.IsFunction || mono.IsNative || mono.IsProxy) return null;
+            if (mono.GetData() is not VmFunction vmfn) return null;
+
+            var body = vmfn.Body;
+            if (body == currentChunk) return null;                       // no self-recursion
+            if (body.IsGenerator || body.IsAsync) return null;
+            if (body.RestParamIndex >= 0 || body.UsesArguments) return null;
+            if (body.MakesClosure) return null;                          // closures need a real frame
+
+            var calleeInstrs = JitDecoder.Decode(body);
+            if (calleeInstrs == null) return null;
+
+            // Block scopes could shadow a parameter name (the flat paramMap can't tell
+            // them apart); this/super/new.target are frame-bound, not in the closure
+            // env. Decline either. Track whether the body declares non-parameter locals.
+            var hasDeclares = false;
+            foreach (var ci in calleeInstrs)
+            {
+                if (ci.Kind is JitOpKind.EnterBlock or JitOpKind.LeaveBlock or JitOpKind.MakeClosure)
+                    return null;
+                if (ci.Kind is JitOpKind.PushVar or JitOpKind.SetVar or JitOpKind.SetVarPop
+                    && ci.Name is "this" or "arguments" or "super" or "new.target")
+                    return null;
+                if (ci.Kind is JitOpKind.DeclareVar or JitOpKind.DeclareLocal or JitOpKind.DeclareConst)
+                    hasDeclares = true;
+            }
+
+            var parameters = body.Parameters;
+            var paramMap = new Dictionary<string, int>(parameters.Count);
+            for (var i = 0; i < parameters.Count; i++) paramMap[parameters[i]] = i; // last duplicate wins (JS)
+
+            var blocks = BuildBlocks(calleeInstrs, body.IsStrict, body, paramMap, allowInline: false, out _);
+            if (blocks == null) return null;
+
+            var calleeBody = RunFromBlock(blocks, 0);
+            return InlineCallNode(calleeNode, argNodes, mono, calleeBody, parameters.Count,
+                                  vmfn.Captured, hasDeclares);
+        }
+
+        private static JitDelegate InlineCallNode(JitDelegate calleeNode, JitDelegate[] argNodes, ScriptVar baked,
+                                                  JitDelegate calleeBody, int nparams, Environment closureEnv,
+                                                  bool hasDeclares) =>
+            (vm, args, env) =>
+            {
+                var actual = calleeNode(vm, args, env);
+                if (!ReferenceEquals(actual, baked))
+                {
+                    // Callee changed (reassigned / polymorphic): fall back to a full call.
+                    var resolved = new ScriptVar[argNodes.Length];
+                    for (var j = 0; j < argNodes.Length; j++) resolved[j] = argNodes[j](vm, args, env);
+                    return vm.InvokeCallable(actual, null, resolved);
+                }
+
+                var callArgs = nparams == 0 ? System.Array.Empty<ScriptVar>() : new ScriptVar[nparams];
+                for (var j = 0; j < argNodes.Length; j++)
+                {
+                    var v = argNodes[j](vm, args, env);   // evaluate in the caller's scope, in order
+                    if (j < nparams) callArgs[j] = v;     // extra args still evaluated for side effects
+                }
+                for (var j = argNodes.Length; j < nparams; j++)
+                    callArgs[j] = ScriptVar.CreateUndefined(); // missing args -> undefined
+
+                // A body with no local declarations only reads params (args) and free
+                // vars (closure env), so it needs no fresh frame; otherwise give its
+                // locals a fresh child env per call.
+                var bodyEnv = hasDeclares ? new Environment(ScriptVar.CreateObject(), closureEnv) : closureEnv;
+                return calleeBody(vm, callArgs, bodyEnv);
+            };
 
         private static JitDelegate GetPropNode(JitDelegate obj, string name)
         {

@@ -149,5 +149,68 @@ namespace DScript.Test
                 "var fns = [a, b, c];\n" +
                 "var r=0; var i=0; while(i<1500){ r = r + f(fns[i % 3], i % 30); i = i + 1; }\n__result__=r;");
         }
+
+        // ── Closure-threaded back-end: monomorphic inlining ──────────────────────
+        // The closure back-end inlines monomorphic leaf calls by binding parameters
+        // positionally (into the JitDelegate `args` array) and running the callee body
+        // directly, guarded by a callee-identity check. Every case must match the
+        // interpreter.
+
+        private static void ClosureMatches(string src)
+            => Assert.That(Run(src, new ClosureThreadedJitCompiler()), Is.EqualTo(Run(src, null)));
+
+        [Test]
+        public void Closure_SingleParamHelperInlined()
+            => ClosureMatches(Wrap("function sq(x){ return x * x; }", "s = s + sq(i);", "i % 40"));
+
+        [Test]
+        public void Closure_MultiParamHelperInlined()
+            => ClosureMatches(Wrap("function add3(a,b,c){ return a + b + c; }", "s = s + add3(i, 1, 2);", "i % 30"));
+
+        [Test]
+        public void Closure_HelperWithLocalInlined()
+            // Callee declares a non-parameter local -> the inline path must give it a
+            // fresh per-call environment (not the shared closure env).
+            => ClosureMatches(Wrap("function f2(x){ var t = x + x; return t * t; }", "s = s + f2(i);", "i % 20"));
+
+        [Test]
+        public void Closure_GlobalReadingHelperInlined()
+            => ClosureMatches("var BASE = 10; " +
+                Wrap("function helper(x){ return x + BASE; }", "s = s + helper(i);", "i % 40"));
+
+        [Test]
+        public void Closure_ParamReassignedInBodyInlined()
+            // A parameter written inside the callee must update the positional slot,
+            // not leak to an outer/global binding.
+            => ClosureMatches(Wrap("function g(x){ x = x + 100; return x; }", "s = s + g(i);", "i % 25"));
+
+        [Test]
+        public void Closure_MissingArgIsUndefined()
+            // Called with fewer args than parameters: the missing one is undefined, so
+            // `b` is undefined and `a + b` is NaN -> matches the interpreter exactly.
+            => ClosureMatches(Wrap("function h(a,b){ return a + b; }", "s = s + h(i);", "i % 15"));
+
+        [Test]
+        public void Closure_CalleeReassignedDeopts()
+        {
+            // The inlined callee is reassigned partway through the hot loop. The
+            // identity guard must detect the change and fall back to a full call so the
+            // new function runs — result still matches the interpreter.
+            var src =
+                "function a(x){ return x + 1; }\n" +
+                "function b(x){ return x + 1000; }\n" +
+                "var fn = a;\n" +
+                "function f(n){ var s = 0; var i = 0; while (i < n) { s = s + fn(i); i = i + 1; } return s; }\n" +
+                "var r=0; var i=0; while(i<2000){ if (i == 1500) { fn = b; } r = f(5); i = i + 1; }\n__result__=r;";
+            ClosureMatches(src);
+        }
+
+        [Test]
+        public void Closure_SelfRecursiveCalleeNotInlinedButCorrect()
+            // A self-recursive callee is barred from inlining (no compile-time
+            // unbounded expansion); it still runs correctly via dispatch.
+            => ClosureMatches(
+                "function fib(n){ if (n < 2) return n; return fib(n - 1) + fib(n - 2); }\n" +
+                "var r=0; var i=0; while(i<1300){ r = fib(12); i = i + 1; }\n__result__=r;");
     }
 }
