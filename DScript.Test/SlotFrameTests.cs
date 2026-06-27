@@ -117,6 +117,41 @@ namespace DScript.Test
             => Matches(Wrap("var s = 0; var k = n; while (k > 0) { s = s + k; k = k - 1; } return s;", "i % 40"));
 
         [Test]
+        public void SlottedParameterLoop()
+            // A parameter read repeatedly in a loop is now slotted (not name-based).
+            => Matches(Wrap("var s = 0; for (var k = 0; k < 50; k = k + 1) { s = s + n; } return s;", "i % 30"));
+
+        [Test]
+        public void SlottedParameterReassigned()
+            // Writing a parameter must update its slot, not leak to an outer binding.
+            => Matches(Wrap("n = n + 100; var s = 0; for (var k = 0; k < 10; k = k + 1) s = s + n; return s;", "i % 25"));
+
+        [Test]
+        public void EligibleFunctionSlotsParameters()
+        {
+            ScriptEngine.EnableLocalSlots = true;
+            var src = Wrap("var s = 0; for (var k = 0; k < 20; k = k + 1) s = s + n; return s;", "i % 30");
+            // `n` is the only parameter and is read in the loop → it should be slotted.
+            var f = ScriptEngine.Compile(src).Functions[0];
+            Assert.That(f.UsesSlots, Is.True, "function with a hot parameter read should slot it");
+        }
+
+        [Test]
+        public void ParamSlottedCalleeStillInlines()
+            // A monomorphic leaf callee whose parameters are slotted must still inline
+            // (slot access becomes a positional arg read), not fall back to a full call.
+            => Matches(
+                "function add3(a, b, c){ return a + b + c; }\n" +
+                "function f(n){ var s = 0; var k = 0; while (k < n) { s = add3(k, 1, 2); k = k + 1; } return s; }\n" +
+                "var r=0; var i=0; while(i<1500){ r = f(i % 30); i = i + 1; }\n__result__ = r;");
+
+        [Test]
+        public void ParamWithArgumentsStaysNameBased()
+            // A function that uses `arguments` must not slot its parameters (the
+            // arguments object/aliasing path needs the named bindings); still correct.
+            => Matches(Wrap("var s = 0; for (var k = 0; k < arguments.length + 3; k = k + 1) s = s + n; return s;", "i % 20"));
+
+        [Test]
         public void SlottedBytecodeSurvivesSerialization()
         {
             // Slot metadata is recovered from the code on load; round-tripped slotted

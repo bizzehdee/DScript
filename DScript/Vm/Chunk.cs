@@ -1374,7 +1374,7 @@ namespace DScript.Vm
             // resolves every occurrence unambiguously (no block shadowing).
             if (!SlotEligible || IsGenerator || IsAsync) return;
             if (Name is "<main>" or "<expr>") return;
-            if (SlotCount == 0 || SlottableNames.Count == 0) return;
+            if (SlotCount == 0) return;
 
             var enterBlocks = 0;
             for (var i = 0; i < Code.Count;)
@@ -1383,18 +1383,25 @@ namespace DScript.Vm
                 i += InstructionSize((OpCode)Code[i]);
             }
 
-            // Candidates: let/var locals (not params, not captured).
+            // Candidates: let/var locals, plus parameters (unless the function exposes
+            // `arguments` or has a rest param, which the call path binds specially);
+            // captured slots are excluded (they need a cell, not a flat slot).
             var paramCount = Parameters.Count;
             var promotable = new HashSet<string>();
             foreach (var name in SlottableNames)
                 if (SlotMap.TryGetValue(name, out var slot) && slot >= paramCount && !CapturedSlots.Contains(slot))
                     promotable.Add(name);
+            if (!UsesArguments && RestParamIndex < 0)
+                foreach (var p in Parameters)
+                    if (SlotMap.TryGetValue(p, out var ps) && !CapturedSlots.Contains(ps))
+                        promotable.Add(p);
             if (promotable.Count == 0) return;
 
             // Drop names used before their declaration in bytecode order: a promoted
             // read there would see the (undefined) slot instead of the outer binding
-            // the name-based path resolves, changing observable behaviour.
-            var declared = new HashSet<string>();
+            // the name-based path resolves, changing observable behaviour. Parameters
+            // are initialised by the caller before entry, so seed them as declared.
+            var declared = new HashSet<string>(Parameters);
             for (var i = 0; i < Code.Count;)
             {
                 var op = (OpCode)Code[i];

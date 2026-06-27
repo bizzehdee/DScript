@@ -2484,9 +2484,12 @@ namespace DScript.Vm
             var parameters = vmfn.Body.Parameters;
             var restIdx2 = vmfn.Body.RestParamIndex;
             var paramLimit2 = restIdx2 >= 0 ? restIdx2 : parameters.Count;
+            var slots2 = callEnv.Slots;
             for (var j = 0; j < paramLimit2; j++)
             {
-                vars.AddChild(parameters[j], BindArg(args, j));
+                var pv = BindArg(args, j);
+                vars.AddChild(parameters[j], pv);
+                if (slots2 != null) slots2[j] = pv; // param slot (Lever A); unread when the param is name-based
             }
 
             // Handle rest parameter
@@ -2622,10 +2625,13 @@ namespace DScript.Vm
             var parameters = vmfn.Body.Parameters;
             var restIdx = vmfn.Body.RestParamIndex;
             var paramLimit = restIdx >= 0 ? restIdx : parameters.Count;
+            var slots = callEnv.Slots;
             for (var j = 0; j < paramLimit; j++)
             {
                 var arg = j < argc ? stack[argBase + j] : null;
-                vars.AddChild(parameters[j], BindArgValue(arg));
+                var pv = BindArgValue(arg);
+                vars.AddChild(parameters[j], pv);
+                if (slots != null) slots[j] = pv; // param slot (Lever A); unread when the param is name-based
             }
 
             // Handle rest parameter
@@ -2679,7 +2685,7 @@ namespace DScript.Vm
                     vars       = recyclable ? BorrowFrameVars() : ScriptVar.CreateObject();
                     callEnv    = new Environment(vars, vmfn.Captured);
                     InitSlotFrame(vmfn.Body, callEnv);
-                    BindArgsArrayToVars(vmfn, vars, nextArgs, nextThis);
+                    BindArgsArrayToVars(vmfn, vars, callEnv, nextArgs, nextThis);
 
                     _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
                     result = Execute(vmfn.Body, callEnv);
@@ -2696,7 +2702,7 @@ namespace DScript.Vm
 
         // Bind a ScriptVar[] argument array into an already-allocated vars object.
         // Used by the InvokeVmFunctionFromStack trampoline for tail-call iterations.
-        private static void BindArgsArrayToVars(VmFunction vmfn, ScriptVar vars, ScriptVar[] args, ScriptVar thisArg)
+        private static void BindArgsArrayToVars(VmFunction vmfn, ScriptVar vars, Environment env, ScriptVar[] args, ScriptVar thisArg)
         {
             if (thisArg != null)
                 vars.AddChildNoDup("this", thisArg);
@@ -2707,10 +2713,13 @@ namespace DScript.Vm
             var restIdx    = vmfn.Body.RestParamIndex;
             var argc       = args.Length;
             var paramLimit = restIdx >= 0 ? restIdx : parameters.Count;
+            var slots      = env.Slots;
             for (var j = 0; j < paramLimit; j++)
             {
                 var arg = j < argc ? args[j] : null;
-                vars.AddChild(parameters[j], BindArgValue(arg));
+                var pv = BindArgValue(arg);
+                vars.AddChild(parameters[j], pv);
+                if (slots != null) slots[j] = pv; // param slot (Lever A); unread when the param is name-based
             }
             if (restIdx >= 0)
             {

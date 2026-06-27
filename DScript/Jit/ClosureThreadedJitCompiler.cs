@@ -201,8 +201,17 @@ namespace DScript.Jit
                         stack.Push(paramMap != null && paramMap.TryGetValue(instr.Name, out var pvi)
                             ? ParamNode(pvi) : VarNode(instr.Name));
                         break;
-                    case JitOpKind.GetLocal:  stack.Push(SlotGetNode(instr.IntValue)); break;
-                    case JitOpKind.SetLocal:  stack.Push(SlotSetNode(instr.IntValue, stack.Pop())); break;
+                    // Inside an inlined callee (paramMap != null) all slots are param
+                    // slots (callees with local slots are declined), so a slot access is
+                    // a positional argument read/write; otherwise it is a frame slot.
+                    case JitOpKind.GetLocal:
+                        stack.Push(paramMap != null ? ParamNode(instr.IntValue) : SlotGetNode(instr.IntValue));
+                        break;
+                    case JitOpKind.SetLocal:
+                        stack.Push(paramMap != null
+                            ? SetParamNode(instr.IntValue, stack.Pop())
+                            : SlotSetNode(instr.IntValue, stack.Pop()));
+                        break;
                     case JitOpKind.GetProp:        stack.Push(GetPropNode(stack.Pop(), instr.Name)); break;
                     case JitOpKind.PushNull:       stack.Push(NullNode()); break;
                     case JitOpKind.PushUndefined:  stack.Push(UndefinedNode()); break;
@@ -463,7 +472,9 @@ namespace DScript.Jit
             if (body.IsGenerator || body.IsAsync) return null;
             if (body.RestParamIndex >= 0 || body.UsesArguments) return null;
             if (body.MakesClosure) return null;                          // closures need a real frame
-            if (body.UsesSlots) return null;                            // slotted callee needs its own slot frame
+            // A param-only-slotted callee inlines fine (slot access becomes a positional
+            // arg read). One with *local* slots would need its own slot frame — decline.
+            if (body.UsesSlots && body.SlotCount > body.Parameters.Count) return null;
 
             var calleeInstrs = JitDecoder.Decode(body);
             if (calleeInstrs == null) return null;
