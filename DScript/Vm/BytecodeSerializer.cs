@@ -322,7 +322,35 @@ namespace DScript.Vm
                 chunk.Functions.Add(ReadChunk(reader));
             }
 
+            // Lever A: the slot frame size / UsesSlots flag are not stored in the
+            // stream (slots are an AOT/closure-build feature; the format is unchanged).
+            // Recover them from the loaded code so slotted bytecode still runs: scan for
+            // GetLocal/SetLocal and size the frame to the highest slot referenced.
+            RecoverSlotMetadata(chunk);
+
             return chunk;
+        }
+
+        // Set UsesSlots/SlotCount from the presence of GetLocal/SetLocal in the loaded
+        // bytecode (their operand is the slot index), so a frame is allocated on calls.
+        private static void RecoverSlotMetadata(Chunk chunk)
+        {
+            var maxSlot = -1;
+            for (var i = 0; i < chunk.Code.Count;)
+            {
+                var op = (OpCode)chunk.Code[i];
+                if (op is OpCode.GetLocal or OpCode.SetLocal)
+                {
+                    var slot = chunk.ReadInt(i + 1);
+                    if (slot > maxSlot) maxSlot = slot;
+                }
+                i += Chunk.InstructionSize(op);
+            }
+            if (maxSlot >= 0)
+            {
+                chunk.UsesSlots = true;
+                if (chunk.SlotCount <= maxSlot) chunk.SlotCount = maxSlot + 1;
+            }
         }
 
         private static void WriteConstant(BinaryWriter writer, ConstantValue value)

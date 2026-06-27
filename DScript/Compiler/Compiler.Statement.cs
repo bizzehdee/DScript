@@ -195,6 +195,7 @@ namespace DScript.Compiler
                     lexer.Match(ScriptLex.LexTypes.Id);
                     var nameIndex = chunk.AddName(name);
                     RecordLocalSlot(name); // Lever A: assign this local a frame slot
+                    if (!readOnly) chunk.SlottableNames.Add(name); // let/var (not const) — slot-promotion candidate
 
                     // `const` → DeclareConst (read-only binding in innermost scope)
                     // `let`   → DeclareLocal (mutable binding in innermost scope, no hoisting)

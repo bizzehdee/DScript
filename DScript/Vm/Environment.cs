@@ -53,11 +53,21 @@ namespace DScript.Vm
         /// </summary>
         public bool IsBlockScope { get; }
 
+        /// <summary>
+        /// Lever A positional local-slot frame, or null when the function uses no
+        /// slots. Allocated on the function's call environment; block-scope child
+        /// environments share the same reference, so a function-wide slot is
+        /// reachable from any block depth via <see cref="OpCode.GetLocal"/>.
+        /// </summary>
+        public ScriptVar[] Slots { get; set; }
+
         public Environment(ScriptVar vars, Environment parent, bool isBlockScope = false)
         {
             Vars = vars;
             Parent = parent;
             IsBlockScope = isBlockScope;
+            // Block scopes inherit the enclosing function frame's slot array.
+            if (isBlockScope && parent != null) Slots = parent.Slots;
         }
 
         /// <summary>Find the binding for <paramref name="name"/>, or null.</summary>

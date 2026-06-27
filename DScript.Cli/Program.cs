@@ -22,6 +22,13 @@ using DScript.Vm;
 
 const string Version = "0.1.0";
 
+#if DSCRIPT_AOT
+// AOT builds use the closure-threaded JIT, which (with the interpreter) reads
+// positional local slots; enable Lever A slot promotion. The Reflection.Emit
+// back-end (not used here) declines slotted chunks, so this stays AOT-scoped.
+ScriptEngine.EnableLocalSlots = true;
+#endif
+
 if (args.Length == 0 || args[0] is "--help" or "-h")
 {
     PrintHelp();

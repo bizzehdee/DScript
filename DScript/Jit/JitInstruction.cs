@@ -38,6 +38,10 @@ namespace DScript.Jit
         PushIntLiteral,
         /// <summary>Resolve a variable by name and push it.</summary>
         PushVar,
+        /// <summary>Push a positional local slot (Lever A). IntValue is the slot index.</summary>
+        GetLocal,
+        /// <summary>Pop a value, store it in a positional local slot, push it (Lever A). IntValue is the slot index.</summary>
+        SetLocal,
         /// <summary>Pop an object, read a named property, push it.</summary>
         GetProp,
         /// <summary>Assign a variable (expression form): pop value, set, push value.</summary>
@@ -162,6 +166,10 @@ namespace DScript.Jit
             new(JitOpKind.PushIntLiteral, null, v, null, default, null);
         public static JitInstruction PushVar(string name) =>
             new(JitOpKind.PushVar, null, 0, name, default, null);
+        public static JitInstruction GetLocal(int slot) =>
+            new(JitOpKind.GetLocal, null, slot, null, default, null);
+        public static JitInstruction SetLocal(int slot) =>
+            new(JitOpKind.SetLocal, null, slot, null, default, null);
         public static JitInstruction GetProp(string name) =>
             new(JitOpKind.GetProp, null, 0, name, default, null);
         public static JitInstruction SetVar(string name) =>

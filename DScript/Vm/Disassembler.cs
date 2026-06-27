@@ -78,6 +78,8 @@ namespace DScript.Vm
                 case OpCode.SetPropPop:
                 case OpCode.GetPropMethod:
                 case OpCode.GetPropCall0:
+                case OpCode.GetLocal:
+                case OpCode.SetLocal:
                     return 1;
 
                 case OpCode.GetVarGetVarBinary:

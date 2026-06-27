@@ -588,6 +588,19 @@ namespace DScript.Vm
                         Push(value); // assignment is an expression
                         break;
                     }
+                    case OpCode.GetLocal:
+                    {
+                        Push(env.Slots[ReadOperand(code, ref ip)]);
+                        break;
+                    }
+                    case OpCode.SetLocal:
+                    {
+                        var slot = ReadOperand(code, ref ip);
+                        var value = Pop();
+                        env.Slots[slot] = value;
+                        Push(value); // assignment is an expression
+                        break;
+                    }
                     case OpCode.DeclareVar:
                     {
                         var name = chunk.Names[ReadOperand(code, ref ip)];
@@ -2462,6 +2475,7 @@ namespace DScript.Vm
             var recyclable = vmfn.Body.RecyclableFrame;
             var vars = recyclable ? BorrowFrameVars() : ScriptVar.CreateObject();
             var callEnv = new Environment(vars, vmfn.Captured);
+            InitSlotFrame(vmfn.Body, callEnv);
             if (thisArg != null)
                 vars.AddChildNoDup("this", thisArg);
             else if (vmfn.Body.IsStrict)
@@ -2599,6 +2613,7 @@ namespace DScript.Vm
             var recyclable = vmfn.Body.RecyclableFrame;
             var vars = recyclable ? BorrowFrameVars() : ScriptVar.CreateObject();
             var callEnv = new Environment(vars, vmfn.Captured);
+            InitSlotFrame(vmfn.Body, callEnv);
             if (thisArg != null)
                 vars.AddChildNoDup("this", thisArg);
             else if (vmfn.Body.IsStrict)
@@ -2663,6 +2678,7 @@ namespace DScript.Vm
                     recyclable = vmfn.Body.RecyclableFrame;
                     vars       = recyclable ? BorrowFrameVars() : ScriptVar.CreateObject();
                     callEnv    = new Environment(vars, vmfn.Captured);
+                    InitSlotFrame(vmfn.Body, callEnv);
                     BindArgsArrayToVars(vmfn, vars, nextArgs, nextThis);
 
                     _profiler?.Enter(vmfn.Body.Name, vmfn.Body.Name, 0, 0);
@@ -3462,6 +3478,24 @@ namespace DScript.Vm
         // Leave a block scope for JIT-compiled code, mirroring LeaveBlock: restore the
         // parent environment saved by the matching JitEnterBlock.
         internal static Environment JitLeaveBlock(Environment env) => env.Parent;
+
+        // Positional local-slot access for JIT-compiled code (Lever A), mirroring the
+        // GetLocal/SetLocal opcode handlers.
+        internal static ScriptVar JitGetLocal(Environment env, int slot) => env.Slots[slot];
+
+        internal static void JitSetLocal(Environment env, int slot, ScriptVar value) => env.Slots[slot] = value;
+
+        // Allocate a function's positional slot frame on its call environment when the
+        // chunk uses slots, initialising every slot to undefined (matching the
+        // name-based path, where a local reads undefined before assignment). No-op for
+        // non-slotted chunks (including generators/async, which are never promoted).
+        private static void InitSlotFrame(Chunk body, Environment env)
+        {
+            if (!body.UsesSlots) return;
+            var slots = new ScriptVar[body.SlotCount];
+            for (var i = 0; i < slots.Length; i++) slots[i] = SharedUndefined;
+            env.Slots = slots;
+        }
 
         // Variable declarations for JIT-compiled code, mirroring the Declare* opcodes.
         internal static void JitDeclareVar(Environment env, string name)

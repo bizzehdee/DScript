@@ -247,5 +247,11 @@ namespace DScript.Vm
         // have been merged in — so the later literal key must win (JS semantics).
         // The common no-spread path keeps using plain InitProp (append, no lookup).
         InitPropOverwrite, // [i nameIndex]   obj, value -> obj
+
+        // Lever A: positional local-slot access (emitted only when local-slot
+        // promotion is enabled — AOT/closure builds). The operand is a frame slot
+        // index, not a name index; the value lives in Environment.Slots.
+        GetLocal,        // [i slotIndex]   push frame slot
+        SetLocal,        // [i slotIndex]   pop value, store in frame slot, push value
     }
 }

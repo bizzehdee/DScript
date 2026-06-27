@@ -201,6 +201,8 @@ namespace DScript.Jit
                         stack.Push(paramMap != null && paramMap.TryGetValue(instr.Name, out var pvi)
                             ? ParamNode(pvi) : VarNode(instr.Name));
                         break;
+                    case JitOpKind.GetLocal:  stack.Push(SlotGetNode(instr.IntValue)); break;
+                    case JitOpKind.SetLocal:  stack.Push(SlotSetNode(instr.IntValue, stack.Pop())); break;
                     case JitOpKind.GetProp:        stack.Push(GetPropNode(stack.Pop(), instr.Name)); break;
                     case JitOpKind.PushNull:       stack.Push(NullNode()); break;
                     case JitOpKind.PushUndefined:  stack.Push(UndefinedNode()); break;
@@ -424,6 +426,17 @@ namespace DScript.Jit
         // index, not a name lookup. (Only used when compiling with a paramMap.)
         private static JitDelegate ParamNode(int index) => (vm, args, env) => args[index];
 
+        // Positional local-slot access (Lever A): read/write the call frame's slot array.
+        private static JitDelegate SlotGetNode(int slot) => (vm, args, env) => env.Slots[slot];
+
+        private static JitDelegate SlotSetNode(int slot, JitDelegate value) =>
+            (vm, args, env) =>
+            {
+                var v = value(vm, args, env);
+                env.Slots[slot] = v;
+                return v;
+            };
+
         private static JitDelegate SetParamNode(int index, JitDelegate value) =>
             (vm, args, env) =>
             {
@@ -450,6 +463,7 @@ namespace DScript.Jit
             if (body.IsGenerator || body.IsAsync) return null;
             if (body.RestParamIndex >= 0 || body.UsesArguments) return null;
             if (body.MakesClosure) return null;                          // closures need a real frame
+            if (body.UsesSlots) return null;                            // slotted callee needs its own slot frame
 
             var calleeInstrs = JitDecoder.Decode(body);
             if (calleeInstrs == null) return null;

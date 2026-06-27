@@ -47,11 +47,27 @@ namespace DScript.Jit
         /// </summary>
         public static long OsrLongLoopCompilations { get; private set; }
 
+        // True if the decoded stream contains positional local-slot ops (Lever A),
+        // which this back-end does not emit.
+        private static bool HasSlotOps(System.Collections.Generic.List<JitInstruction> instrs)
+        {
+            for (var i = 0; i < instrs.Count; i++)
+                if (instrs[i].Kind is JitOpKind.GetLocal or JitOpKind.SetLocal)
+                    return true;
+            return false;
+        }
+
         public JitDelegate Compile(Chunk chunk)
         {
             var instrs = JitDecoder.Decode(chunk);
             if (instrs == null)
                 return null; // declined by the shared front-end
+
+            // Positional local slots (Lever A) are an AOT/closure-build feature; this
+            // back-end has no slot emission, so decline slotted chunks (the interpreter
+            // runs them). In the default build the flag is off, so this never fires.
+            if (HasSlotOps(instrs))
+                return null;
 
             // Speculative unboxed-int tier first (unless repeated deopts proved it
             // unprofitable), then the conservative boxed tier.
@@ -493,6 +509,7 @@ namespace DScript.Jit
         {
             var instrs = JitDecoder.Decode(chunk);
             if (instrs == null) return null;
+            if (HasSlotOps(instrs)) return null; // slots are AOT/closure-only (see Compile)
 
             var resumeIndex = JitDecoder.OffsetToInstructionIndex(chunk, resumeOffset);
             if (resumeIndex < 0 || resumeIndex >= instrs.Count) return null;

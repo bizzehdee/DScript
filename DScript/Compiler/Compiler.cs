@@ -114,6 +114,10 @@ namespace DScript.Compiler
 
             AnalyzeSlotsAndCaptures(chunk);
 
+            // Lever A (AOT/closure build): rewrite slottable locals before the
+            // optimizer, which then narrows/fuses only the remaining name-based ops.
+            if (ScriptEngine.EnableLocalSlots) chunk.PromoteLocalSlots();
+
             if (EnableOptimizer)
             {
                 chunk.CollapseJumpChains();
@@ -150,6 +154,10 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.Return);
 
             AnalyzeSlotsAndCaptures(chunk);
+
+            // Lever A (AOT/closure build): rewrite slottable locals before the
+            // optimizer, which then narrows/fuses only the remaining name-based ops.
+            if (ScriptEngine.EnableLocalSlots) chunk.PromoteLocalSlots();
 
             if (EnableOptimizer)
             {

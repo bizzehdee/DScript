@@ -403,6 +403,16 @@ namespace DScript.Vm
         /// </summary>
         public bool SlotEligible { get; set; } = true;
 
+        /// <summary>Names declared with <c>let</c>/<c>var</c> (not <c>const</c>, not
+        /// parameters) via a plain declaration — the candidates the promotion pass may
+        /// rewrite to positional slot access. Populated by the compiler.</summary>
+        public System.Collections.Generic.HashSet<string> SlottableNames { get; } = [];
+
+        /// <summary>True once <see cref="PromoteLocalSlots"/> has rewritten at least one
+        /// access in this function to GetLocal/SetLocal, so the runtime allocates a slot
+        /// frame for its calls.</summary>
+        public bool UsesSlots { get; set; }
+
         /// <summary>
         /// Original source text of a function body (set for function chunks).
         /// Retained so a function value can be rendered back to source by
@@ -793,7 +803,8 @@ namespace DScript.Vm
             OpCode.InitPropOverwrite                                        or
             OpCode.LeaveTry     or OpCode.LeaveCatch                        or
             OpCode.DefineGetter or OpCode.DefineSetter                      or
-            OpCode.SetVarPop    or OpCode.SetPropPop                        =>  5, // 1 + 4*1
+            OpCode.SetVarPop    or OpCode.SetPropPop                        or
+            OpCode.GetLocal     or OpCode.SetLocal                          =>  5, // 1 + 4*1
             // Narrow forms: 1 opcode byte + 1 operand byte
             OpCode.GetVarN      or OpCode.SetVarN      or OpCode.ConstantN  or
             OpCode.GetPropN     or OpCode.SetPropN     or OpCode.DeclareVarN or
@@ -1347,6 +1358,82 @@ namespace DScript.Vm
         /// Call after <see cref="EliminateDeadCode"/> so the input stream is
         /// already minimal — smaller input means less remap work.
         /// </summary>
+        /// <summary>
+        /// Lever A: rewrite fully-slottable local accesses (<c>GetVar</c>/<c>SetVar</c>)
+        /// to positional <c>GetLocal</c>/<c>SetLocal</c>. Runs after capture analysis and
+        /// <b>before</b> the optimizer's fusion/narrowing (so it only sees wide
+        /// <c>GetVar</c>/<c>SetVar</c>). Promotion is all-or-none per name — a name is
+        /// rewritten at every occurrence or none — so slot storage and the (now-dead)
+        /// name binding can never diverge. Recurses into nested functions.
+        /// </summary>
+        public void PromoteLocalSlots()
+        {
+            foreach (var fn in Functions) fn.PromoteLocalSlots();
+
+            // Only eligible functions; at most one block scope so the flat SlotMap
+            // resolves every occurrence unambiguously (no block shadowing).
+            if (!SlotEligible || IsGenerator || IsAsync) return;
+            if (Name is "<main>" or "<expr>") return;
+            if (SlotCount == 0 || SlottableNames.Count == 0) return;
+
+            var enterBlocks = 0;
+            for (var i = 0; i < Code.Count;)
+            {
+                if ((OpCode)Code[i] == OpCode.EnterBlock && ++enterBlocks > 1) return;
+                i += InstructionSize((OpCode)Code[i]);
+            }
+
+            // Candidates: let/var locals (not params, not captured).
+            var paramCount = Parameters.Count;
+            var promotable = new HashSet<string>();
+            foreach (var name in SlottableNames)
+                if (SlotMap.TryGetValue(name, out var slot) && slot >= paramCount && !CapturedSlots.Contains(slot))
+                    promotable.Add(name);
+            if (promotable.Count == 0) return;
+
+            // Drop names used before their declaration in bytecode order: a promoted
+            // read there would see the (undefined) slot instead of the outer binding
+            // the name-based path resolves, changing observable behaviour.
+            var declared = new HashSet<string>();
+            for (var i = 0; i < Code.Count;)
+            {
+                var op = (OpCode)Code[i];
+                switch (op)
+                {
+                    case OpCode.DeclareVar:
+                    case OpCode.DeclareLocal:
+                    case OpCode.DeclareConst:
+                        declared.Add(Names[ReadInt(i + 1)]);
+                        break;
+                    case OpCode.GetVar:
+                    case OpCode.SetVar:
+                        var n = Names[ReadInt(i + 1)];
+                        if (promotable.Contains(n) && !declared.Contains(n)) promotable.Remove(n);
+                        break;
+                }
+                i += InstructionSize(op);
+            }
+            if (promotable.Count == 0) return;
+
+            // Rewrite every GetVar/SetVar of a promotable name to GetLocal/SetLocal,
+            // replacing the name-index operand with the frame slot index.
+            for (var i = 0; i < Code.Count;)
+            {
+                var op = (OpCode)Code[i];
+                if (op is OpCode.GetVar or OpCode.SetVar)
+                {
+                    var n = Names[ReadInt(i + 1)];
+                    if (promotable.Contains(n))
+                    {
+                        Code[i] = (byte)(op == OpCode.GetVar ? OpCode.GetLocal : OpCode.SetLocal);
+                        PatchJumpTo(i + 1, SlotMap[n]); // overwrite operand with the slot index (invalidates code cache)
+                        UsesSlots = true;
+                    }
+                }
+                i += InstructionSize(op);
+            }
+        }
+
         /// <summary>
         /// Fuse pairs of adjacent instructions into superinstructions to reduce
         /// dispatch overhead:

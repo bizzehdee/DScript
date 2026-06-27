@@ -599,6 +599,15 @@ namespace DScript
         }
 
         /// <summary>
+        /// Lever A: when true, the compiler rewrites fully-slottable <c>let</c>/<c>var</c>
+        /// locals to positional GetLocal/SetLocal (see <see cref="Chunk.PromoteLocalSlots"/>).
+        /// Enabled only on the AOT/closure build — the closure JIT and interpreter read
+        /// slots, while the Reflection.Emit back-end declines slotted chunks. Off by
+        /// default so the default build's bytecode and behaviour are unchanged.
+        /// </summary>
+        public static bool EnableLocalSlots { get; set; }
+
+        /// <summary>
         /// Compile source to a bytecode program <see cref="Chunk"/>. The chunk can
         /// be run with <see cref="Run(Chunk)"/>, or saved with
         /// <see cref="BytecodeSerializer"/> and re-run later.

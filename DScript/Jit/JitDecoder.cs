@@ -114,6 +114,14 @@ namespace DScript.Jit
                         instrs.Add(JitInstruction.PushVar(chunk.Names[code[ip]]));
                         ip += 1;
                         break;
+                    case OpCode.GetLocal:
+                        instrs.Add(JitInstruction.GetLocal(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
+                    case OpCode.SetLocal:
+                        instrs.Add(JitInstruction.SetLocal(chunk.ReadInt(ip)));
+                        ip += 4;
+                        break;
 
                     case OpCode.GetProp:
                         instrs.Add(JitInstruction.GetProp(chunk.Names[chunk.ReadInt(ip)]));
