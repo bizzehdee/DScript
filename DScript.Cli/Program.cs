@@ -163,9 +163,9 @@ static int RunRepl()
     MemoryProfiler? activeMemProfiler = null;
     CpuProfiler? activeCpuProfiler = null;
 
-    // JIT is opt-in engine-wide; the REPL turns it on by default (reflection-emit
-    // back-end) so hot functions tier up. Toggle via `.options jit ...`.
-    JitRegistry.Register(new ReflectionEmitJitCompiler());
+    // JIT is opt-in engine-wide; the REPL turns it on by default so hot functions
+    // tier up. Toggle via `.options jit ...`.
+    RegisterDefaultJit();
 
     while (true)
     {
@@ -377,6 +377,19 @@ static string DescribeProfiler(CpuProfiler? cpuProfiler, MemoryProfiler? memProf
     return "off";
 }
 
+// Registers the default JIT back-end. The Reflection.Emit back-end relies on
+// System.Reflection.Emit (DynamicMethod / ILGenerator), which is unavailable
+// under Native AOT — so AOT builds default to the closure-threaded back-end,
+// which emits no IL and is AOT-safe.
+static void RegisterDefaultJit()
+{
+#if DSCRIPT_AOT
+    JitRegistry.Register(new ClosureThreadedJitCompiler());
+#else
+    JitRegistry.Register(new ReflectionEmitJitCompiler());
+#endif
+}
+
 static void HandleJitOption(string[] parts)
 {
     if (parts.Length < 3) // ".options jit" — show + usage
@@ -397,8 +410,14 @@ static void HandleJitOption(string[] parts)
         case "reflection":
         case "reflect":
         case "il":
+#if DSCRIPT_AOT
+            // Reflection.Emit is unavailable under Native AOT; fall back to closure.
+            JitRegistry.Register(new ClosureThreadedJitCompiler());
+            Console.WriteLine("jit: reflection-emit back-end is unavailable in this AOT build; using closure-threaded back-end");
+#else
             JitRegistry.Register(new ReflectionEmitJitCompiler());
             Console.WriteLine("jit: on (reflection-emit back-end) — hot functions will tier up");
+#endif
             break;
         case "closure":
         case "closurethreaded":
@@ -452,7 +471,7 @@ static ScriptEngine MakeEngine(string scriptPath, string[] scriptArgs)
     // Enable the JIT so hot functions tier up during run/profile.
     // The REPL re-registers below; calling Register twice is harmless.
     if (JitRegistry.Current == null)
-        JitRegistry.Register(new ReflectionEmitJitCompiler());
+        RegisterDefaultJit();
 
     var engine = new ScriptEngine();
     new EngineFunctionLoader().RegisterFunctions(engine);

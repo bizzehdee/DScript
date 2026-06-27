@@ -14,6 +14,18 @@
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
 
+  <!-- Native AOT publish: dotnet publish DScript.Cli -c Release -f net10.0 -r <rid> /p:DScriptAot=true
+       Reflection.Emit is unavailable under AOT, so DSCRIPT_AOT switches the CLI to
+       the closure-threaded JIT back-end (no IL emission). PublishAot is set here
+       (not via a global /p:) so it stays scoped to this project and does not flow
+       to the netstandard analyzer/source-generator references. AOT is single-TFM,
+       so publish with -f net10.0. -->
+  <PropertyGroup Condition="'$(DScriptAot)' == 'true'">
+    <PublishAot>true</PublishAot>
+    <DefineConstants>$(DefineConstants);DSCRIPT_AOT</DefineConstants>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\DScript\DScript.csproj" />
     <ProjectReference Include="..\DScript.Extras\DScript.Extras.csproj" />
