@@ -181,3 +181,23 @@ Two viable shapes, an explicit architectural choice for the repo owner:
 The closure-JIT control-flow/OSR/block-scope/inlining work (commits on
 `closure-jit-control-flow`) already took the AOT/closure Functions workload 4543 → ~2280 ms;
 slots are the next lever for the residual name-resolution + boxed-arithmetic cost.
+
+### Landed — AOT/closure-only first cut (option 2)
+
+Implemented on `closure-jit-control-flow` as one vertical slice (`ScriptEngine.EnableLocalSlots`,
+off by default; enabled on the AOT build). Followed the all-or-none promotion strategy above:
+`Chunk.PromoteLocalSlots` rewrites `GetVar`/`SetVar` → `GetLocal`/`SetLocal` after capture
+analysis, before the optimizer. Interpreter + closure JIT read slots; the Reflection.Emit
+back-end declines slotted chunks; the serializer recovers slot metadata on load.
+
+Results (AOT/closure bench.ds, cumulative with the prior closure-JIT work): Functions
+4543 → ~1720 ms (~62%), Objects ~950 → ~700, TypedArrays ~353 → ~240, Closures ~104 → ~38.
+Default Reflection.Emit build unchanged. 2302 tests green (net8.0 + net10.0); `SlotFrameTests`
+added. Two bugs caught during bring-up and fixed: a stride miscalculation past `ForOfStep`
+(the promotion walk must use `Chunk.InstructionSize`, not the incomplete
+`Disassembler.OperandCount`), and serialized slotted bytecode losing its frame size.
+
+Not yet done (future phases): slots in the Reflection.Emit back-end (so the default build
+benefits — option 1 / phase A3 proper), parameter slots, capture cells (A2's captured-slot
+case is currently demoted by simply not promoting captured names), nested-block functions
+(>1 block scope), and OSR-specific slot handling beyond what the shared call-env path covers.
