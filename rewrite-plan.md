@@ -1,0 +1,136 @@
+# Objects & Classes rewrite plan
+
+Scoping document for closing the remaining performance gap on the **Objects** and
+**Classes** workloads. Companion to `performance-plan.md` (which holds the per-task
+history and bench baselines). This file is the *plan*; update task status there.
+
+## Goal
+
+| Workload | Current vs v8 | Target |
+|---|---|---|
+| Classes | ~22× | ≤ 10× |
+| Objects | ~16× | materially lower |
+
+Both are **allocation-bound, not lookup-bound** — established this session:
+- Shape-tracking object literals gave **no** Objects gain and regressed Spread 20–60% (reverted).
+- Inherited-method inline caching shown to be ~6% of Classes time (proto-method 909 ms vs
+  field-reads-only 857 ms) — not the bottleneck.
+- Per-property `ScriptVarLink`s and frame `vars` are pooled; the **un-pooled** costs are
+  (1) the instance/literal `ScriptVar` itself and (2) one `Environment` per call.
+
+A second structural finding from the code audit: today's shape "slots" are **not O(1)**.
+`PropCacheCell.WalkShapeRoot` (`PropCacheCell.cs:104`) reaches a property by walking the
+`ScriptVarLink` linked list `Next` *slotIndex* times. So even an inline-cache *hit* is an
+O(slot) pointer chase, and every property is still a heap `ScriptVarLink`. A real flat slot
+array fixes both the allocation and the lookup cost at once.
+
+## Guiding principles (lessons banked this session)
+
+1. **Additive fast path + working fallback.** Never delete the slow path; *deopt* to it.
+   The shape system already does this (invalid shape → linked-list walk); keep that model.
+2. **Each phase is independently shippable**: its own commit, full suite green on net8.0 +
+   net10.0, `bench.ds` before/after recorded, `>10%` regression auto-rejected.
+3. **No piecemeal lifecycle/pooling changes outside their enabling structure.** Standalone
+   `Environment` pooling corrupted callback/`arguments` state (28 failures) because the
+   frame lifetime assumption didn't hold without the slot model around it. Pooling lands
+   *with* the structure that makes it sound, not before.
+4. **Reversibility is a feature.** Every phase must be `git revert`-able in one commit.
+5. New opcodes **appended to the enum end** (project rule); behaviour stays ES-invisible.
+
+## The two structural levers
+
+### Lever B — Object slot arrays  *(the Objects lever; also Classes field access)*
+
+**Now:** a shape-tracked object stores property values in `ScriptVarLink`s; the linked list
+is the source of truth; reads walk `_shapeRoot` by `Next` (`ScriptVar.Shaped.cs`,
+`PropCacheCell.cs:104`); each property is one pooled link; metadata
+(`Enumerable`/`Writable`/`Configurable`/`Getter`/`Setter`/`IsConst`) lives on the link.
+
+**Target:** shape-tracked objects keep property **values** in a flat `ScriptVar[] _slots`
+indexed by the shape's slot index. O(1) reads; no per-property link in the common case
+(own data property, no accessor, no delete).
+
+**Why this (and only this) moves Objects:** the Objects benchmark has no function calls —
+only the object representation matters. Confirmed: shape-tracking alone (transitions, no
+slot array) *regressed*; the win requires the value array, not just the hidden class.
+
+**What depends on the linked list being authoritative** (all must keep working — audited):
+for-in (`EnumKeys`), `JSON.stringify` (`ScriptVar.AppendJson:1624`), `Object.keys/values/
+entries` (`ProviderHelpers.ForEachEnumerableChild:55`), `delete` (`RemoveLink`), freeze/seal,
+`CopyValue`/`DeepCopy`, debugger introspection, function param-name enumeration
+(`GetParsableString`), bytecode (de)serialization. Plus per-property metadata + accessors.
+
+**Design options:**
+- **B1 — dual representation (lower risk, partial win).** Keep the linked list for order +
+  metadata; add `_slots[]` carrying values for shape-tracked data properties. Reads become
+  `_slots[idx]` (true O(1), kills the `WalkShapeRoot` chase); writes update both. *Does not*
+  remove the link allocation, but removes the walk and is a safe stepping stone.
+- **B2 — slots-primary, lazy list (higher risk, full win).** `_slots[]` is the value store;
+  the linked list is materialised lazily only when a consumer (enumeration / metadata /
+  deopt) needs it. Removes the per-property link allocation — the real Objects win — but
+  every list consumer must trigger materialisation correctly.
+
+**Recommendation:** ship **B1**, measure, then take **B2** only if B1's gain justifies the
+materialisation seams.
+
+### Lever A — Positional local-slot frames + sound Environment pooling  *(Classes calls, Functions, Closures)*
+
+**Now:** params/locals are bound by named `AddChild` into a per-call `vars` `ScriptVar`;
+resolution walks the `Environment.Parent` chain by name with a per-site cache
+(`ResolveCached`, `Chunk.InlineCacheEntry`); closures capture the defining `Environment`
+(`VmFunction.Captured`) and resolve free vars by name; an `Environment` is allocated per
+call. `this` is a named `"this"` child.
+
+**Target:** the compiler resolves params/locals to **integer slots**; the frame is a
+`ScriptVar[]`; **captured** variables are boxed into cells so the frame itself can be pooled;
+closures capture cells, not the frame — which is what makes `Environment` pooling sound.
+
+**Hard parts (why this is the real T3.2):** upvalue **cells** for captured variables (decided
+at compile time), plus `arguments`, `eval` (dynamic declarations), the debugger's variable
+view, and **two** JIT back-ends (`ReflectionEmitJitCompiler`, `ClosureThreadedJitCompiler`)
+that resolve params by name today and would read slots / `JitDelegate.args`.
+
+## Phased sequence
+
+Ordered so the cheap, broad win lands first and the Objects-critical work precedes the
+call-path work (only Lever B moves Objects; Lever A only helps call-heavy workloads).
+
+| Phase | What | Risk | Moves | Reversible |
+|---|---|---|---|---|
+| **0a** | **Instance `ScriptVar` pooling.** Recycle `Dispose`d objects via a bounded pool, exactly like the `ScriptVarLink` pool. Attacks the un-pooled instance allocation for **both** Objects and Classes with no representation change. Sound by the same argument link-pooling is: only `refs→0` objects dispose, and pure stack temporaries never dispose, so no use-after-free. | Med | Objects, Classes | ✓ |
+| **B1** | Object slot-array **reads** (O(1)), dual representation. | Med-High | Objects, Classes field reads | ✓ |
+| **B2** | Slots-primary + lazy link materialisation (drop per-property link alloc). | High | Objects, Classes | ✓ |
+| **A1** | Compiler slot resolution + `GetLocal`/`SetLocal` opcodes for non-captured params/locals; frame `ScriptVar[]`; named path retained for captured/eval/debug. | High | Functions, Classes, Closures | ✓ |
+| **A2** | Upvalue **cells** for captured vars → enables sound `Environment` pooling. | High | Closures, Classes | ✓ |
+| **A3** | Both JIT back-ends read slots + use `JitDelegate.args`. | High | all calls | ✓ |
+
+**Recommended path:** `0a → B1 → re-measure → B2 and/or A1 → A2 → A3`. Re-measure after B1:
+if Objects/Classes hit target, B2 / Lever A may be deferrable.
+
+## Risk register & mitigations
+
+- **Pool use-after-free / cycles** (CLAUDE.md object-graph rule): gate pooling on `refs==0`
+  dispose; bound pool size; the full suite catches lifetime bugs (it caught the env-pooling
+  ones in <60 s). Run the suite after every pooling wiring change.
+- **Slot-array deopt correctness:** B1 keeps the linked list authoritative; heavy tests for
+  `delete`, accessor install, for-in order, JSON order, freeze/seal, spread, sparse arrays.
+- **Closure capture (A2) — the single riskiest item:** dedicated matrix — counter closures,
+  `let` captured in loops (per-iteration binding), recursion, generators/async capturing
+  params, `arguments` captured by a nested arrow.
+- **Two JIT back-ends drift:** change both in A3; OSR int/loop tiers already cache guarded
+  params in CLR locals and are largely unaffected, but verify deopt paths.
+- **bench.ds variance** is high (Spread/TypedArrays swing 20%+ run-to-run). Use best-of-N
+  interleaved A/B, not single runs, before accepting/rejecting a phase.
+
+## Rough effort
+
+0a ≈ 0.5 d · B1 ≈ 2–3 d · B2 ≈ 3–5 d · A1 ≈ 2 d · A2 ≈ 3–4 d · A3 ≈ 2–3 d.
+
+## Open decisions for the user
+
+1. **Appetite / stopping point:** is the goal "ship 0a + B1 and re-measure" (likely the best
+   effort/risk ratio), or commit to the full `0a → B2 → A` programme?
+2. **Branch strategy:** land each phase on `master` behind its gates, or stage the whole
+   programme on a `perf/objects-classes` branch and merge once green end-to-end?
+3. **B2 vs stop at B1:** accept the higher-risk lazy-materialisation rewrite for the full
+   Objects allocation win, or stop at B1's O(1) reads if that alone closes enough of the gap?

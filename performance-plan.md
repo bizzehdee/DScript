@@ -217,6 +217,10 @@ investigated and one was rejected:
   attack these — `Environment` pooling (the contained slice of T3.2) and/or an object slot
   array (T3.3) — not more inline-cache work.
 
+> **Objects & Classes rewrite is scoped in [`rewrite-plan.md`](rewrite-plan.md)** — staged
+> phases (instance pooling → object slot arrays → slot frames), risk register, sequencing.
+> T3.2 and T3.3 below are the raw task stubs that plan expands on.
+
 **T3.2 — Positional local-slot frames + pooled Environments.** Resolve params/locals to
 integer slots at compile time; bind into a `ScriptVar[]` on the frame instead of named
 `AddChild`; pool the `Environment` for recyclable frames; have the JIT read params from
