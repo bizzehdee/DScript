@@ -183,6 +183,22 @@ never carry the flag (covered by a new test). `ScriptVar` is no longer `sealed`.
 - Files: new `ScriptVar.Shaped.cs`; `ScriptVar.cs`; `ScriptVar.Factory.cs`;
   `VirtualMachine.cs`; `PropCacheCell.cs`.
 
+**T3.1b — Bind primitive arguments by reference (drop the defensive DeepCopy).** ✅ Done.
+`BindArgValue` used to `DeepCopy` any ref-counted primitive argument to stop a callee
+mutating the caller's binding. But under the VM nothing mutates a primitive in place:
+assignment and `++`/`--` compile to a store via `ScriptVarLink.ReplaceWith`, which swaps
+the binding's link to a fresh value; the in-place `CopyValue` survives only on freshly
+created locals and return slots, never on a bound argument. So every value now binds by
+reference (as objects/arrays/functions already did), eliminating an allocation on every
+call that passes a variable. Interned singletons stay safe (Dispose is a no-op; Ref/UnRef
+stays balanced). This is the lightweight precursor to T3.2 — if calls are fast enough now,
+the full slot-frame rewrite can wait.
+- **bench.ds results (best of several interleaved runs vs the pre-change baseline):**
+  Objects ~887 → ~609 ms (**−31%**); Map ~552 → ~427 ms (**−23%**); Sort ~693 → ~553 ms
+  (**−20%**); Classes ~510 → ~464 ms (**−9%**); Arrays −6%; Functions, Closures,
+  TypedArrays and all others within run-to-run noise. No regressions.
+- Files: `VirtualMachine.cs` (`BindArgValue`); tests in `ArgumentsOptimizationTests.cs`.
+
 **T3.2 — Positional local-slot frames + pooled Environments.** Resolve params/locals to
 integer slots at compile time; bind into a `ScriptVar[]` on the frame instead of named
 `AddChild`; pool the `Environment` for recyclable frames; have the JIT read params from

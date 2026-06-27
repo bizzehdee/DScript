@@ -86,5 +86,64 @@ namespace DScript.Test
         [Test]
         public void EmptyArguments()
             => Assert.That(IntOf("function f(){ return arguments.length; } result = f();", "result"), Is.EqualTo(0));
+
+        // Argument binding shares primitive values by reference rather than copying
+        // them defensively. These tests lock in that call-by-value isolation still
+        // holds: a callee reassigning or mutating a parameter must never disturb the
+        // caller's binding, even when the SAME variable is passed (so its ScriptVar
+        // is ref-counted > 0 — the case the old code used to DeepCopy).
+        [Test]
+        public void ReassigningParameter_DoesNotMutateCallerVariable()
+        {
+            // x is a bound variable (refs > 0); f reassigns its parameter.
+            Assert.That(IntOf(
+                "function f(a){ a = a + 100; return a; } var x = 5; var y = f(x); result = x;",
+                "result"), Is.EqualTo(5));
+        }
+
+        [Test]
+        public void ReassignedParameter_ReturnsUpdatedValueToCallee()
+        {
+            Assert.That(IntOf(
+                "function f(a){ a = a + 100; return a; } var x = 5; result = f(x);",
+                "result"), Is.EqualTo(105));
+        }
+
+        [Test]
+        public void IncrementingParameter_DoesNotMutateCallerVariable()
+        {
+            Assert.That(IntOf(
+                "function f(a){ a++; a++; return a; } var x = 7; var y = f(x); result = x;",
+                "result"), Is.EqualTo(7));
+        }
+
+        [Test]
+        public void SameVariablePassedTwice_ParametersAreIndependent()
+        {
+            // Both parameters initially share x's ScriptVar; mutating one must not
+            // affect the other or the caller.
+            Assert.That(IntOf(
+                "function f(a, b){ a = a + 1; return b; } var x = 10; var r = f(x, x); result = r + x;",
+                "result"), Is.EqualTo(20));
+        }
+
+        [Test]
+        public void StringParameterReassignment_DoesNotMutateCallerVariable()
+        {
+            Assert.That(StrOf(
+                "function f(s){ s = s + '!'; return s; } var x = 'hi'; var y = f(x); result = x;",
+                "result"), Is.EqualTo("hi"));
+        }
+
+        [Test]
+        public void RecursiveCall_PassingParameterPreservesEachFramesBinding()
+        {
+            // Each recursive frame binds n; decrementing in the recursion must not
+            // corrupt an outer frame's n. Sum 3+2+1 = 6, and the outer n stays 3.
+            Assert.That(IntOf(
+                "function f(n){ if (n <= 0) return 0; var rest = f(n - 1); return n + rest; }" +
+                "result = f(3);",
+                "result"), Is.EqualTo(6));
+        }
     }
 }

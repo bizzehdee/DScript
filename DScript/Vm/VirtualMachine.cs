@@ -2990,24 +2990,21 @@ namespace DScript.Vm
             return BindArgValue(args[index]);
         }
 
-        // Bind a single argument value into a call frame.
+        // Bind a single argument value into a call frame. Every value binds by
+        // reference — including primitives. A primitive is never mutated in place
+        // under the VM: assignment and ++/-- compile to a load/compute/store whose
+        // store is ReplaceWith, which swaps the binding's link to a *fresh* value
+        // rather than mutating the shared ScriptVar (the in-place CopyValue used by
+        // the old tree-walker is only ever applied to freshly-created locals and
+        // return slots, never to a bound argument). So a callee reassigning a
+        // parameter can never disturb the caller's binding, and the defensive
+        // DeepCopy this path used to do for ref-counted primitives was pure
+        // allocation overhead on every call that passed a variable. Interned
+        // singletons (small ints, booleans) are safe to share too: Dispose is a
+        // no-op on them and the bind/teardown Ref/UnRef pair stays balanced.
         private static ScriptVar BindArgValue(ScriptVar value)
         {
-            if (value == null)
-                return SharedUndefined;
-
-            // Objects/arrays/functions are passed by reference — even empty ones.
-            // IsBasic (FirstChild == null) is not a reliable type test because an
-            // empty {} or [] has no children but is still a mutable reference type.
-            if (value.IsObject || value.IsArray || value.IsFunction) return value;
-
-            // Primitives are passed by value, so a shared one (held by a variable,
-            // hence ref-counted) must be copied to prevent the callee mutating the
-            // caller's binding. But a value with no refs is an unaliased temporary
-            // freshly produced on the operand stack (e.g. the result of `n - 1` in
-            // `fib(n - 1)`): nothing else can observe it, so binding it directly is
-            // safe and skips a DeepCopy allocation on the hot call path.
-            return value.GetRefs() == 0 ? value : value.DeepCopy();
+            return value ?? SharedUndefined;
         }
 
         private ScriptVar Construct(ScriptVar ctor, ScriptVar[] args)
