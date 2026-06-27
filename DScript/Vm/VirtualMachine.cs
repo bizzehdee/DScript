@@ -3488,12 +3488,6 @@ namespace DScript.Vm
         // parent environment saved by the matching JitEnterBlock.
         internal static Environment JitLeaveBlock(Environment env) => env.Parent;
 
-        // Positional local-slot access for JIT-compiled code (Lever A), mirroring the
-        // GetLocal/SetLocal opcode handlers.
-        internal static ScriptVar JitGetLocal(Environment env, int slot) => env.Slots[slot];
-
-        internal static void JitSetLocal(Environment env, int slot, ScriptVar value) => env.Slots[slot] = value;
-
         // Allocate a function's positional slot frame on its call environment when the
         // chunk uses slots, initialising every slot to undefined (matching the
         // name-based path, where a local reads undefined before assignment). No-op for
