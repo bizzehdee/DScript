@@ -45,6 +45,49 @@ cache, instance pooling) suggest the engine is near its architectural floor for 
 deeper object-representation change. **Do not commit the full multi-week programme on the
 original premise** — validate Lever B1 as a bounded probe first.
 
+## ✅ Clean CPU profiles — the priorities were BACKWARDS
+
+With `dotnet-trace` symbol resolution fixed (attribute past the synthetic
+`CPU_TIME`/`UNMANAGED_CODE_TIME` leaf markers), here is real per-method self-time.
+
+**Objects** (`{a,b,c,d}` literal + 4 reads):
+| % self | method | meaning |
+|--:|---|---|
+| 31.1 | `JitGetVar` | **variable read by name** — `env.Resolve` scope-chain walk, **no inline cache** |
+| 27.2 | `jit_<main>` | compiled loop body |
+| 15.2 | `JitSetVar` | **variable write by name** |
+| 8.6 | `JitGetPropCached` | `o.a`…`o.d` |
+| 6.0 | `IntBinary` | the `+`s |
+| 3.3 | `AddChild` | building the literal |
+| 2.3 | `SequenceEqual` | string name compares |
+
+→ **46% of Objects is name-based variable resolution**, only ~12% is the object
+representation. The plan's claim that "only Lever B (object slot arrays) moves Objects" is
+**wrong**: the JIT helpers `JitGetVar`/`JitSetVar` do a full `env.Resolve` walk every access
+with **no inline cache** (the interpreter has `ResolveCached`; the JIT path skipped it).
+
+**Classes** (`new P(i,i+1).sum()`): cost is spread — `Execute` 42%,
+`InvokeVmFunctionFromStack` 10.7%, `_noSetterCache` `Dictionary<(ScriptVar,string),bool>`
+**7.2%** (ValueTuple hash+probe on every `this.x=`/`this.y=`), `jit_P` 7%, `InvokeCallable`
+5.5%, shape dict lookups (`Shape.Transition` + `Slots`) ~4.6%, `AddChild` 2.9%,
+`OsrDeclinedOffsets.Contains` (HashSet, per back-edge) **2.6%**, `CastHelpers.StelemRef`
+array-covariance **2.7%** (a cost introduced by **unsealing** `ScriptVar` in T3.1a).
+
+### Revised, evidence-based work list (targeted — NOT the big rewrite)
+
+| # | Win | Target | ~self-time | Risk |
+|---|---|---|--:|---|
+| W1 | **Inline-cache the JIT variable helpers** (`JitGetVar`/`JitSetVar` cache the resolved link per site, like `ResolveCached`). | Objects, Classes | up to ~46% of Objects | Med |
+| W2 | Replace `_noSetterCache` dict with a write-site inline cache / per-prototype no-setter flag. | Classes | ~7% | Low-Med |
+| W3 | Cache the OSR-declined decision instead of `HashSet<int>.Contains` per back-edge. | Classes, all loops | ~2.6% | Low |
+| W4 | Bypass array-covariance (`StelemRef`) on the operand-stack/args stores (unsafe store, or re-seal strategy) — covariance came from unsealing `ScriptVar`. | all | ~2.7% | Low-Med |
+
+These are additive, independently testable, and far lower risk than Levers A/B. Lever A
+(full positional slot frames) remains the *ceiling* for variable resolution, but **W1 likely
+captures most of its Objects payoff at a fraction of the risk** — do W1 first and re-measure
+before considering the full slot-frame rewrite. Lever B (object slot arrays) is **deprioritised**:
+the data shows the object representation is a minor cost on both workloads.
+
 ## Guiding principles (lessons banked this session)
 
 1. **Additive fast path + working fallback.** Never delete the slow path; *deopt* to it.
