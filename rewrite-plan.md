@@ -112,6 +112,29 @@ effectively part of Lever A and carries Lever-A risk (the scope/closure model).
 Do those first; treat "stable block envs + var caching" as its own larger Lever-A-scoped
 effort to decide on separately.
 
+### ⚠️ Real-W1 attempt (stable block envs) — abandoned on fragile JIT/OSR interactions
+
+Implemented: `Environment.GetOrCreateReusableBlock(site)` (reuse one block env per site when
+`RecyclableFrame`), interpreter `EnterBlock` reuse, and idempotent `let`/`const` re-declare
+(`ScriptVarLink.ResetForRedeclare` — reset to undefined, no version bump) in both interpreter
+and JIT declare helpers. Small loops worked, but at scale (`for i<1e6`) the workload throws
+**`o is const, cannot assign a new value`** once the loop OSRs into JIT.
+
+Root cause class: the interpreter reuses a block env and resets the `const` binding, but the
+interpreter↔JIT↔OSR hand-off resolves/initialises the binding against a *different*
+environment than the one that was reset (currentEnv vs the frame `env` arg; the JIT still
+allocates fresh block envs via `JitEnterBlock`). Making all four paths
+(interpreter EnterBlock/Declare, JIT EnterBlock/Declare, OSR resume env, const-init SetVar)
+agree on one reused env is exactly the holistic binding-model work of **Lever A** — it cannot
+be retrofitted safely as an opportunistic change. This was the **4th** correctness/perf
+failure in the scope/closure/JIT area this session (env-pooling, naive var-cache, two here),
+which is strong evidence that variable-resolution speed needs the full Lever-A slot-frame
+rewrite or nothing. **Reverted.**
+
+**Net for the session:** T3.1b is the one banked win (on master). Objects/Classes are
+near the engine's floor without a dedicated, holistic Lever-A rewrite; the remaining safe,
+independent wins are W2 (`_noSetterCache`), W3 (OSR HashSet), W4 (covariance).
+
 ## Guiding principles (lessons banked this session)
 
 1. **Additive fast path + working fallback.** Never delete the slow path; *deopt* to it.
