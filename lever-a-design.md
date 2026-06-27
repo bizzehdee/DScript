@@ -197,7 +197,20 @@ added. Two bugs caught during bring-up and fixed: a stride miscalculation past `
 (the promotion walk must use `Chunk.InstructionSize`, not the incomplete
 `Disassembler.OperandCount`), and serialized slotted bytecode losing its frame size.
 
+Parameter slots landed next (commit "Lever A: slot parameters"): parameters are promoted
+too (unless `arguments`/rest/captured), the call path writes args into the slot frame, and
+the closure inliner inlines param-only-slotted leaves (slot access → positional arg). Win is
+modest (Sort ~730 → ~684 ms best-of; per-call cost is dominated by InvokeCallable, not
+parameter resolution — measured ~4.3 ns/read saved). Default build unchanged.
+
 Not yet done (future phases): slots in the Reflection.Emit back-end (so the default build
-benefits — option 1 / phase A3 proper), parameter slots, capture cells (A2's captured-slot
-case is currently demoted by simply not promoting captured names), nested-block functions
-(>1 block scope), and OSR-specific slot handling beyond what the shared call-env path covers.
+benefits — option 1 / phase A3 proper), capture cells (captured names are currently demoted
+by not promoting them), nested-block functions (>1 block scope), and OSR-specific slot
+handling beyond what the shared call-env path covers.
+
+Measured dead-ends (don't pursue for performance): unboxed integer registers in the closure
+back-end (bench.ds loop bounds are all double literals like `1e7`, so no loop is
+int-speculable), and ScriptVar allocation reduction (hot compute loops already allocate ~0 —
+the VM reuses values in place; only data-structure construction allocates). The closure/AOT
+back-end is delegate-dispatch-bound; the remaining gap to the Reflection.Emit JIT is
+structural (no IL codegen under AOT).
