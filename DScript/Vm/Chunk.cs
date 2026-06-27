@@ -382,6 +382,27 @@ namespace DScript.Vm
         /// <summary>Optional name (function name or "&lt;main&gt;") for diagnostics.</summary>
         public string Name { get; set; } = "<main>";
 
+        // ── Lever A: positional local-slot analysis (metadata; populated by the
+        // compiler's scope tracker). Not yet consumed by the runtime in phase A1 —
+        // see lever-a-design.md. A name maps to a slot iff it is a lexical local of
+        // this function (param/var/let/const) and the function is slot-eligible.
+        /// <summary>Local/parameter name → frame slot index for this function.</summary>
+        public System.Collections.Generic.Dictionary<string, int> SlotMap { get; } = [];
+
+        /// <summary>Number of frame slots this function needs (0 when none assigned).</summary>
+        public int SlotCount { get; set; }
+
+        /// <summary>Slots whose binding is captured by a nested function and therefore
+        /// must be boxed into a cell (conservative over-approximation in A1).</summary>
+        public System.Collections.Generic.HashSet<int> CapturedSlots { get; } = [];
+
+        /// <summary>
+        /// False when slotting must be disabled for this function (direct <c>eval</c>,
+        /// <c>with</c>, or other dynamic binding introduction): the runtime keeps the
+        /// name-based GetVar/SetVar path. Set by the compiler.
+        /// </summary>
+        public bool SlotEligible { get; set; } = true;
+
         /// <summary>
         /// Original source text of a function body (set for function chunks).
         /// Retained so a function value can be rendered back to source by

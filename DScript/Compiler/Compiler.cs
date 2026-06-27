@@ -112,6 +112,8 @@ namespace DScript.Compiler
             CompileExpression();
             chunk.Emit(OpCode.Return);
 
+            AnalyzeSlotsAndCaptures(chunk);
+
             if (EnableOptimizer)
             {
                 chunk.CollapseJumpChains();
@@ -147,6 +149,8 @@ namespace DScript.Compiler
             chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
 
+            AnalyzeSlotsAndCaptures(chunk);
+
             if (EnableOptimizer)
             {
                 chunk.CollapseJumpChains();
@@ -157,6 +161,61 @@ namespace DScript.Compiler
                 _constScopes = null;
             }
             return chunk;
+        }
+
+        // ----- Lever A: local-slot analysis (phase A1, metadata only) ----------
+
+        // Record `name` as a lexical local of the function currently being compiled,
+        // assigning it the next free frame slot. Idempotent per (chunk, name): the first
+        // declaration wins, later re-declarations/shadows in nested blocks reuse it for
+        // the function-level summary (per-occurrence resolution is a phase-A2 concern).
+        private void RecordLocalSlot(string name)
+        {
+            if (chunk.SlotMap.ContainsKey(name)) return;
+            chunk.SlotMap[name] = chunk.SlotCount++;
+        }
+
+        // Assign slots 0..N-1 to a function's parameters (call once after the parameter
+        // list is parsed, before the body, so params occupy the lowest slots).
+        private static void AssignParameterSlots(Chunk fnChunk)
+        {
+            foreach (var p in fnChunk.Parameters)
+                if (!fnChunk.SlotMap.ContainsKey(p))
+                    fnChunk.SlotMap[p] = fnChunk.SlotCount++;
+        }
+
+        // Post-compile pass over the chunk tree: mark a function's slots captured when a
+        // nested function (any depth) references the same name, and disable slotting for
+        // functions that can introduce bindings dynamically (direct eval). Conservative —
+        // over-marking a capture only costs a cell; it is never unsafe.
+        private static void AnalyzeSlotsAndCaptures(Chunk c)
+        {
+            foreach (var child in c.Functions)
+                AnalyzeSlotsAndCaptures(child);
+
+            // Direct eval (or a parameter/var literally named eval) can add bindings at
+            // runtime; fall back to the name-based path for the whole function.
+            if (c.Names.Contains("eval"))
+                c.SlotEligible = false;
+
+            if (c.SlotMap.Count == 0) return;
+
+            // Union of every descendant function's referenced names.
+            var referenced = new HashSet<string>();
+            CollectDescendantNames(c, referenced);
+
+            foreach (var kv in c.SlotMap)
+                if (referenced.Contains(kv.Key))
+                    c.CapturedSlots.Add(kv.Value);
+        }
+
+        private static void CollectDescendantNames(Chunk c, HashSet<string> into)
+        {
+            foreach (var child in c.Functions)
+            {
+                foreach (var n in child.Names) into.Add(n);
+                CollectDescendantNames(child, into);
+            }
         }
 
         // ----- strict-mode directive detection ---------------------------------

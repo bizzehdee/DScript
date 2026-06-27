@@ -253,6 +253,7 @@ namespace DScript.Compiler
             lexer = methodLexer;
 
             var paramDefaults = ParseParameterList(fnChunk);
+            AssignParameterSlots(fnChunk); // Lever A: params occupy the lowest frame slots
 
             var saved = chunk;
             chunk = fnChunk;

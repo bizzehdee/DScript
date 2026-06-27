@@ -780,6 +780,7 @@ namespace DScript.Compiler
             var sourceStart = lexer.TokenStart;
 
             var paramDefaults = ParseParameterList(fnChunk);
+            AssignParameterSlots(fnChunk); // Lever A: params occupy the lowest frame slots
 
             // Push a parameter-barrier scope so outer `const` propagation cannot
             // substitute a value for a name that this function shadows with a parameter.
@@ -928,6 +929,7 @@ namespace DScript.Compiler
             }
 
             lexer.Match(ScriptLex.LexTypes.Arrow);
+            AssignParameterSlots(fnChunk); // Lever A: params occupy the lowest frame slots
 
             // Push a parameter-barrier scope (same as CompileFunctionRest).
             if (_constScopes != null)

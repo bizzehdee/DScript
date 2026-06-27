@@ -194,6 +194,7 @@ namespace DScript.Compiler
                         throw new ScriptException($"SyntaxError: '{name}' cannot be used as a variable name in strict mode");
                     lexer.Match(ScriptLex.LexTypes.Id);
                     var nameIndex = chunk.AddName(name);
+                    RecordLocalSlot(name); // Lever A: assign this local a frame slot
 
                     // `const` → DeclareConst (read-only binding in innermost scope)
                     // `let`   → DeclareLocal (mutable binding in innermost scope, no hoisting)
