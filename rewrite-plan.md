@@ -88,6 +88,30 @@ captures most of its Objects payoff at a fraction of the risk** — do W1 first 
 before considering the full slot-frame rewrite. Lever B (object slot arrays) is **deprioritised**:
 the data shows the object representation is a minor cost on both workloads.
 
+### ⚠️ W1 attempt — naive inline cache REGRESSED (~22%), reverted
+
+Implemented `VarCacheCell` + `JitGetVarCached`/`JitSetVarCached` keyed on (env identity,
+version), wired into both JIT back-ends. Full suite green, but bench regressed: Objects
+~742 vs ~608, Classes worse, Closures ~33→~85. **Reverted.**
+
+Root cause (confirmed empirically): `CompileFor` puts the block-scoped loop body *inside*
+the loop, so `EnterBlock` runs every iteration and `JitEnterBlock` allocates a **fresh
+Environment per iteration**. Every in-loop variable access starts from that per-iteration
+env, so an env-identity-keyed cache **misses every iteration** — the cache check is then
+pure overhead on top of the `env.Resolve` it can't avoid.
+
+**The real W1 is bigger than "add a cache":** the enabler is **stable block-scope
+environments** — reuse the block env across loop iterations when the function captures no
+closure (`RecyclableFrame`), instead of reallocating it. That makes env identity stable, at
+which point both the interpreter's existing `ResolveCached` *and* a JIT var-cache pay off
+(and it also removes the per-iteration `Environment`+vars allocation). This touches
+`EnterBlock`/`LeaveBlock` in the interpreter and JIT plus a per-block escape check — it is
+effectively part of Lever A and carries Lever-A risk (the scope/closure model).
+
+**Reordering:** W2/W3/W4 are independent of W1 and remain valid, confirmed, lower-risk wins.
+Do those first; treat "stable block envs + var caching" as its own larger Lever-A-scoped
+effort to decide on separately.
+
 ## Guiding principles (lessons banked this session)
 
 1. **Additive fast path + working fallback.** Never delete the slow path; *deopt* to it.
