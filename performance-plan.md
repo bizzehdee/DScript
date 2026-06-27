@@ -199,6 +199,24 @@ the full slot-frame rewrite can wait.
   TypedArrays and all others within run-to-run noise. No regressions.
 - Files: `VirtualMachine.cs` (`BindArgValue`); tests in `ArgumentsOptimizationTests.cs`.
 
+**Diagnostics — where Objects & Classes time actually goes (post-T3.1b).** Two ideas were
+investigated and one was rejected:
+- *Shape-track object literals (`NewObject`/`JitNewObject` → `CreateShapeTracked`).*
+  **Rejected.** Objects did not improve (the 4-property reads were never the bottleneck —
+  a ≤ `LinearScanThreshold` child scan is already fast) while Spread regressed ~20–60%
+  (extra 16-byte `ShapedScriptVar` + shape transitions on a create-and-discard pattern).
+  Auto-rejected under the >10% policy.
+- *Inherited-method inline caching (`o.sum()` on the prototype).* **Not the bottleneck.**
+  Micro-bench: prototype-method 909 ms vs own-field-reads-only (no method) 857 ms — method
+  resolution/dispatch is only ~6% of Classes time. Own-property method was *slower* (1017 ms,
+  a closure per instance).
+- **Conclusion: Objects and Classes are allocation-bound, not lookup-bound.** Per object the
+  ScriptVarLinks and frame `vars` are already pooled and recycled on dispose; the remaining
+  non-pooled allocations are (1) the instance/literal `ScriptVar` itself and (2) one
+  `Environment` per call (Classes pays two: constructor + method). Closing 22×→10× needs to
+  attack these — `Environment` pooling (the contained slice of T3.2) and/or an object slot
+  array (T3.3) — not more inline-cache work.
+
 **T3.2 — Positional local-slot frames + pooled Environments.** Resolve params/locals to
 integer slots at compile time; bind into a `ScriptVar[]` on the frame instead of named
 `AddChild`; pool the `Environment` for recyclable frames; have the JIT read params from
