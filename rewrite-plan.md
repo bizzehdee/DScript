@@ -24,6 +24,27 @@ A second structural finding from the code audit: today's shape "slots" are **not
 O(slot) pointer chase, and every property is still a heap `ScriptVarLink`. A real flat slot
 array fixes both the allocation and the lookup cost at once.
 
+## ⚠️ Phase 0a result — the "allocation-bound" premise is FALSIFIED
+
+Phase 0a (instance `ScriptVar` pooling) was implemented, full suite green on both TFMs,
+and benchmarked best-of-5: **no measurable gain** — Objects ~612 vs ~608, Classes ~458 vs
+~463 (within noise). Pooling fired correctly (Classes instances *are* disposed per
+iteration), so this is a real null result, not a wiring miss. **Reverted.**
+
+Conclusion: .NET gen0 GC handles these short-lived `ScriptVar`s cheaply; **the bottleneck
+is CPU, not allocation.** A CPU trace (`dotnet-trace`) confirms Classes is JIT-compiled yet
+still ~22×, with time spread across object-model bookkeeping — `AddChild`, `Shape.Transition`
+(two `Dictionary.FindValue` per property), `FindChild`, `FindInParentClasses`,
+`JitGetPropCached` — no single hot spot. (The sampling collapsed to a coarse bucket; clean
+per-method attribution still needs symbol resolution work.)
+
+**Revised hypothesis:** the win, if any, comes from cheapening per-property CPU work — replace
+the per-property `Dictionary`/linked-list operations with flat array indexing (Lever B, for
+CPU reasons not GC). But three rejected experiments this session (literal shapes, method
+cache, instance pooling) suggest the engine is near its architectural floor for OOP without a
+deeper object-representation change. **Do not commit the full multi-week programme on the
+original premise** — validate Lever B1 as a bounded probe first.
+
 ## Guiding principles (lessons banked this session)
 
 1. **Additive fast path + working fallback.** Never delete the slow path; *deopt* to it.
