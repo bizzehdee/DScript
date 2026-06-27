@@ -44,6 +44,28 @@ count, per-name→slot map, captured-slot set, `this`/`arguments` slots. Emit **
 yet — bytecode and runtime unchanged. Validate: suite green; add unit tests asserting the
 slot map for representative functions. *Self-contained, low risk.*
 
+**A1 outcome (committed 6f64bb9):** built the *flat* metadata version (`Chunk.SlotMap`
+name→slot, `SlotCount`, `CapturedSlots`, `SlotEligible`). Sufficient as a summary, but **not**
+sufficient to drive A2 emission — see the constraint below.
+
+**A2 correctness constraint (discovered before implementing).** Slot resolution **must happen
+at emit time with a block-aware scope stack**, not as a post-pass bytecode promotion. A flat
+name→slot map cannot tell a reference that lexically binds to a block-local from one outside
+that block: `function f(){ { let x=1; } return x; }` shares one slot for both `x` tokens, so
+promoting `return x` to `GetLocal` would read the block's stale slot instead of resolving
+outward. Therefore A2 must:
+1. Maintain a compile-time **scope stack** that mirrors runtime `EnterBlock`/`LeaveBlock`
+   exactly (function-root scope + nested block scopes), with monotonic slot allocation
+   (no slot reuse across sibling blocks → slot↔name is 1:1, needed for capture demotion).
+2. At each identifier load/store, resolve the name through the current function's scopes; emit
+   `GetLocal`/`SetLocal` only when it binds to a local declaration of the current function.
+3. A per-*slot* capture-demotion post-pass (a captured slot's *all* occurrences —
+   declaration + every reference — revert to name-based together, which is correct).
+Conservative A2 gates (fall back to name-based): non-eligible function (`eval`), `main`/expr
+chunk, `IsGenerator`/`IsAsync` (suspend/resume slot persistence deferred), `UsesArguments`
+(params must stay reachable for the arguments object), captured slots. Params may stay
+name-based in the first A2 cut (locals-only) to avoid changing call-site binding.
+
 **A2 — Interpreter slot frames.**
 Allocate `Slots = ScriptVar[slotCount]` on the call frame. Compiler emits `GetLocal`/
 `SetLocal`/`DeclareLocalSlot` (appended to opcode enum) for slotted names; `GetVar`/`SetVar`
