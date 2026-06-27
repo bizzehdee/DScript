@@ -111,3 +111,73 @@ Remove now-dead name-resolution fast paths where fully superseded; final bench; 
   parity.
 - Generators/async suspend the frame → slot frame must live on the generator state, not the
   C# stack.
+
+## A2 refinement — de-risked "all-or-none per-name" promotion (2026-06-27)
+
+Investigation while extending the closure JIT settled the A2 emission strategy and surfaced
+two constraints that reshape the phasing.
+
+### Strategy: promote in a post-pass, all-or-none per name (no demotion, no divergence)
+
+Earlier notes weighed emit-time slot opcodes + a capture-demotion post-pass. A simpler,
+provably-safe alternative: keep the compiler emitting name-based `GetVar`/`SetVar`, then run a
+**promotion pass after `AnalyzeSlotsAndCaptures` and before the optimizer** (so it only sees
+wide `GetVar`/`SetVar`, never fused/narrow forms). For each chunk, rewrite *every* occurrence
+of a name to `GetLocal`/`SetLocal` **only if the name is fully slottable**, else leave all
+occurrences name-based. "Fully slottable" gates (any failure → name stays name-based):
+
+- chunk is a function (not `<main>`/`<expr>`), `SlotEligible`, not generator/async;
+- chunk has **≤1 `EnterBlock`** (no nested block scopes) → the flat `SlotMap` is 1:1 and
+  resolution is unambiguous, sidestepping the block-shadowing problem entirely;
+- name is a `let`/`var` local (not a parameter, not `const`) — track slottable-kind names in a
+  per-chunk set at declaration time, since `SlotMap` alone can't distinguish `const`/params;
+- name's slot ∉ `CapturedSlots`;
+- name has **no use before its declaration** in bytecode order (linear scan) — otherwise the
+  promoted read would see the (undefined) slot instead of the outer binding DScript currently
+  resolves, changing observable behaviour.
+
+Why this is safe: because promotion is all-or-none per name, a slotted local has **zero**
+name-based accesses, so slot storage and the (now-dead) env binding can never diverge. No
+capture-demotion bytecode rewrite is needed (captured names simply aren't promoted). Declares
+are left untouched (the dead env binding is harmless; one `AddChild` per call, not per access).
+TDZ is a non-issue: DScript does not implement TDZ (`DeclareLocal` creates a plain undefined
+binding), so slots default to undefined with matching semantics.
+
+Runtime: add `ScriptVar[] Slots` to `Environment`; block child envs (`EnterBlock`,
+`JitEnterBlock`) share the parent's `Slots` reference so a function-wide slot is reachable at
+any block depth. Allocate `Slots` in `InvokeCallable` when the entered chunk uses slots.
+`GetLocal`/`SetLocal` index `env.Slots`. Both JITs read via `JitGetLocal`/`JitSetLocal`
+helpers (same pattern as `JitGetVar`), so the closure back-end is a two-node change.
+
+### Constraint 1 — A2 and A3 are inseparable (JIT-decline-on-unknown forces a vertical landing)
+
+A back-end that meets an unknown opcode **declines the whole chunk** and the VM interprets it.
+So the moment the compiler emits `GetLocal`, any chunk containing it stops being JIT-compiled
+unless the back-end handles it. The hot functions are exactly the ones that get slotted, so
+"emit slots now, teach the JIT later" would regress them to the interpreter. A2 (emit + run)
+and A3 (JIT reads) must land **together**, and coverage (90% gate) means the first commit must
+be the full vertical slice: compiler-emit → interpreter → both JIT decoders/back-ends → tests.
+
+### Constraint 2 — the Reflection.Emit back-end is multi-tier (~10 var-handling sites)
+
+`ReflectionEmitJitCompiler` is not a single lowering: it has multiple tiers/strategies, each
+with its own `PushVar` handling (`varLocals`, `regs`, `argTemps`, `EmitLoadLocal`,
+`EmitLoadNamedVar` — ~10 sites). It already promotes vars to IL locals internally. Adding
+slot support there is a substantial, error-prone change that risks the **default** build.
+
+### Resulting recommendation for the first landing
+
+Two viable shapes, an explicit architectural choice for the repo owner:
+
+1. **Clean / both back-ends (larger):** implement slot reads in the Reflection.Emit back-end's
+   tiers too, so the default build also benefits (the doc's original intent). Bigger, riskier,
+   touches the multi-tier JIT.
+2. **AOT/closure-only first cut (smaller, but with smells):** gate promotion behind a flag
+   enabled only for the closure/AOT path; the Reflection.Emit back-end **declines** any chunk
+   containing `GetLocal`/`SetLocal` (3-line guard) so the default build is byte-for-byte
+   unchanged and never miscompiles slots. Cost: a global compile flag (global mutable state),
+   build-dependent bytecode, and divergence from the both-back-ends vision.
+
+The closure-JIT control-flow/OSR/block-scope/inlining work (commits on
+`closure-jit-control-flow`) already took the AOT/closure Functions workload 4543 → ~2280 ms;
+slots are the next lever for the residual name-resolution + boxed-arithmetic cost.
