@@ -103,13 +103,13 @@ namespace DScript.Jit
 
             // Decline control-flow / opcodes the block model does not yet handle:
             // short-circuit and optional-chaining jumps keep a value live across the
-            // boundary; method calls need receiver threading the block model lacks.
-            // (Block scopes — EnterBlock/LeaveBlock — are supported via the driver's
-            // threaded current environment.)
+            // boundary. (Block scopes — EnterBlock/LeaveBlock — are supported via the
+            // driver's threaded current environment. Method calls — GetPropMethod /
+            // GetPropCall0 / CallMethod — are handled in CompileBlock via a pending-method
+            // stack that evaluates the receiver exactly once; see CallMethodNode.)
             foreach (var instr in instrs)
                 if (instr.Kind is JitOpKind.JumpIfFalseOrPop or JitOpKind.JumpIfTrueOrPop
-                    or JitOpKind.JumpIfNullOrUndefined or JitOpKind.JumpIfDefined
-                    or JitOpKind.GetPropMethod or JitOpKind.GetPropCall0 or JitOpKind.CallMethod)
+                    or JitOpKind.JumpIfNullOrUndefined or JitOpKind.JumpIfDefined)
                     return null;
 
             // 1. Mark leaders.
@@ -164,6 +164,13 @@ namespace DScript.Jit
         {
             var stack = new Stack<JitDelegate>();
             var body = new List<BodyStep>();
+            // A method call's receiver is stashed here by GetPropMethod and consumed by
+            // the matching CallMethod, so the receiver expression is evaluated exactly
+            // once (no double-eval of e.g. getObj().m()). A method call never spans a
+            // block boundary in compilable code (control-flow args push operand depth >1
+            // at the branch, which this back-end already declines), so this stays balanced
+            // within a block — enforced by the pendingMethods checks at every terminator.
+            var pendingMethods = new Stack<(JitDelegate recv, string name)>();
 
             for (var i = start; i < end; i++)
             {
@@ -172,24 +179,24 @@ namespace DScript.Jit
                 // Terminators end the block.
                 if (instr.Kind == JitOpKind.Jump)
                 {
-                    if (stack.Count != 0) return null;
+                    if (stack.Count != 0 || pendingMethods.Count != 0) return null;
                     return Block.Goto(body.ToArray(), idx2blk[instr.IntValue]);
                 }
                 if (instr.Kind == JitOpKind.JumpIfFalse)
                 {
-                    if (stack.Count != 1) return null;
+                    if (stack.Count != 1 || pendingMethods.Count != 0) return null;
                     return Block.Branch(body.ToArray(), stack.Pop(), TermKind.BranchFalse,
                                         idx2blk[instr.IntValue], idx2blk[i + 1]);
                 }
                 if (instr.Kind == JitOpKind.JumpIfTrue)
                 {
-                    if (stack.Count != 1) return null;
+                    if (stack.Count != 1 || pendingMethods.Count != 0) return null;
                     return Block.Branch(body.ToArray(), stack.Pop(), TermKind.BranchTrue,
                                         idx2blk[instr.IntValue], idx2blk[i + 1]);
                 }
                 if (instr.Kind == JitOpKind.Return)
                 {
-                    if (stack.Count != 1) return null;
+                    if (stack.Count != 1 || pendingMethods.Count != 0) return null;
                     return Block.Ret(body.ToArray(), stack.Pop());
                 }
 
@@ -268,6 +275,24 @@ namespace DScript.Jit
                         stack.Push(NewNode(ctor, argNodes));
                         break;
                     }
+                    case JitOpKind.GetPropMethod:
+                        // Stash the receiver; the matching CallMethod evaluates it once.
+                        pendingMethods.Push((stack.Pop(), instr.Name));
+                        break;
+                    case JitOpKind.GetPropCall0:
+                        // Fused zero-argument method call; self-contained (no pending).
+                        stack.Push(CallMethodNode(stack.Pop(), instr.Name, System.Array.Empty<JitDelegate>()));
+                        break;
+                    case JitOpKind.CallMethod:
+                    {
+                        if (pendingMethods.Count == 0) return null; // method call spans a block boundary
+                        var margs = new JitDelegate[instr.IntValue];
+                        for (var j = instr.IntValue - 1; j >= 0; j--)
+                            margs[j] = stack.Pop();
+                        var (recvNode, mName) = pendingMethods.Pop();
+                        stack.Push(CallMethodNode(recvNode, mName, margs));
+                        break;
+                    }
                     case JitOpKind.MergeObject:
                     {
                         var source = stack.Pop();
@@ -340,7 +365,7 @@ namespace DScript.Jit
             // Fell off the end without a terminator: fall through to the next block.
             // (Well-formed chunks end in Return, so this only happens for a block that
             // was split purely because the following instruction is a jump target.)
-            if (stack.Count != 0 || end >= instrs.Count) return null;
+            if (stack.Count != 0 || pendingMethods.Count != 0 || end >= instrs.Count) return null;
             return Block.Fall(body.ToArray(), idx2blk[end]);
         }
 
@@ -535,6 +560,28 @@ namespace DScript.Jit
                 var bodyEnv = hasDeclares ? new Environment(ScriptVar.CreateObject(), closureEnv) : closureEnv;
                 return calleeBody(vm, callArgs, bodyEnv);
             };
+
+        // A method call obj.m(args): evaluate the receiver exactly once, resolve the
+        // method through the per-site inline cache (getter/prototype-aware, Lever 2a),
+        // then dispatch with this = receiver. Unlike the Reflection.Emit back-end this
+        // does not inline the callee body (monomorphic body inlining stays RE-only — the
+        // closure back-end favours portable, modest gains), but it compiles method calls
+        // instead of declining them, giving both back-ends method-call parity.
+        private static JitDelegate CallMethodNode(JitDelegate receiver, string name, JitDelegate[] argNodes)
+        {
+            var cell = new PropCacheCell();
+            return (vm, args, env) =>
+            {
+                var recv = receiver(vm, args, env);
+                var link = cell.Lookup(recv);
+                var method = (link != null && link.Getter == null) ? link.Var
+                                                                    : vm.JitGetPropCached(recv, name, cell);
+                var argv = argNodes.Length == 0 ? System.Array.Empty<ScriptVar>()
+                                                : new ScriptVar[argNodes.Length];
+                for (var j = 0; j < argNodes.Length; j++) argv[j] = argNodes[j](vm, args, env);
+                return vm.InvokeCallable(method, recv, argv);
+            };
+        }
 
         private static JitDelegate GetPropNode(JitDelegate obj, string name)
         {

@@ -316,6 +316,59 @@ namespace DScript.Test
         // which this bare-engine harness does not register; that case is covered in
         // JitPropertyCacheExtrasTests, which runs a full Extras-enabled engine.)
 
+        // ── method calls: both back-ends compile them (closure parity) ──────────
+
+        [Test]
+        public void MethodCallNoArgs()
+        {
+            AssertMatches(
+                "class P { constructor(x){ this.x = x; } get(){ return this.x; } }\n" +
+                "var p = new P(7);\n" +
+                "function f(o){ return o.get(); }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(p); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void MethodCallWithArgs()
+        {
+            AssertMatches(
+                "class P { constructor(x){ this.x = x; } add(a, b){ return this.x + a + b; } }\n" +
+                "var p = new P(10);\n" +
+                "function f(o){ return o.add(3, 4); }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(p); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void MethodCallNonTailInExpression()
+        {
+            // Method call as an operand (non-tail) -> CallMethod, not a tail-call lowering.
+            AssertMatches(
+                "class P { constructor(x){ this.x = x; } get(){ return this.x; } }\n" +
+                "var p = new P(5);\n" +
+                "function f(o){ return o.get() + o.get(); }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(p); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void MethodCallReceiverEvaluatedOnce()
+        {
+            // The receiver expression must be evaluated exactly once even though
+            // GetPropMethod conceptually keeps it and CallMethod consumes it. `next()`
+            // mutates a counter and returns the object; if the receiver were evaluated
+            // twice the counter would advance twice per call.
+            AssertMatches(
+                "var calls = 0;\n" +
+                "var obj = { v: 0, inc(){ this.v = this.v + 1; return this.v; } };\n" +
+                "function next(){ calls = calls + 1; return obj; }\n" +
+                "function f(){ return next().inc(); }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(); i = i + 1; }\n" +
+                "__result__ = calls;",   // exactly one next() per f() call -> 1200
+                "f", Chunk.JitStatus.Compiled);
+        }
+
         // ── decline paths: unsupported constructs stay interpreted ──────────────
 
         // Control-flow cases (loops) are back-end-divergent (the closure back-end

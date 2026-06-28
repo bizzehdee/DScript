@@ -8,8 +8,8 @@ namespace DScript.Test
     /// Phase 2: method calls (GetPropMethod/GetPropCall0/CallMethod) compile on the
     /// Reflection.Emit conservative tier and match the interpreter — including the
     /// receiver/`this` binding, zero-arg fast path, prototype (class) methods, and
-    /// chaining. The closure back-end declines method calls (it can't share the peeked
-    /// receiver without re-evaluating it).
+    /// chaining. The closure back-end also compiles method calls (a pending-method stack
+    /// evaluates the peeked receiver exactly once), so both back-ends have parity.
     /// </summary>
     [TestFixture]
     [NonParallelizable]
@@ -86,14 +86,16 @@ namespace DScript.Test
         }
 
         [Test]
-        public void ClosureBackendDeclinesMethodCalls()
+        public void ClosureBackendCompilesMethodCalls()
         {
+            // The closure back-end now compiles method calls (it used to decline them),
+            // matching the interpreter and the Reflection.Emit back-end.
             var src =
                 "var o = { v: 5, get: function(){ return this.v; } };\n" +
                 "function f(o){ return o.get() + 0; }\n" +
                 "var r=0; var i=0; while(i<1200){ r = f(o); i = i + 1; }\n__result__ = r;";
             var jit = Run(src, new ClosureThreadedJitCompiler());
-            Assert.That(jit.f.JitState, Is.EqualTo(Chunk.JitStatus.Failed), "closure declines method calls");
+            Assert.That(jit.f.JitState, Is.EqualTo(Chunk.JitStatus.Compiled), "closure now compiles method calls");
             Assert.That(jit.result, Is.EqualTo(Run(src, null).result));
         }
     }
