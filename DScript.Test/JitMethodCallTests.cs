@@ -98,5 +98,27 @@ namespace DScript.Test
             Assert.That(jit.f.JitState, Is.EqualTo(Chunk.JitStatus.Compiled), "closure now compiles method calls");
             Assert.That(jit.result, Is.EqualTo(Run(src, null).result));
         }
+
+        [Test]
+        public void ClosureMethodInliningMatchesDispatchAndInterpreter()
+        {
+            // The closure back-end inlines monomorphic method bodies (this=receiver). The
+            // inline path and the dispatch path must produce identical results, and both
+            // must match the interpreter — exercised with a body reading this + params.
+            var src =
+                "class P { constructor(x){ this.x = x; } add(a, b){ return this.x + a + b; } }\n" +
+                "var p = new P(10);\n" +
+                "function f(o){ return o.add(3, 4); }\n" +
+                "var r=0; var i=0; while(i<1200){ r = r + f(p); i = i + 1; }\n__result__ = r;";
+            var interp = Run(src, null).result;
+            try
+            {
+                ClosureThreadedJitCompiler.DisableMethodInlining = false;
+                Assert.That(Run(src, new ClosureThreadedJitCompiler()).result, Is.EqualTo(interp), "inline path");
+                ClosureThreadedJitCompiler.DisableMethodInlining = true;
+                Assert.That(Run(src, new ClosureThreadedJitCompiler()).result, Is.EqualTo(interp), "dispatch path");
+            }
+            finally { ClosureThreadedJitCompiler.DisableMethodInlining = false; }
+        }
     }
 }

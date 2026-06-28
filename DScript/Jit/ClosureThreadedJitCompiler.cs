@@ -42,6 +42,13 @@ namespace DScript.Jit
     /// </summary>
     public sealed class ClosureThreadedJitCompiler : IJitCompiler, IOsrCompiler
     {
+        /// <summary>
+        /// Kill switch for monomorphic method-body inlining on this back-end. When true,
+        /// method calls use plain dispatch (CallMethodNode) instead of splicing the
+        /// callee body. For A/B measurement and as a safety fallback.
+        /// </summary>
+        public static bool DisableMethodInlining { get; set; }
+
         public JitDelegate Compile(Chunk chunk)
         {
             var instrs = JitDecoder.Decode(chunk);
@@ -290,7 +297,8 @@ namespace DScript.Jit
                         for (var j = instr.IntValue - 1; j >= 0; j--)
                             margs[j] = stack.Pop();
                         var (recvNode, mName) = pendingMethods.Pop();
-                        stack.Push(CallMethodNode(recvNode, mName, margs));
+                        var minlined = allowInline ? TryInlineMethodCall(instr, recvNode, mName, margs, currentChunk) : null;
+                        stack.Push(minlined ?? CallMethodNode(recvNode, mName, margs));
                         break;
                     }
                     case JitOpKind.MergeObject:
@@ -580,6 +588,97 @@ namespace DScript.Jit
                                                 : new ScriptVar[argNodes.Length];
                 for (var j = 0; j < argNodes.Length; j++) argv[j] = argNodes[j](vm, args, env);
                 return vm.InvokeCallable(method, recv, argv);
+            };
+        }
+
+        // Monomorphic method-body inlining (the method-call analogue of TryInlineCall).
+        // At a monomorphic CallMethod site whose method is inline-eligible, splice the
+        // callee body with `this` bound to the receiver — eliminating the InvokeCallable
+        // frame and the boxed arg array, and (once subexpression unboxing lands) letting
+        // values flow across the former call boundary. The receiver is passed as a
+        // synthetic trailing argument slot (mapped from the name "this"); a runtime
+        // method-identity mismatch falls back to a normal dispatch. Returns null to
+        // decline (use plain dispatch via CallMethodNode).
+        private static JitDelegate TryInlineMethodCall(JitInstruction instr, JitDelegate receiverNode,
+                                                       string name, JitDelegate[] argNodes, Chunk currentChunk)
+        {
+            if (DisableMethodInlining) return null;
+            var mono = instr.MonoCallee;
+            if (mono == null || instr.MonoCallee1 != null) return null;   // need a monomorphic site
+            if (!mono.IsFunction || mono.IsNative || mono.IsProxy) return null;
+            if (mono.GetData() is not VmFunction vmfn) return null;
+
+            var body = vmfn.Body;
+            if (body == currentChunk) return null;                        // no self-recursion
+            if (body.IsGenerator || body.IsAsync) return null;
+            if (body.RestParamIndex >= 0 || body.UsesArguments) return null;
+            if (body.MakesClosure) return null;
+            if (body.UsesSlots && body.SlotCount > body.Parameters.Count) return null;
+
+            var calleeInstrs = JitDecoder.Decode(body);
+            if (calleeInstrs == null) return null;
+
+            // `this` is bound to the receiver below; super/arguments/new.target are
+            // frame-bound and not threaded here, so decline a body that reads them.
+            var hasDeclares = false;
+            foreach (var ci in calleeInstrs)
+            {
+                if (ci.Kind is JitOpKind.EnterBlock or JitOpKind.LeaveBlock or JitOpKind.MakeClosure)
+                    return null;
+                if (ci.Kind is JitOpKind.PushVar or JitOpKind.SetVar or JitOpKind.SetVarPop
+                    && ci.Name is "arguments" or "super" or "new.target")
+                    return null;
+                if (ci.Kind is JitOpKind.DeclareVar or JitOpKind.DeclareLocal or JitOpKind.DeclareConst)
+                    hasDeclares = true;
+            }
+
+            var parameters = body.Parameters;
+            var paramMap = new Dictionary<string, int>(parameters.Count + 1);
+            for (var i = 0; i < parameters.Count; i++) paramMap[parameters[i]] = i; // last duplicate wins (JS)
+            paramMap["this"] = parameters.Count; // receiver rides the trailing arg slot
+
+            var blocks = BuildBlocks(calleeInstrs, body.IsStrict, body, paramMap, allowInline: false, out _);
+            if (blocks == null) return null;
+
+            var calleeBody = RunFromBlock(blocks, 0);
+            return InlineMethodCallNode(receiverNode, name, argNodes, mono, calleeBody,
+                                        parameters.Count, vmfn.Captured, hasDeclares);
+        }
+
+        private static JitDelegate InlineMethodCallNode(JitDelegate receiverNode, string name,
+                                                        JitDelegate[] argNodes, ScriptVar baked,
+                                                        JitDelegate calleeBody, int nparams,
+                                                        Environment closureEnv, bool hasDeclares)
+        {
+            var cell = new PropCacheCell();
+            return (vm, args, env) =>
+            {
+                var recv = receiverNode(vm, args, env);            // evaluate the receiver exactly once
+                var link = cell.Lookup(recv);
+                var method = (link != null && link.Getter == null) ? link.Var
+                                                                    : vm.JitGetPropCached(recv, name, cell);
+                if (!ReferenceEquals(method, baked))
+                {
+                    // Method changed / polymorphic: fall back to a full dispatch.
+                    var resolved = new ScriptVar[argNodes.Length];
+                    for (var j = 0; j < argNodes.Length; j++) resolved[j] = argNodes[j](vm, args, env);
+                    return vm.InvokeCallable(method, recv, resolved);
+                }
+
+                // callArgs = [param0 .. param{nparams-1}, this]; extra args are still
+                // evaluated for their side effects, missing args default to undefined.
+                var callArgs = new ScriptVar[nparams + 1];
+                for (var j = 0; j < argNodes.Length; j++)
+                {
+                    var v = argNodes[j](vm, args, env);
+                    if (j < nparams) callArgs[j] = v;
+                }
+                for (var j = argNodes.Length; j < nparams; j++)
+                    callArgs[j] = ScriptVar.CreateUndefined();
+                callArgs[nparams] = recv;                          // `this`
+
+                var bodyEnv = hasDeclares ? new Environment(ScriptVar.CreateObject(), closureEnv) : closureEnv;
+                return calleeBody(vm, callArgs, bodyEnv);
             };
         }
 
