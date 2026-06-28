@@ -49,6 +49,12 @@ namespace DScript.Jit
         /// </summary>
         public static bool DisableMethodInlining { get; set; }
 
+        /// <summary>
+        /// Kill switch for the unboxed long-register loop tier. When true, integer loops
+        /// use the boxed block compile. For A/B measurement and as a safety fallback.
+        /// </summary>
+        public static bool DisableLongLoop { get; set; }
+
         public JitDelegate Compile(Chunk chunk)
         {
             var instrs = JitDecoder.Decode(chunk);
@@ -59,7 +65,267 @@ namespace DScript.Jit
             if (blocks == null)
                 return null; // unsupported control flow / op — VM keeps interpreting
 
-            return RunFromBlock(blocks, 0);
+            var boxed = RunFromBlock(blocks, 0);
+
+            // Unboxed long-register tier: a pure integer loop runs on raw long registers
+            // with no per-iteration boxing — the closure-backend analogue of the
+            // Reflection.Emit long-loop tier, and the only thing that removes boxing under
+            // NativeAOT. Falls back to the boxed compile if not eligible or on a type miss.
+            if (!DisableLongLoop)
+            {
+                var lng = TryCompileLongLoop(instrs, chunk, boxed);
+                if (lng != null) return lng;
+            }
+            return boxed;
+        }
+
+        // ── unboxed long-register loop tier ──────────────────────────────────────
+
+        // A long-typed value-producer / side-effecting step over the register frame.
+        private delegate long LongExpr(long[] regs);
+        private delegate void LongStep(long[] regs);
+
+        private sealed class LongBlock
+        {
+            public LongStep[] Body;
+            public LongExpr Value;   // branch condition / return value
+            public TermKind Kind;
+            public int Target;
+            public int Next;
+
+            public static LongBlock Goto(LongStep[] b, int t) => new() { Body = b, Kind = TermKind.Jump, Target = t };
+            public static LongBlock Fall(LongStep[] b, int t) => new() { Body = b, Kind = TermKind.Jump, Target = t };
+            public static LongBlock Branch(LongStep[] b, LongExpr c, TermKind k, int t, int n)
+                => new() { Body = b, Value = c, Kind = k, Target = t, Next = n };
+            public static LongBlock Ret(LongStep[] b, LongExpr v) => new() { Body = b, Value = v, Kind = TermKind.Return };
+        }
+
+        // Operators the long tier handles: +,-,* (raw int64, wrapping — matching
+        // IntBinary/IntOrDouble which also use int64) and comparisons (0/1). Division,
+        // modulo, bitwise and shifts can leave the int64 domain, so they decline.
+        private static bool IsLongLoopOp(ScriptLex.LexTypes op) => (char)op switch
+        {
+            '+' or '-' or '*' => true,
+            '<' or '>' => true,
+            _ => op is ScriptLex.LexTypes.Equal or ScriptLex.LexTypes.NEqual
+                       or ScriptLex.LexTypes.LEqual or ScriptLex.LexTypes.GEqual,
+        };
+
+        private static long LongBinaryOp(long a, long b, ScriptLex.LexTypes op)
+        {
+            switch ((char)op)
+            {
+                case '+': return a + b;
+                case '-': return a - b;
+                case '*': return a * b;
+                case '<': return a <  b ? 1L : 0L;
+                case '>': return a >  b ? 1L : 0L;
+            }
+            return op switch
+            {
+                ScriptLex.LexTypes.Equal  => a == b ? 1L : 0L,
+                ScriptLex.LexTypes.NEqual => a != b ? 1L : 0L,
+                ScriptLex.LexTypes.LEqual => a <= b ? 1L : 0L,
+                _                         => a >= b ? 1L : 0L, // GEqual
+            };
+        }
+
+        // An int constant, or a double constant that is an exact integer within 2^53
+        // (e.g. a loop bound like 1e7). Mirrors the Reflection.Emit tier's TryConstAsLong.
+        private static bool TryConstLong(ConstantValue c, out long value)
+        {
+            if (c.Kind == ConstantKind.Int) { value = c.IntValue; return true; }
+            if (c.Kind == ConstantKind.Double)
+            {
+                var d = c.DoubleValue;
+                if (!double.IsNaN(d) && !double.IsInfinity(d) && d == System.Math.Floor(d)
+                    && System.Math.Abs(d) < 9007199254740992.0) { value = (long)d; return true; }
+            }
+            value = 0;
+            return false;
+        }
+
+        // Compile a pure integer-loop function into a closure that runs on raw long
+        // registers. Eligibility mirrors the Reflection.Emit long-loop tier: every op is
+        // an int arithmetic/comparison/var/jump/return; every variable is a parameter
+        // (guarded int at entry) or a local first written before any read (so it is
+        // unconditionally an int by the time it is read). A guard miss runs the boxed
+        // fallback. Returns null to decline.
+        private static JitDelegate TryCompileLongLoop(List<JitInstruction> instrs, Chunk chunk, JitDelegate fallback)
+        {
+            var n = instrs.Count;
+            if (n == 0 || instrs[n - 1].Kind != JitOpKind.Return) return null;
+
+            // Collect register variables and validate the op set.
+            var reg = new Dictionary<string, int>();
+            var sawBinary = false;
+            foreach (var ins in instrs)
+            {
+                switch (ins.Kind)
+                {
+                    case JitOpKind.Binary:
+                        if (!IsLongLoopOp(ins.Op)) return null;
+                        sawBinary = true;
+                        break;
+                    case JitOpKind.PushConst:
+                        if (!TryConstLong(ins.Constant, out _)) return null;
+                        break;
+                    case JitOpKind.PushVar:
+                    case JitOpKind.SetVar:
+                    case JitOpKind.SetVarPop:
+                        if (!reg.ContainsKey(ins.Name)) reg[ins.Name] = reg.Count;
+                        break;
+                    case JitOpKind.PushIntLiteral:
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:
+                    case JitOpKind.Not:
+                    case JitOpKind.Pop:
+                    case JitOpKind.Jump:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                    case JitOpKind.Return:
+                        break;
+                    default:
+                        return null; // calls, properties, indexing, shifts, etc.
+                }
+            }
+            if (!sawBinary) return null;
+
+            // Binary sites must all be profiled integer-only (avoid speculating int on a
+            // loop already seen running on strings/doubles).
+            var profiles = chunk.GetBinaryOpProfiles();
+            if (profiles.Count == 0) return null;
+            foreach (var (_, p) in profiles)
+                if (p.LeftTypes != Chunk.BinaryTypeFlags.Int || p.RightTypes != Chunk.BinaryTypeFlags.Int)
+                    return null;
+
+            // Register-promotion soundness: a non-parameter variable's first reference
+            // must be a write that precedes any jump, so it is initialised before any read.
+            var firstJump = n;
+            for (var i = 0; i < n; i++)
+                if (instrs[i].Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue) { firstJump = i; break; }
+            var firstRef = new Dictionary<string, (int idx, bool write)>();
+            for (var i = 0; i < n; i++)
+            {
+                var ins = instrs[i];
+                if (ins.Name == null || !(ins.Kind is JitOpKind.PushVar or JitOpKind.SetVar or JitOpKind.SetVarPop)) continue;
+                if (!firstRef.ContainsKey(ins.Name))
+                    firstRef[ins.Name] = (i, ins.Kind is JitOpKind.SetVar or JitOpKind.SetVarPop);
+            }
+            foreach (var kv in firstRef)
+            {
+                if (chunk.Parameters.Contains(kv.Key)) continue;     // params guarded at entry
+                if (!kv.Value.write || kv.Value.idx >= firstJump) return null;
+            }
+
+            // ── partition into basic blocks (same leader logic as BuildBlocks) ──────
+            var isLeader = new bool[n];
+            isLeader[0] = true;
+            for (var i = 0; i < n; i++)
+            {
+                var k = instrs[i].Kind;
+                if (k is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue)
+                {
+                    var t = instrs[i].IntValue;
+                    if (t < 0 || t >= n) return null;
+                    isLeader[t] = true;
+                    if (i + 1 < n) isLeader[i + 1] = true;
+                }
+                else if (k == JitOpKind.Return && i + 1 < n) isLeader[i + 1] = true;
+            }
+            var idx2blk = new Dictionary<int, int>();
+            var starts = new List<int>();
+            for (var i = 0; i < n; i++) if (isLeader[i]) { idx2blk[i] = starts.Count; starts.Add(i); }
+
+            var blocks = new LongBlock[starts.Count];
+            for (var b = 0; b < starts.Count; b++)
+            {
+                var start = starts[b];
+                var end = b + 1 < starts.Count ? starts[b + 1] : n;
+                var lb = CompileLongBlock(instrs, start, end, idx2blk, reg);
+                if (lb == null) return null;
+                blocks[b] = lb;
+            }
+
+            // Parameter registers loaded + guarded at entry; non-parameter locals start
+            // at 0 (write-first guarantees a real value before any read).
+            var paramRegs = new List<(string name, int idx)>();
+            foreach (var kv in reg) if (chunk.Parameters.Contains(kv.Key)) paramRegs.Add((kv.Key, kv.Value));
+            var regCount = reg.Count;
+
+            return (vm, args, env) =>
+            {
+                var regs = new long[regCount];
+                foreach (var (name, idx) in paramRegs)
+                {
+                    var sv = VirtualMachine.JitGetVar(env, name);
+                    if (!sv.IsAnyInt) return fallback(vm, args, env); // type miss -> boxed path
+                    regs[idx] = sv.Long;
+                }
+                var bb = 0;
+                while (true)
+                {
+                    var blk = blocks[bb];
+                    var steps = blk.Body;
+                    for (var i = 0; i < steps.Length; i++) steps[i](regs);
+                    switch (blk.Kind)
+                    {
+                        case TermKind.Return: return ScriptVar.FromLong(blk.Value(regs));
+                        case TermKind.Jump: bb = blk.Target; break;
+                        case TermKind.BranchFalse: bb = blk.Value(regs) != 0 ? blk.Next : blk.Target; break;
+                        default: bb = blk.Value(regs) != 0 ? blk.Target : blk.Next; break; // BranchTrue
+                    }
+                }
+            };
+        }
+
+        private static LongBlock CompileLongBlock(List<JitInstruction> instrs, int start, int end,
+                                                  Dictionary<int, int> idx2blk, Dictionary<string, int> reg)
+        {
+            var stack = new Stack<LongExpr>();
+            var body = new List<LongStep>();
+            for (var i = start; i < end; i++)
+            {
+                var instr = instrs[i];
+                if (instr.Kind == JitOpKind.Jump)
+                {
+                    if (stack.Count != 0) return null;
+                    return LongBlock.Goto(body.ToArray(), idx2blk[instr.IntValue]);
+                }
+                if (instr.Kind == JitOpKind.JumpIfFalse)
+                {
+                    if (stack.Count != 1) return null;
+                    return LongBlock.Branch(body.ToArray(), stack.Pop(), TermKind.BranchFalse, idx2blk[instr.IntValue], idx2blk[i + 1]);
+                }
+                if (instr.Kind == JitOpKind.JumpIfTrue)
+                {
+                    if (stack.Count != 1) return null;
+                    return LongBlock.Branch(body.ToArray(), stack.Pop(), TermKind.BranchTrue, idx2blk[instr.IntValue], idx2blk[i + 1]);
+                }
+                if (instr.Kind == JitOpKind.Return)
+                {
+                    if (stack.Count != 1) return null;
+                    return LongBlock.Ret(body.ToArray(), stack.Pop());
+                }
+                switch (instr.Kind)
+                {
+                    case JitOpKind.PushConst:      { TryConstLong(instr.Constant, out var c); stack.Push(_ => c); break; }
+                    case JitOpKind.PushIntLiteral: { long v = instr.IntValue; stack.Push(_ => v); break; }
+                    case JitOpKind.PushVar:        { var idx = reg[instr.Name]; stack.Push(r => r[idx]); break; }
+                    case JitOpKind.SetVar:         { var idx = reg[instr.Name]; var val = stack.Pop(); stack.Push(r => { var t = val(r); r[idx] = t; return t; }); break; }
+                    case JitOpKind.SetVarPop:      { var idx = reg[instr.Name]; var val = stack.Pop(); body.Add(r => r[idx] = val(r)); break; }
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:   break;
+                    case JitOpKind.Not:            { var x = stack.Pop(); stack.Push(r => x(r) == 0 ? 1L : 0L); break; }
+                    case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); var op = instr.Op; stack.Push(r => LongBinaryOp(ll(r), rr(r), op)); break; }
+                    case JitOpKind.Pop:            { var x = stack.Pop(); body.Add(r => x(r)); break; }
+                    default: return null;
+                }
+            }
+            if (stack.Count != 0 || end >= instrs.Count) return null;
+            return LongBlock.Fall(body.ToArray(), idx2blk[end]);
         }
 
         // On-stack replacement: compile the chunk and resume execution at the basic
