@@ -234,8 +234,8 @@ namespace DScript.Jit
             new(JitOpKind.GetPropMethod, null, 0, name, default, null);
         public static JitInstruction GetPropCall0(string name) =>
             new(JitOpKind.GetPropCall0, null, 0, name, default, null);
-        public static JitInstruction CallMethod(int argc) =>
-            new(JitOpKind.CallMethod, null, argc, null, default, null);
+        public static JitInstruction CallMethod(int argc, ScriptVar callee0 = null, ScriptVar callee1 = null) =>
+            new(JitOpKind.CallMethod, null, argc, null, default, callee0, callee1);
         public static JitInstruction NewObject() =>
             new(JitOpKind.NewObject, null, 0, null, default, null);
         public static JitInstruction NewArray() =>

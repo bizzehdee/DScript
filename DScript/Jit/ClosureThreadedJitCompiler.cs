@@ -539,7 +539,16 @@ namespace DScript.Jit
         private static JitDelegate GetPropNode(JitDelegate obj, string name)
         {
             var cell = new PropCacheCell(); // one inline-cache cell per site
-            return (vm, args, env) => vm.JitGetPropCached(obj(vm, args, env), name, cell);
+            return (vm, args, env) =>
+            {
+                var o = obj(vm, args, env);
+                // Inline cache fast path (Lever 2a): a cached data property (no getter)
+                // is read directly, skipping the JitGetPropCached call frame. Misses,
+                // getters and the full resolve fall through.
+                var link = cell.Lookup(o);
+                if (link != null && link.Getter == null) return link.Var;
+                return vm.JitGetPropCached(o, name, cell);
+            };
         }
 
         private static JitDelegate SetVarNode(string name, JitDelegate value, bool strict) =>
@@ -550,14 +559,22 @@ namespace DScript.Jit
                 return v;
             };
 
-        private static JitDelegate SetPropNode(JitDelegate obj, string name, JitDelegate value, bool strict) =>
-            (vm, args, env) =>
+        private static JitDelegate SetPropNode(JitDelegate obj, string name, JitDelegate value, bool strict)
+        {
+            var cell = new PropCacheCell(); // one inline-cache cell per write site
+            return (vm, args, env) =>
             {
                 var o = obj(vm, args, env);     // object evaluated before value (push order)
                 var v = value(vm, args, env);
-                vm.JitSetProp(o, name, v, strict);
+                // Inline cache fast path (Lever 2b): overwrite a cached own writable data
+                // property in place, skipping the JitSetProp/SetMember call frame. A
+                // SetProp cell only caches own data properties (see JitSetPropCached).
+                var link = cell.Lookup(o);
+                if (link != null && link.Writable) { link.ReplaceWith(v); return v; }
+                vm.JitSetPropCached(o, name, v, cell, strict);
                 return v;
             };
+        }
 
         private static JitDelegate DeclareNode(string name, JitDeclareKind kind) =>
             (vm, args, env) =>

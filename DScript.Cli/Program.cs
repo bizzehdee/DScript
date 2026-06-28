@@ -390,6 +390,11 @@ static string DescribeProfiler(CpuProfiler? cpuProfiler, MemoryProfiler? memProf
 // which emits no IL and is AOT-safe.
 static void RegisterDefaultJit()
 {
+    // A/B measurement hooks for Lever 2c/2d.
+    if (System.Environment.GetEnvironmentVariable("DS_NO_FIELD_SPEC") != null)
+        ReflectionEmitJitCompiler.DisableFieldReadSpeculation = true;
+    if (System.Environment.GetEnvironmentVariable("DS_NO_METHOD_INLINE") != null)
+        ReflectionEmitJitCompiler.DisableMethodInlining = true;
 #if DSCRIPT_AOT
     JitRegistry.Register(new ClosureThreadedJitCompiler());
 #else

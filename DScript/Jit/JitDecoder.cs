@@ -161,9 +161,21 @@ namespace DScript.Jit
                         ip += 1;
                         break;
                     case OpCode.CallMethod:
-                        instrs.Add(JitInstruction.CallMethod(chunk.ReadInt(ip)));
+                    {
+                        // Bake the profiled monomorphic method (Lever 2d) so the emitter
+                        // can guard on its identity and inline the body with this=receiver.
+                        var site = ip;
+                        var argc = chunk.ReadInt(ip);
+                        var profile = chunk.CallProfiles[site];
+                        ScriptVar mCallee0 = null, mCallee1 = null;
+                        if (profile.State == Chunk.CallSiteMorphism.Monomorphic)
+                            mCallee0 = profile.Callee0;
+                        else if (profile.State == Chunk.CallSiteMorphism.Bimorphic)
+                            { mCallee0 = profile.Callee0; mCallee1 = profile.Callee1; }
+                        instrs.Add(JitInstruction.CallMethod(argc, mCallee0, mCallee1));
                         ip += 4;
                         break;
+                    }
 
                     case OpCode.SetVar:
                         instrs.Add(JitInstruction.SetVar(chunk.Names[chunk.ReadInt(ip)]));
@@ -329,6 +341,31 @@ namespace DScript.Jit
                             return null;
                         }
                         instrs.Add(JitInstruction.Call(argc, callee0, callee1));
+                        instrs.Add(JitInstruction.Return());
+                        ip += 4;
+                        break;
+                    }
+
+                    case OpCode.TailCallMethod:
+                    {
+                        // `return obj.m(x)` in tail position. Lower to CallMethod + Return
+                        // (mirrors TailCall): correct for bounded depth and it reuses the
+                        // monomorphic method-inlining path (Lever 2d). Decline direct
+                        // self-recursion, which relies on the interpreter trampoline.
+                        var site = ip;
+                        var argc = chunk.ReadInt(ip);
+                        var profile = chunk.CallProfiles[site];
+                        ScriptVar mc0 = null, mc1 = null;
+                        if (profile.State == Chunk.CallSiteMorphism.Monomorphic)
+                            mc0 = profile.Callee0;
+                        else if (profile.State == Chunk.CallSiteMorphism.Bimorphic)
+                            { mc0 = profile.Callee0; mc1 = profile.Callee1; }
+                        if (IsSelfCallee(mc0, chunk) || IsSelfCallee(mc1, chunk))
+                        {
+                            declineReason = "self tail-recursion (relies on the interpreter trampoline)";
+                            return null;
+                        }
+                        instrs.Add(JitInstruction.CallMethod(argc, mc0, mc1));
                         instrs.Add(JitInstruction.Return());
                         ip += 4;
                         break;

@@ -3478,6 +3478,29 @@ namespace DScript.Vm
         internal void JitSetProp(ScriptVar obj, string name, ScriptVar value, bool strict)
             => SetMember(obj, name, value, strict);
 
+        // Slow path / cache-refresh for the SetProp inline cache (Lever 2b). The caller
+        // (emitted JIT code or the closure node) has already missed the per-site cache,
+        // so this does the full SetMember write and then refreshes the cell so subsequent
+        // writes hit the fast path. Only own, non-accessor data properties of plain
+        // objects are cached.
+        //
+        // Write-safety invariant: a SetProp site's PropCacheCell is populated ONLY here,
+        // with the link returned by obj.FindChild(name) — which is always an OWN property
+        // of obj (FindChild never walks the prototype chain). So both the shape-keyed and
+        // identity-keyed entries in a SetProp cell are own data properties, and the inline
+        // fast path may overwrite them in place without ever writing through a prototype.
+        internal void JitSetPropCached(ScriptVar obj, string name, ScriptVar value, PropCacheCell cell, bool strict)
+        {
+            SetMember(obj, name, value, strict);
+
+            if (obj.IsObject && !obj.IsProxy)
+            {
+                var link = obj.FindChild(name);
+                if (link != null && link.Getter == null && link.Setter == null)
+                    cell.Insert(obj, link);
+            }
+        }
+
         // Enter a block scope for JIT-compiled code, mirroring EnterBlock: return a new
         // block-scope environment whose parent is the current one. LeaveBlock is just
         // `current = current.Parent`, so no explicit stack is needed.
@@ -3563,6 +3586,24 @@ namespace DScript.Vm
                     ? taJit.GetElement(taJitIdx)
                     : ScriptVar.CreateUndefined();
             return ScriptVar.CreateUndefined();
+        }
+
+        // Resolve a DATA property value for the speculative tiers' guarded field reads
+        // (Lever 2c). Returns the property value, or null to signal the caller must deopt
+        // — a proxy, an accessor (getter), or an absent property, none of which the
+        // unboxed numeric fast path may handle. Never invokes a getter, so the read is
+        // side-effect-free and safe to repeat under the tiers' re-execution-on-deopt
+        // model. Caches resolved data-property links in the per-site cell.
+        internal ScriptVar JitReadDataField(ScriptVar obj, string name, PropCacheCell cell)
+        {
+            var link = cell.Lookup(obj);
+            if (link != null) return link.Getter != null ? null : link.Var;
+            if (obj.IsProxy) return null;
+            link = obj.FindChild(name);
+            if (link == null && engine != null) link = engine.FindInParentClasses(obj, name);
+            if (link == null || link.Getter != null) return null;
+            if (obj.IsObject || obj.IsArray) cell.Insert(obj, link);
+            return link.Var;
         }
 
         // Resolve a variable for JIT-compiled code, mirroring the GetVar opcode

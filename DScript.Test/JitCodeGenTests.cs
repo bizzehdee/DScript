@@ -213,6 +213,109 @@ namespace DScript.Test
                 "dispatch", Chunk.JitStatus.Compiled);
         }
 
+        // ── property access through the JIT inline cache (Lever 2a) ─────────────
+
+        [Test]
+        public void PropertyReadObjectLiteral()
+        {
+            // o.a/o.b/o.c read a shaped object-literal through the per-site inline cache.
+            AssertMatches(
+                "function f(o){ return o.a + o.b + o.c; }\n" +
+                "var obj = { a: 1, b: 2, c: 3 };\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(obj); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void PropertyReadClassInstance()
+        {
+            // Class instances are shaped; the inline cache hits on the shape-keyed path.
+            AssertMatches(
+                "class P { constructor(x){ this.x = x; this.y = x + 1; } }\n" +
+                "var p = new P(10);\n" +
+                "function f(o){ return o.x + o.y; }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(p); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void PropertyReadGetterFallsBack()
+        {
+            // Accessor properties must bypass the data-property fast path and fall
+            // through to JitGetPropCached, which invokes the getter.
+            AssertMatches(
+                "var obj = { _v: 5, get a(){ return this._v + 1; } };\n" +
+                "function f(o){ return o.a; }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(obj); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void PropertyReadPolymorphicShapes()
+        {
+            // Same read site sees two different shapes (distinct property orders) ->
+            // bimorphic cache; results must stay correct across the alternation.
+            AssertMatches(
+                "var o1 = { a: 1, b: 2 };\n" +
+                "var o2 = { b: 10, a: 20 };\n" +
+                "function f(o){ return o.a + o.b; }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f((i % 2 === 0) ? o1 : o2); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void PropertyReadMissingProperty()
+        {
+            // Reading an absent property must yield undefined (cache miss -> resolve).
+            // Keep f branch-free (the closure back-end declines control flow); do the
+            // undefined check at the interpreted call site.
+            AssertMatches(
+                "var obj = { a: 1 };\n" +
+                "function f(o){ return o.missing; }\n" +
+                "var r; var i=0; while(i<1200){ r = f(obj); i = i + 1; }\n" +
+                "__result__ = (r === undefined) ? 1 : 0;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        // ── property writes through the JIT inline cache (Lever 2b) ─────────────
+
+        [Test]
+        public void PropertyWriteExisting()
+        {
+            // Overwrites an existing own data property in place via the write cache.
+            AssertMatches(
+                "var obj = { a: 0, b: 99 };\n" +
+                "function f(o){ o.a = o.a + 1; return o.a; }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(obj); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void PropertyWriteClassInstanceField()
+        {
+            AssertMatches(
+                "class P { constructor(){ this.x = 0; } }\n" +
+                "var p = new P();\n" +
+                "function f(o){ o.x = o.x + 2; return o.x; }\n" +
+                "var r=0; var i=0; while(i<1200){ r = f(p); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        [Test]
+        public void PropertyWriteNewPropertyTransitionsShape()
+        {
+            // Adding a brand-new property transitions the shape -> the write cache must
+            // miss and fall back to the full define path, staying correct.
+            AssertMatches(
+                "function f(o){ o.z = 7; return o.z; }\n" +
+                "var r=0; var i=0; while(i<1200){ var obj = { a: 1 }; r = f(obj); i = i + 1; }\n__result__ = r;",
+                "f", Chunk.JitStatus.Compiled);
+        }
+
+        // (Non-writable / frozen property writes need Object.freeze from DScript.Extras,
+        // which this bare-engine harness does not register; that case is covered in
+        // JitPropertyCacheExtrasTests, which runs a full Extras-enabled engine.)
+
         // ── decline paths: unsupported constructs stay interpreted ──────────────
 
         // Control-flow cases (loops) are back-end-divergent (the closure back-end

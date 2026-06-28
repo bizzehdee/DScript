@@ -69,8 +69,34 @@ namespace DScript.Vm
         public ScriptVarLink Lookup(ScriptVar obj)
         {
             // Shape-keyed path: one integer comparison, no object identity check.
-            // Only ShapedScriptVar instances carry shape state; the single isinst
-            // here replaces the old per-instance _shape field load.
+            var shapeHit = LookupShapeOwn(obj);
+            if (shapeHit != null) return shapeHit;
+
+            // Identity-keyed path (non-shaped objects or shape mismatch).
+            if (ReferenceEquals(Object0, obj) && Version0 == obj.ShapeVersion && Link0 != null)
+                return Link0;
+            if (ReferenceEquals(Object1, obj) && Version1 == obj.ShapeVersion && Link1 != null)
+            {
+                // promote slot 1 to slot 0
+                (Object0, Version0, Link0, Object1, Version1, Link1) =
+                    (Object1, Version1, Link1, Object0, Version0, Link0);
+                return Link0;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Shape-keyed lookup only. Returns the cached link when <paramref name="obj"/>
+        /// is a shaped object whose current shape matches a cached entry, or null
+        /// otherwise. Entries on this path are only ever inserted for <b>own data
+        /// properties</b> (see <see cref="Insert"/>), so the result is always an own,
+        /// non-accessor property of <paramref name="obj"/> — safe to overwrite in place
+        /// for a property assignment without risking a write through the prototype chain.
+        /// </summary>
+        public ScriptVarLink LookupShapeOwn(ScriptVar obj)
+        {
+            // Only ShapedScriptVar instances carry shape state; the single isinst here
+            // replaces the old per-instance _shape field load.
             if (obj is ShapedScriptVar shaped)
             {
                 var shape = shaped._shape;
@@ -86,17 +112,6 @@ namespace DScript.Vm
                         return WalkShapeRoot(shaped._shapeRoot, SlotIndex0);
                     }
                 }
-            }
-
-            // Identity-keyed path (non-shaped objects or shape mismatch).
-            if (ReferenceEquals(Object0, obj) && Version0 == obj.ShapeVersion && Link0 != null)
-                return Link0;
-            if (ReferenceEquals(Object1, obj) && Version1 == obj.ShapeVersion && Link1 != null)
-            {
-                // promote slot 1 to slot 0
-                (Object0, Version0, Link0, Object1, Version1, Link1) =
-                    (Object1, Version1, Link1, Object0, Version0, Link0);
-                return Link0;
             }
             return null;
         }

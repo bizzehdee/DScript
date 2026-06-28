@@ -78,6 +78,19 @@ namespace DScript.Jit
         private static readonly MethodInfo EnvParentGetter   = Prop(typeof(Environment), "Parent");
         private static readonly MethodInfo JitGetPropCachedMethod = typeof(VirtualMachine).GetMethod(
             "JitGetPropCached", BindingFlags.NonPublic | BindingFlags.Instance);
+        // Inline-cache fast path (Lever 2a): hit the per-site PropCacheCell directly in
+        // emitted code and only fall through to JitGetPropCached on a miss/getter.
+        private static readonly MethodInfo PropCacheLookupMethod = typeof(PropCacheCell).GetMethod(
+            "Lookup", new[] { typeof(ScriptVar) });
+        private static readonly MethodInfo LinkVarGetter    = Prop(typeof(ScriptVarLink), "Var");
+        private static readonly MethodInfo LinkGetterGetter = Prop(typeof(ScriptVarLink), "Getter");
+        private static readonly MethodInfo LinkWritableGetter = Prop(typeof(ScriptVarLink), "Writable");
+        private static readonly MethodInfo LinkReplaceWithMethod = typeof(ScriptVarLink).GetMethod(
+            "ReplaceWith", new[] { typeof(ScriptVar) });
+        private static readonly MethodInfo JitSetPropCachedMethod = typeof(VirtualMachine).GetMethod(
+            "JitSetPropCached", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo JitReadDataFieldMethod = typeof(VirtualMachine).GetMethod(
+            "JitReadDataField", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo JitGetPropCall0Method = typeof(VirtualMachine).GetMethod(
             "JitGetPropCall0", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo JitSetVarMethod = typeof(VirtualMachine).GetMethod(
@@ -139,6 +152,11 @@ namespace DScript.Jit
 
         private readonly DynamicMethod method;
         private readonly List<object> data = new();
+
+        // Shared scratch local for the inline property-cache fast path. Each EmitGetProp
+        // sequence fully consumes it before the next, so a single reused local suffices.
+        private LocalBuilder _linkTemp;
+        private LocalBuilder LinkTemp => _linkTemp ??= IL.DeclareLocal(typeof(ScriptVarLink));
 
         public ILGenerator IL { get; }
 
@@ -354,12 +372,39 @@ namespace DScript.Jit
         /// </summary>
         public void EmitGetProp(string name, LocalBuilder objTemp)
         {
+            var cellIdx = AddData(new PropCacheCell());
+            var nameIdx = AddData(name);
+            var slow = IL.DefineLabel();
+            var done = IL.DefineLabel();
+
             EmitStoreLocal(objTemp);          // pop obj
+
+            // Inline cache fast path: link = cell.Lookup(obj). A non-null link with no
+            // getter is an own/cached data property — push link.Var with no call into
+            // JitGetPropCached. Misses, getters and the full prototype/built-in resolve
+            // all fall through to the slow path, which also refreshes the cell.
+            EmitLoadData(cellIdx, typeof(PropCacheCell));
+            EmitLoadLocal(objTemp);
+            IL.EmitCall(OpCodes.Callvirt, PropCacheLookupMethod, null);
+            IL.Emit(OpCodes.Stloc, LinkTemp);
+
+            IL.Emit(OpCodes.Ldloc, LinkTemp);
+            IL.Emit(OpCodes.Brfalse, slow);                       // miss
+            IL.Emit(OpCodes.Ldloc, LinkTemp);
+            IL.EmitCall(OpCodes.Callvirt, LinkGetterGetter, null);
+            IL.Emit(OpCodes.Brtrue, slow);                        // accessor property
+            IL.Emit(OpCodes.Ldloc, LinkTemp);
+            IL.EmitCall(OpCodes.Callvirt, LinkVarGetter, null);
+            IL.Emit(OpCodes.Br, done);
+
+            IL.MarkLabel(slow);
             EmitLoadVm();
             EmitLoadLocal(objTemp);
-            EmitLoadData(AddData(name), typeof(string));
-            EmitLoadData(AddData(new PropCacheCell()), typeof(PropCacheCell));
+            EmitLoadData(nameIdx, typeof(string));
+            EmitLoadData(cellIdx, typeof(PropCacheCell));
             IL.EmitCall(OpCodes.Callvirt, JitGetPropCachedMethod, null);
+
+            IL.MarkLabel(done);
         }
 
         /// <summary>
@@ -386,14 +431,43 @@ namespace DScript.Jit
         /// </summary>
         public void EmitSetProp(string name, bool strict, bool leaveValue, LocalBuilder valTemp, LocalBuilder objTemp)
         {
+            var cellIdx = AddData(new PropCacheCell());
+            var nameIdx = AddData(name);
+            var slow = IL.DefineLabel();
+            var done = IL.DefineLabel();
+
             EmitStoreLocal(valTemp);                 // pop value
             EmitStoreLocal(objTemp);                 // pop object
+
+            // Inline cache fast path (Lever 2b): link = cell.Lookup(obj). A non-null
+            // writable property is overwritten in place via link.ReplaceWith(value), with
+            // no call into SetMember. A SetProp cell only ever caches own data properties
+            // (see JitSetPropCached), so this never writes through a prototype.
+            EmitLoadData(cellIdx, typeof(PropCacheCell));
+            EmitLoadLocal(objTemp);
+            IL.EmitCall(OpCodes.Callvirt, PropCacheLookupMethod, null);
+            IL.Emit(OpCodes.Stloc, LinkTemp);
+
+            IL.Emit(OpCodes.Ldloc, LinkTemp);
+            IL.Emit(OpCodes.Brfalse, slow);                       // miss
+            IL.Emit(OpCodes.Ldloc, LinkTemp);
+            IL.EmitCall(OpCodes.Callvirt, LinkWritableGetter, null);
+            IL.Emit(OpCodes.Brfalse, slow);                       // non-writable (strict throw etc.)
+            IL.Emit(OpCodes.Ldloc, LinkTemp);
+            EmitLoadLocal(valTemp);
+            IL.EmitCall(OpCodes.Callvirt, LinkReplaceWithMethod, null);
+            IL.Emit(OpCodes.Br, done);
+
+            IL.MarkLabel(slow);
             EmitLoadVm();
             EmitLoadLocal(objTemp);
-            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadData(nameIdx, typeof(string));
             EmitLoadLocal(valTemp);
+            EmitLoadData(cellIdx, typeof(PropCacheCell));
             IL.Emit(strict ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
-            IL.EmitCall(OpCodes.Callvirt, JitSetPropMethod, null);
+            IL.EmitCall(OpCodes.Callvirt, JitSetPropCachedMethod, null);
+
+            IL.MarkLabel(done);
             if (leaveValue) EmitLoadLocal(valTemp);
         }
 
@@ -683,6 +757,107 @@ namespace DScript.Jit
             EmitLoadLocal(svTemp);
             IL.EmitCall(OpCodes.Callvirt, IntGetter, null);
             EmitStoreLocal(intLocal);                    // []
+        }
+
+        /// <summary>
+        /// Resolve an object variable to a <see cref="ScriptVar"/> local (no type guard) —
+        /// the receiver for speculative-tier field reads (Lever 2c).
+        /// </summary>
+        public void EmitResolveObjectVar(string name, LocalBuilder svLocal)
+        {
+            EmitLoadEnv();
+            EmitLoadData(AddData(name), typeof(string));
+            IL.EmitCall(OpCodes.Call, JitGetVarMethod, null);
+            EmitStoreLocal(svLocal);
+        }
+
+        /// <summary>
+        /// Speculative-tier prologue read of a numeric data property
+        /// <c>objLocal.name</c> (Lever 2c): branch to <paramref name="deopt"/> if the
+        /// property is absent / an accessor / on a proxy, or if its value is not an int;
+        /// otherwise cache its raw <c>.Int</c> into <paramref name="intLocal"/>. The IL
+        /// stack is empty when the branch to <paramref name="deopt"/> is taken.
+        /// </summary>
+        public void EmitResolveGuardedIntField(LocalBuilder objLocal, string name,
+            LocalBuilder intLocal, LocalBuilder svTemp, Label deopt)
+        {
+            EmitLoadVm();
+            EmitLoadLocal(objLocal);
+            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadData(AddData(new PropCacheCell()), typeof(PropCacheCell));
+            IL.EmitCall(OpCodes.Callvirt, JitReadDataFieldMethod, null);
+            EmitStoreLocal(svTemp);                      // []
+            EmitLoadLocal(svTemp);
+            IL.Emit(OpCodes.Brfalse, deopt);             // null -> deopt (accessor/proxy/missing)
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IsIntGetter, null);
+            IL.Emit(OpCodes.Brfalse, deopt);             // not an int -> deopt
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IntGetter, null);
+            EmitStoreLocal(intLocal);                    // []
+        }
+
+        /// <summary>
+        /// Speculative-tier prologue read of a numeric data property as a
+        /// <c>double</c> (Lever 2c): like <see cref="EmitResolveGuardedIntField"/> but
+        /// accepts int or double values, caching <c>.Float</c> into <paramref name="dblLocal"/>.
+        /// </summary>
+        public void EmitResolveGuardedDoubleField(LocalBuilder objLocal, string name,
+            LocalBuilder dblLocal, LocalBuilder svTemp, Label deopt)
+        {
+            var isDouble = IL.DefineLabel();
+            var store = IL.DefineLabel();
+            EmitLoadVm();
+            EmitLoadLocal(objLocal);
+            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadData(AddData(new PropCacheCell()), typeof(PropCacheCell));
+            IL.EmitCall(OpCodes.Callvirt, JitReadDataFieldMethod, null);
+            EmitStoreLocal(svTemp);                      // []
+            EmitLoadLocal(svTemp);
+            IL.Emit(OpCodes.Brfalse, deopt);             // null -> deopt
+            // int -> widen to double; double -> use directly; else deopt
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IsIntGetter, null);
+            IL.Emit(OpCodes.Brfalse, isDouble);
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IntGetter, null);
+            IL.Emit(OpCodes.Conv_R8);
+            IL.Emit(OpCodes.Br, store);
+            IL.MarkLabel(isDouble);
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IsDoubleGetter, null);
+            IL.Emit(OpCodes.Brfalse, deopt);
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, FloatGetter, null);
+            IL.MarkLabel(store);
+            EmitStoreLocal(dblLocal);                    // []
+        }
+
+        /// <summary>
+        /// OSR long-loop tier prologue read of a numeric data property
+        /// <c>objLocal.name</c> (Lever 2c): branch to <paramref name="miss"/> (which defers
+        /// to the conservative OSR entry) if the property is absent / an accessor / on a
+        /// proxy, or not an integer; otherwise cache its 64-bit <c>.Long</c> into
+        /// <paramref name="longLocal"/>. The IL stack is empty at the branch to
+        /// <paramref name="miss"/>.
+        /// </summary>
+        public void EmitResolveGuardedLongField(LocalBuilder objLocal, string name,
+            LocalBuilder longLocal, LocalBuilder svTemp, Label miss)
+        {
+            EmitLoadVm();
+            EmitLoadLocal(objLocal);
+            EmitLoadData(AddData(name), typeof(string));
+            EmitLoadData(AddData(new PropCacheCell()), typeof(PropCacheCell));
+            IL.EmitCall(OpCodes.Callvirt, JitReadDataFieldMethod, null);
+            EmitStoreLocal(svTemp);
+            EmitLoadLocal(svTemp);
+            IL.Emit(OpCodes.Brfalse, miss);              // accessor/proxy/missing
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, IsAnyIntGetter, null);
+            IL.Emit(OpCodes.Brfalse, miss);              // not an integer
+            EmitLoadLocal(svTemp);
+            IL.EmitCall(OpCodes.Callvirt, LongGetter, null);
+            EmitStoreLocal(longLocal);
         }
 
         // ── speculative unboxed-LONG loop tier (used by OSR) ─────────────────────

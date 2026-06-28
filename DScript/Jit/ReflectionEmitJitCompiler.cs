@@ -47,6 +47,31 @@ namespace DScript.Jit
         /// </summary>
         public static long OsrLongLoopCompilations { get; private set; }
 
+        /// <summary>
+        /// Diagnostic counter (Lever 2c): number of speculative numeric-tier compilations
+        /// that included at least one unboxed object-field read. Lets tests confirm the
+        /// field-read fast path engaged rather than falling back to the conservative tier.
+        /// </summary>
+        public static long SpeculativeFieldReadCompilations { get; private set; }
+
+        /// <summary>
+        /// Kill switch for Lever 2c field-read speculation. When true, functions that
+        /// read object fields decline the unboxed numeric tiers and use the conservative
+        /// tier instead. For A/B measurement and as a safety fallback.
+        /// </summary>
+        public static bool DisableFieldReadSpeculation { get; set; }
+
+        /// <summary>Diagnostic: the reason the OSR long-loop tier last declined a chunk.</summary>
+        internal static string LastLongLoopDecline { get; private set; }
+
+        /// <summary>
+        /// Kill switch for Lever 2d monomorphic method-call inlining. When true, method
+        /// calls use the general array + InvokeCallable dispatch instead of splicing the
+        /// callee body. For A/B measurement and as a safety fallback. (The TailCallMethod
+        /// lowering is unaffected — method calls still JIT-compile, just without inlining.)
+        /// </summary>
+        public static bool DisableMethodInlining { get; set; }
+
         // True if the decoded stream contains positional local-slot ops (Lever A),
         // which this back-end does not emit.
         private static bool HasSlotOps(System.Collections.Generic.List<JitInstruction> instrs)
@@ -95,30 +120,65 @@ namespace DScript.Jit
             if (!IsIntSpeculable(chunk, instrs))
                 return null;
 
+            ClassifyFieldReads(instrs, out var receiverVars, out var fieldPairs);
+
             var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
             var svTemp = b.DeclareLocal(typeof(ScriptVar));
             var deopt = b.IL.DefineLabel();
             var chunkIndex = b.AddData(chunk);
 
-            // Prologue: resolve + int-guard each distinct variable once, caching its
-            // raw int value in a local. The body then reads locals, never re-resolving.
+            // Prologue: resolve + int-guard each distinct numeric variable once, caching
+            // its raw int value in a local. The body then reads locals, never re-resolving.
             var varLocals = new Dictionary<string, LocalBuilder>();
             foreach (var instr in instrs)
             {
-                if (instr.Kind != JitOpKind.PushVar || varLocals.ContainsKey(instr.Name)) continue;
+                if (instr.Kind != JitOpKind.PushVar) continue;
+                if (receiverVars.Contains(instr.Name)) continue;       // object receiver, resolved below
+                if (varLocals.ContainsKey(instr.Name)) continue;
                 var local = b.DeclareLocal(typeof(int));
                 varLocals[instr.Name] = local;
                 b.EmitResolveGuardedInt(instr.Name, local, svTemp, deopt);
             }
 
-            // Body: raw int value flow.
-            foreach (var instr in instrs)
+            // Resolve each object receiver to a ScriptVar local, then prefetch every
+            // (receiver, field) value as a guarded raw int. Reads happen once here (the
+            // function is pure, so field values cannot change mid-body) and all deopts
+            // sit in the prologue with a clean IL stack.
+            var objLocals = new Dictionary<string, LocalBuilder>();
+            foreach (var rv in receiverVars)
             {
+                var ol = b.DeclareLocal(typeof(ScriptVar));
+                objLocals[rv] = ol;
+                b.EmitResolveObjectVar(rv, ol);
+            }
+            var fieldLocals = new Dictionary<(string, string), LocalBuilder>();
+            foreach (var (recv, field) in fieldPairs)
+            {
+                var fl = b.DeclareLocal(typeof(int));
+                fieldLocals[(recv, field)] = fl;
+                b.EmitResolveGuardedIntField(objLocals[recv], field, fl, svTemp, deopt);
+            }
+
+            // Body: raw int value flow. A `PushVar receiver; GetProp field` pair loads the
+            // prefetched field local and skips the GetProp.
+            for (var i = 0; i < instrs.Count; i++)
+            {
+                var instr = instrs[i];
                 switch (instr.Kind)
                 {
                     case JitOpKind.PushConst:      b.EmitLdcI4(instr.Constant.IntValue); break;
                     case JitOpKind.PushIntLiteral: b.EmitLdcI4(instr.IntValue); break;
-                    case JitOpKind.PushVar:        b.EmitLoadLocal(varLocals[instr.Name]); break;
+                    case JitOpKind.PushVar:
+                        if (receiverVars.Contains(instr.Name))
+                        {
+                            b.EmitLoadLocal(fieldLocals[(instr.Name, instrs[i + 1].Name)]);
+                            i++; // consume the fused GetProp
+                        }
+                        else
+                        {
+                            b.EmitLoadLocal(varLocals[instr.Name]);
+                        }
+                        break;
                     case JitOpKind.Not:
                         b.IL.Emit(OpCodes.Ldc_I4_0);
                         b.IL.Emit(OpCodes.Ceq);     // x == 0  → !x
@@ -133,7 +193,53 @@ namespace DScript.Jit
             }
 
             b.EmitDeoptReturn(deopt, chunkIndex);
+            if (fieldPairs.Count > 0) SpeculativeFieldReadCompilations++;
             return b.Finish(appendRet: false);
+        }
+
+        // Classify property reads for speculative field-read support (Lever 2c).
+        // A variable is a "field receiver" when every push of it is immediately followed
+        // by a GetProp (i.e. it is only ever used as `v.field`, never in arithmetic).
+        // Returns false (decline) when the stream mixes a variable's use as a receiver
+        // and as a numeric value, or uses an unsupported GetProp form (a chained read,
+        // or a GetProp whose receiver is not a plain variable). On success it yields the
+        // set of receiver variables and the distinct (receiver, field) pairs to prefetch.
+        private static bool ClassifyFieldReads(List<JitInstruction> instrs,
+            out HashSet<string> receiverVars, out List<(string recv, string field)> fieldPairs)
+        {
+            receiverVars = new HashSet<string>();
+            fieldPairs = new List<(string, string)>();
+            var numericVars = new HashSet<string>();
+            var seenPairs = new HashSet<string>();
+
+            for (var i = 0; i < instrs.Count; i++)
+            {
+                var ins = instrs[i];
+                if (ins.Kind == JitOpKind.GetProp)
+                {
+                    // Only single-level reads off a plain variable are supported.
+                    if (i == 0 || instrs[i - 1].Kind != JitOpKind.PushVar) return false;
+                    continue;
+                }
+                if (ins.Kind != JitOpKind.PushVar) continue;
+
+                if (i + 1 < instrs.Count && instrs[i + 1].Kind == JitOpKind.GetProp)
+                {
+                    receiverVars.Add(ins.Name);
+                    var field = instrs[i + 1].Name;
+                    if (seenPairs.Add(ins.Name + " " + field))
+                        fieldPairs.Add((ins.Name, field));
+                }
+                else
+                {
+                    numericVars.Add(ins.Name);
+                }
+            }
+
+            // A variable cannot be both a field receiver (object) and a numeric value.
+            foreach (var r in receiverVars)
+                if (numericVars.Contains(r)) return false;
+            return true;
         }
 
         // Eligibility for the speculative int tier.
@@ -142,12 +248,18 @@ namespace DScript.Jit
             if (instrs.Count == 0 || instrs[instrs.Count - 1].Kind != JitOpKind.Return)
                 return false;
 
+            // GetProp is allowed only as a single-level numeric field read (Lever 2c);
+            // anything else involving properties declines.
+            if (!ClassifyFieldReads(instrs, out var fieldReceivers, out _))
+                return false;
+            if (DisableFieldReadSpeculation && fieldReceivers.Count > 0)
+                return false;
+
             foreach (var instr in instrs)
             {
                 switch (instr.Kind)
                 {
                     case JitOpKind.Call:
-                    case JitOpKind.GetProp:
                     case JitOpKind.PushNull:
                     case JitOpKind.PushUndefined:
                     case JitOpKind.Jump:
@@ -255,16 +367,20 @@ namespace DScript.Jit
             if (!IsIntLoopSpeculable(chunk, instrs))
                 return null;
 
+            ClassifyFieldReads(instrs, out var receiverVars, out var fieldPairs);
+
             var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
             var svTemp = b.DeclareLocal(typeof(ScriptVar));
             var deopt = b.IL.DefineLabel();
             var chunkIndex = b.AddData(chunk);
             var il = b.IL;
 
-            // One raw-int register per variable.
+            // One raw-int register per numeric variable (object receivers are excluded;
+            // they are resolved as ScriptVar locals and their fields prefetched below).
             var regs = new Dictionary<string, LocalBuilder>();
             foreach (var instr in instrs)
-                if (instr.Name != null && IsVarRef(instr.Kind) && !regs.ContainsKey(instr.Name))
+                if (instr.Name != null && IsVarRef(instr.Kind)
+                    && !receiverVars.Contains(instr.Name) && !regs.ContainsKey(instr.Name))
                     regs[instr.Name] = b.DeclareLocal(typeof(int));
 
             // Prologue: guard each parameter int and load it into its register. Locals
@@ -273,6 +389,25 @@ namespace DScript.Jit
             foreach (var kv in regs)
                 if (chunk.Parameters.Contains(kv.Key))
                     b.EmitResolveGuardedInt(kv.Key, kv.Value, svTemp, deopt);
+
+            // Resolve each object receiver once and prefetch every (receiver, field)
+            // value into a guarded int register. Sound because the receiver is not
+            // reassigned and the loop performs no writes/calls (so the field is stable),
+            // and all deopts here sit in the prologue with a clean IL stack.
+            var objLocals = new Dictionary<string, LocalBuilder>();
+            foreach (var rv in receiverVars)
+            {
+                var ol = b.DeclareLocal(typeof(ScriptVar));
+                objLocals[rv] = ol;
+                b.EmitResolveObjectVar(rv, ol);
+            }
+            var fieldLocals = new Dictionary<(string, string), LocalBuilder>();
+            foreach (var (recv, field) in fieldPairs)
+            {
+                var fl = b.DeclareLocal(typeof(int));
+                fieldLocals[(recv, field)] = fl;
+                b.EmitResolveGuardedIntField(objLocals[recv], field, fl, svTemp, deopt);
+            }
 
             var labels = new Dictionary<int, Label>();
             foreach (var instr in instrs)
@@ -287,7 +422,17 @@ namespace DScript.Jit
                 {
                     case JitOpKind.PushConst:      b.EmitLdcI4(instr.Constant.IntValue); break;
                     case JitOpKind.PushIntLiteral: b.EmitLdcI4(instr.IntValue); break;
-                    case JitOpKind.PushVar:        b.EmitLoadLocal(regs[instr.Name]); break;
+                    case JitOpKind.PushVar:
+                        if (receiverVars.Contains(instr.Name))
+                        {
+                            b.EmitLoadLocal(fieldLocals[(instr.Name, instrs[i + 1].Name)]);
+                            i++; // consume the fused GetProp
+                        }
+                        else
+                        {
+                            b.EmitLoadLocal(regs[instr.Name]);
+                        }
+                        break;
                     case JitOpKind.SetVar:         il.Emit(OpCodes.Dup); b.EmitStoreLocal(regs[instr.Name]); break; // expression
                     case JitOpKind.SetVarPop:      b.EmitStoreLocal(regs[instr.Name]); break;
                     case JitOpKind.DeclareVar:
@@ -303,6 +448,7 @@ namespace DScript.Jit
             }
 
             b.EmitDeoptReturn(deopt, chunkIndex);
+            if (fieldPairs.Count > 0) SpeculativeFieldReadCompilations++;
             return b.Finish(appendRet: false);
         }
 
@@ -317,6 +463,20 @@ namespace DScript.Jit
             if (instrs.Count == 0 || instrs[instrs.Count - 1].Kind != JitOpKind.Return)
                 return false;
 
+            // GetProp is allowed only as a single-level numeric field read (Lever 2c).
+            if (!ClassifyFieldReads(instrs, out var fieldReceivers, out _))
+                return false;
+            if (DisableFieldReadSpeculation && fieldReceivers.Count > 0)
+                return false;
+            // A field is prefetched once in the prologue, so its receiver must be stable:
+            // decline if any receiver variable is reassigned in the function body. (Field
+            // values themselves cannot change — SetProp and calls are rejected below.)
+            if (fieldReceivers.Count > 0)
+                foreach (var instr in instrs)
+                    if ((instr.Kind is JitOpKind.SetVar or JitOpKind.SetVarPop)
+                        && fieldReceivers.Contains(instr.Name))
+                        return false;
+
             foreach (var instr in instrs)
             {
                 switch (instr.Kind)
@@ -327,6 +487,7 @@ namespace DScript.Jit
                     case JitOpKind.Binary:
                         if (InlineIntOp(instr.Op) == null && !IsIntComparison(instr.Op)) return false; // no /,%, etc.
                         break;
+                    case JitOpKind.GetProp:        // single-level numeric field read (validated above)
                     case JitOpKind.PushIntLiteral:
                     case JitOpKind.PushVar:
                     case JitOpKind.SetVar:
@@ -341,7 +502,7 @@ namespace DScript.Jit
                     case JitOpKind.Return:
                         break; // EnterBlock/LeaveBlock deliberately absent — block scopes go to the conservative tier
                     default:
-                        return false; // calls, props, indexing, conditional-pop jumps, shifts, etc.
+                        return false; // calls, prop writes, indexing, conditional-pop jumps, shifts, etc.
                 }
             }
 
@@ -565,7 +726,7 @@ namespace DScript.Jit
         {
             // Decline the long tier (the caller falls back to the conservative OSR
             // entry). The reason string documents each decline at its call site.
-            static JitDelegate Decline(string reason) { _ = reason; return null; }
+            static JitDelegate Decline(string reason) { LastLongLoopDecline = reason; return null; }
 
             // (1) No binary site may have been *observed* with a string/object operand.
             // Sites with no profile yet (None) are allowed: they are typically code after
@@ -595,6 +756,26 @@ namespace DScript.Jit
             if (!AnalyzeLongLoopCalls(instrs, lo, hi, depth, calleeSkip, inlineAt))
                 return Decline("call not inlinable");
 
+            // Field reads (Lever 2c): classify single-level numeric field reads in the
+            // region. The receiver is resolved once at the entry and its field prefetched
+            // into a long register; sound because the region performs no property writes
+            // or non-leaf calls (so the field is stable) and the receiver is not
+            // reassigned. A guard miss defers to the conservative OSR entry like any other.
+            var regionInstrs = instrs.GetRange(lo, hi - lo + 1);
+            if (!ClassifyFieldReads(regionInstrs, out var fieldReceivers, out var fieldPairs))
+                return Decline("unsupported property form");
+            if (DisableFieldReadSpeculation && fieldReceivers.Count > 0)
+                return Decline("field speculation disabled");
+            if (fieldReceivers.Count > 0)
+                for (var i = lo; i <= hi; i++)
+                {
+                    var k = instrs[i].Kind;
+                    if ((k is JitOpKind.SetVar or JitOpKind.SetVarPop) && fieldReceivers.Contains(instrs[i].Name))
+                        return Decline("field receiver reassigned in region");
+                }
+            foreach (var i in calleeSkip)
+                if (fieldReceivers.Contains(instrs[i].Name)) return Decline("field receiver used as callee");
+
             // Promotable scalar registers: every variable referenced in the region that
             // is not an elided callee push.
             var regsOrder = new List<string>();
@@ -603,7 +784,8 @@ namespace DScript.Jit
             {
                 if (calleeSkip.Contains(i)) continue;
                 var instr = instrs[i];
-                if (instr.Name != null && IsVarRef(instr.Kind) && regSet.Add(instr.Name))
+                if (instr.Name != null && IsVarRef(instr.Kind)
+                    && !fieldReceivers.Contains(instr.Name) && regSet.Add(instr.Name))
                     regsOrder.Add(instr.Name);
             }
             // A name used as a callee must not also be a register (i.e. reassigned in the
@@ -632,6 +814,8 @@ namespace DScript.Jit
                     case JitOpKind.JumpIfFalse:
                     case JitOpKind.JumpIfTrue:
                         if (instr.IntValue < lo || instr.IntValue > hi) return Decline($"jump escapes [{lo},{hi}] at {i}->{instr.IntValue}");
+                        break;
+                    case JitOpKind.GetProp:        // single-level numeric field read (validated by ClassifyFieldReads)
                         break;
                     case JitOpKind.PushIntLiteral:
                     case JitOpKind.PushVar:
@@ -678,6 +862,24 @@ namespace DScript.Jit
             foreach (var name in regsOrder)
                 b.EmitResolveGuardedLong(name, regs[name], svTemp, miss);
 
+            // Resolve each field receiver once and prefetch its numeric field into a long
+            // register; a non-integer / accessor / proxy field hands off to the
+            // conservative OSR entry (the shared `miss` label) just like a register guard.
+            var objLocals = new Dictionary<string, LocalBuilder>();
+            foreach (var rv in fieldReceivers)
+            {
+                var ol = b.DeclareLocal(typeof(ScriptVar));
+                objLocals[rv] = ol;
+                b.EmitResolveObjectVar(rv, ol);
+            }
+            var fieldLocals = new Dictionary<(string, string), LocalBuilder>();
+            foreach (var (recv, field) in fieldPairs)
+            {
+                var fl = b.DeclareLocal(typeof(long));
+                fieldLocals[(recv, field)] = fl;
+                b.EmitResolveGuardedLongField(objLocals[recv], field, fl, svTemp, miss);
+            }
+
             var labels = new Dictionary<int, Label>();
             for (var i = lo; i <= hi; i++)
             {
@@ -698,7 +900,17 @@ namespace DScript.Jit
                 {
                     case JitOpKind.PushConst:      TryConstAsLong(instr.Constant, out var cv); b.EmitLdcI8(cv); break;
                     case JitOpKind.PushIntLiteral: b.EmitLdcI8(instr.IntValue); break;
-                    case JitOpKind.PushVar:        b.EmitLoadLocal(regs[instr.Name]); break;
+                    case JitOpKind.PushVar:
+                        if (fieldReceivers.Contains(instr.Name))
+                        {
+                            b.EmitLoadLocal(fieldLocals[(instr.Name, instrs[i + 1].Name)]);
+                            i++; // consume the fused GetProp
+                        }
+                        else
+                        {
+                            b.EmitLoadLocal(regs[instr.Name]);
+                        }
+                        break;
                     case JitOpKind.SetVar:         il.Emit(OpCodes.Dup); b.EmitStoreLocal(regs[instr.Name]); break;
                     case JitOpKind.SetVarPop:      b.EmitStoreLocal(regs[instr.Name]); break;
                     case JitOpKind.DeclareVar:
@@ -738,6 +950,7 @@ namespace DScript.Jit
             il.Emit(OpCodes.Ret);
 
             OsrLongLoopCompilations++;
+            if (fieldPairs.Count > 0) SpeculativeFieldReadCompilations++;
             return b.Finish(appendRet: false);
         }
 
@@ -892,7 +1105,8 @@ namespace DScript.Jit
                         prod.Add(i);
                         break;
                     case JitOpKind.Not:
-                        // replaces top
+                    case JitOpKind.GetProp:
+                        // replaces top (GetProp pops the receiver and pushes the value)
                         if (prod.Count > 0) { prod[prod.Count - 1] = i; }
                         break;
                     case JitOpKind.Binary:
@@ -1091,7 +1305,7 @@ namespace DScript.Jit
                     case JitOpKind.Call:          EmitCall(b, instr.MonoCallee, instr.MonoCallee1, instr.IntValue, aSlot, bSlot, argArr, rSlot); break;
                     case JitOpKind.GetPropMethod: b.IL.Emit(OpCodes.Dup); b.EmitGetProp(instr.Name, aSlot); break; // keep receiver, push method
                     case JitOpKind.GetPropCall0:  b.EmitGetPropCall0(instr.Name, aSlot); break;
-                    case JitOpKind.CallMethod:    b.EmitCallMethod(instr.IntValue, aSlot, bSlot, rSlot, argArr); break;
+                    case JitOpKind.CallMethod:    EmitCallMethod(b, instr.MonoCallee, instr.MonoCallee1, instr.IntValue, aSlot, bSlot, rSlot, argArr); break;
                     case JitOpKind.Jump:
                         b.IL.Emit(OpCodes.Br, labels[instr.IntValue]);
                         break;
@@ -1454,7 +1668,8 @@ namespace DScript.Jit
                                             List<JitInstruction> body, Environment captured,
                                             LocalBuilder[] argLocals,
                                             LocalBuilder argArr,
-                                            LocalBuilder aSlot, LocalBuilder bSlot, LocalBuilder rSlot)
+                                            LocalBuilder aSlot, LocalBuilder bSlot, LocalBuilder rSlot,
+                                            LocalBuilder receiverLocal = null)
         {
             var il = b.IL;
             var labels = new Dictionary<int, Label>();
@@ -1475,6 +1690,13 @@ namespace DScript.Jit
                     case JitOpKind.PushIntLiteral: b.EmitPushIntConst(instr.IntValue); break;
                     case JitOpKind.PushVar:
                     {
+                        // Method inlining (Lever 2d): `this` binds to the receiver, not the
+                        // callee's captured scope.
+                        if (receiverLocal != null && instr.Name == "this")
+                        {
+                            b.EmitLoadLocal(receiverLocal);
+                            break;
+                        }
                         var p = calleeChunk.Parameters.IndexOf(instr.Name);
                         if (p >= 0)
                         {
@@ -1502,6 +1724,70 @@ namespace DScript.Jit
             }
 
             il.MarkLabel(end);
+        }
+
+        // Method call (Lever 2d). At a monomorphic site whose observed method is
+        // inline-eligible, bake the method, guard on its identity (stable across all
+        // instances that share the prototype method), and splice the body with
+        // this=receiver — eliminating the ScriptVar[] allocation and the InvokeCallable
+        // dispatch on the hot path. Bimorphic/megamorphic or non-inlinable sites use the
+        // general array + InvokeCallable path unchanged.
+        private static void EmitCallMethod(DynamicMethodBuilder b, ScriptVar callee0, ScriptVar callee1,
+                                           int argc, LocalBuilder argTmp, LocalBuilder calleeSlot,
+                                           LocalBuilder receiverSlot, LocalBuilder argArr)
+        {
+            var il = b.IL;
+
+            if (!DisableMethodInlining && callee1 == null && callee0 != null &&
+                TryGetInlineBody(callee0, argc, out var inlineChunk, out var inlineBody))
+            {
+                // Stack at entry: [receiver, method, arg0 .. arg{argc-1}] (top = last arg).
+                var argLocals = new LocalBuilder[argc];
+                for (var j = 0; j < argc; j++) argLocals[j] = b.DeclareLocal(typeof(ScriptVar));
+                for (var j = argc - 1; j >= 0; j--) b.EmitStoreLocal(argLocals[j]);
+                b.EmitStoreLocal(calleeSlot);     // pop method
+                b.EmitStoreLocal(receiverSlot);   // pop receiver
+
+                var done = il.DefineLabel();
+                var miss = il.DefineLabel();
+
+                // Identity guard on the resolved method function.
+                b.EmitLoadLocal(calleeSlot);
+                b.EmitLoadData(b.AddData(callee0), typeof(ScriptVar));
+                il.Emit(OpCodes.Ceq);
+                il.Emit(OpCodes.Brfalse, miss);
+
+                // Hit: splice the body with this=receiver. receiverSlot must stay live, so
+                // the body's binary scratch uses argTmp/calleeSlot and a fresh local.
+                var scratch = b.DeclareLocal(typeof(ScriptVar));
+                var captured = ((VmFunction)callee0.GetData()).Captured;
+                EmitInlinedBody(b, inlineChunk, inlineBody, captured, argLocals, argArr,
+                                argTmp, calleeSlot, scratch, receiverSlot);
+                il.Emit(OpCodes.Br, done);
+
+                // Miss: rebuild argArr and dispatch InvokeCallable(method, receiver, args).
+                il.MarkLabel(miss);
+                b.EmitNewScriptVarArray(argc);
+                b.EmitStoreLocal(argArr);
+                for (var j = 0; j < argc; j++)
+                {
+                    b.EmitLoadLocal(argArr);
+                    b.EmitLdcI4(j);
+                    b.EmitLoadLocal(argLocals[j]);
+                    b.EmitStoreElemRef();
+                }
+                b.EmitLoadVm();
+                b.EmitLoadLocal(calleeSlot);
+                b.EmitLoadLocal(receiverSlot);
+                b.EmitLoadLocal(argArr);
+                b.EmitInvokeCallable();
+
+                il.MarkLabel(done);
+                return;
+            }
+
+            // General path: array + InvokeCallable(method, receiver, args).
+            b.EmitCallMethod(argc, argTmp, calleeSlot, receiverSlot, argArr);
         }
 
         // General dispatch: vm.InvokeCallable(callee, null, args).
