@@ -70,5 +70,62 @@ namespace DScript.Test
             => Matches("function a(x){ return x+1; }\nfunction b(x){ return x+1000; }\nvar fn=a;\n" +
                        "function g(n){ var s=0; var i=0; while(i<n){ s = s + fn(i); i=i+1; } return s; }\n" +
                        "var r=0; var c=0; while(c<3000){ if(c==2000){ fn=b; } r=g(50); c=c+1; }\n__result__ = r;");
+
+        // ── nested function declaration inlined from its compile-time chunk ──
+        // This is the bench.ds "Functions" shape: a helper declared inside the function
+        // running the loop. Each invocation makes a fresh closure, so the callee is
+        // resolved by chunk (not runtime identity) and its pure body is spliced.
+
+        [Test]
+        public void NestedFunctionDeclarationInlined()
+            => Matches("var g = () => { function f(a,b,c){ return a+b+c; } var s=0; for(let i=0;i<2000000;i++){ s += f(i,1,2); } return s; };\n" +
+                       "__result__ = g();");
+
+        [Test]
+        public void NestedCalleeReassignedFallsBack()
+            // f is declared, then reassigned mid-loop: must not splice the stale declaration.
+            => Matches("var g = () => { function f(x){ return x+1; } var s=0; for(let i=0;i<200000;i++){ if(i==1000){ f = function(x){ return x+1000; }; } s += f(i); } return s; };\n" +
+                       "__result__ = g();");
+
+        [Test]
+        public void NestedCalleeCapturingFreeVarFallsBack()
+            // f reads an outer variable (not a pure parameter-only leaf): must decline inlining.
+            => Matches("var g = () => { var k=7; function f(x){ return x+k; } var s=0; for(let i=0;i<200000;i++){ s += f(i); } return s; };\n" +
+                       "__result__ = g();");
+
+        [Test]
+        public void NestedCalleeUsedAsValueFallsBack()
+            // f's closure escapes (aliased), so its creation cannot be elided.
+            => Matches("var g = () => { function f(x){ return x+1; } var h=f; var s=0; for(let i=0;i<200000;i++){ s += f(i); } return s + h(0); };\n" +
+                       "__result__ = g();");
+
+        [Test]
+        public void DoubleLoopBoundInlined()
+            // 5e5 is a double literal, so the i<bound comparison profiles Int<Double; the
+            // long tier must still admit it (the integral-double constant becomes a long).
+            // This is exactly the bench.ds Functions shape.
+            => Matches("var g = () => { function f(a,b,c){ return a+b+c; } var s=0; for(let i=0;i<5e5;i++){ s += f(i,1,2); } return s; };\n" +
+                       "__result__ = g();");
+
+        [Test]
+        public void ExactBenchFunctionsShapeInlined()
+            // Verbatim bench.ds "Functions": const arrow, nested f, let s (which wraps the
+            // body in a block scope), for(let i) with a double bound, and += . Exercises the
+            // block-scope no-op handling together with nested-callee inlining.
+            => Matches("const bench = () => { function f(a,b,c){ return a+b+c; } let s=0; for(let i=0;i<5e5;i++) s += f(i,1,2); return s; };\n" +
+                       "__result__ = bench();");
+
+        [Test]
+        public void BlockScopedLetLoop()
+            // let-scoped accumulator and counter, no helper — the body block scope must be
+            // transparent to the register frame.
+            => Matches("const g = () => { let s=0; for(let i=0;i<2000000;i++){ let t=i+1; s += t; } return s; };\n" +
+                       "__result__ = g();");
+
+        [Test]
+        public void StringConcatLoopFallsBack()
+            // The += sees strings, so the (relaxed) numeric profile gate must still decline.
+            => Matches("function g(n){ var s=\"\"; var i=0; while(i<n){ s = s + \"x\"; i=i+1; } return s.length; }\n" +
+                       "__result__ = g(5000);");
     }
 }

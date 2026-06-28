@@ -399,6 +399,9 @@ static void RegisterDefaultJit()
         ReflectionEmitJitCompiler.DisableFieldReadSpeculation = true;
     if (System.Environment.GetEnvironmentVariable("DS_NO_METHOD_INLINE") != null)
         ReflectionEmitJitCompiler.DisableMethodInlining = true;
+    // A/B hook for the closure-backend unboxed long-register loop tier.
+    if (System.Environment.GetEnvironmentVariable("DS_NO_LONG_LOOP") != null)
+        ClosureThreadedJitCompiler.DisableLongLoop = true;
 #if DSCRIPT_AOT
     JitRegistry.Register(new ClosureThreadedJitCompiler());
 #else

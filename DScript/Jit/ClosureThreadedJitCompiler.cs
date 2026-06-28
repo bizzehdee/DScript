@@ -163,11 +163,58 @@ namespace DScript.Jit
             var calleeSkip = new HashSet<int>();
             var inlineAt = new Dictionary<int, (System.Collections.Generic.List<string> ps, List<JitInstruction> body)>();
             var calleeGuards = new System.Collections.Generic.List<(string name, ScriptVar baked)>();
-            if (!AnalyzeLongInlineCalls(instrs, calleeSkip, inlineAt, calleeGuards)) return null;
 
-            // An inlined callee is baked by identity; if its variable is reassigned inside
-            // this function the inline could go stale mid-loop, so decline (the entry guard
-            // below only covers reassignment between invocations).
+            // Nested function declarations (MakeClosure ; SetVarPop name) — e.g. a helper
+            // defined inside the function being compiled. These are inlined from their
+            // compile-time chunk rather than a profiled runtime callee, because each
+            // invocation creates a fresh closure instance: identity-based baking would
+            // miss every time. Resolution is safe only for a name declared exactly once
+            // and never reassigned (so every call targets that declaration). The make +
+            // store of such a name are elided from the long body. Any other (ambiguous or
+            // reassigned) declaration is left unrecognised, so its MakeClosure declines.
+            var decl = new Dictionary<string, (int make, int store)>();
+            var dupName = new HashSet<string>();
+            for (var i = 0; i + 1 < n; i++)
+                if (instrs[i].Kind == JitOpKind.MakeClosure && instrs[i].Closure != null
+                    && instrs[i + 1].Kind == JitOpKind.SetVarPop && instrs[i + 1].Name != null)
+                {
+                    var nm = instrs[i + 1].Name;
+                    if (!decl.TryAdd(nm, (i, i + 1))) dupName.Add(nm);
+                }
+            var reassigned = new HashSet<string>();
+            if (decl.Count > 0)
+                for (var i = 0; i < n; i++)
+                {
+                    var k = instrs[i].Kind;
+                    if ((k is JitOpKind.SetVar or JitOpKind.SetVarPop) && instrs[i].Name != null
+                        && decl.TryGetValue(instrs[i].Name, out var d) && i != d.store)
+                        reassigned.Add(instrs[i].Name);
+                }
+            var nestedChunk = new Dictionary<string, Chunk>();
+            var nestedSkip = new HashSet<int>();
+            foreach (var kv in decl)
+            {
+                if (dupName.Contains(kv.Key) || reassigned.Contains(kv.Key)) continue;
+                nestedChunk[kv.Key] = instrs[kv.Value.make].Closure;
+                nestedSkip.Add(kv.Value.make);
+                nestedSkip.Add(kv.Value.store);
+            }
+
+            if (!AnalyzeLongInlineCalls(instrs, calleeSkip, inlineAt, calleeGuards, nestedChunk, nestedSkip)) return null;
+
+            // A nested callee whose creation we elide must be used only as an inlined call;
+            // if its name is read as a value anywhere else (passed, returned), its closure
+            // is observable and cannot be dropped — decline.
+            foreach (var ii in nestedSkip) calleeSkip.Add(ii);
+            for (var i = 0; i < n; i++)
+                if (instrs[i].Kind == JitOpKind.PushVar && instrs[i].Name != null
+                    && nestedChunk.ContainsKey(instrs[i].Name) && !calleeSkip.Contains(i))
+                    return null;
+
+            // An inlined free/global callee is baked by identity; if its variable is
+            // reassigned inside this function the inline could go stale mid-loop, so decline
+            // (the entry guard below only covers reassignment between invocations). Nested
+            // callees are resolved by chunk, not identity, so they are exempt.
             if (calleeGuards.Count > 0)
                 foreach (var ins in instrs)
                     if (ins.Kind is JitOpKind.SetVar or JitOpKind.SetVarPop)
@@ -187,6 +234,7 @@ namespace DScript.Jit
             }
             for (var ii = 0; ii < n; ii++)
             {
+                if (calleeSkip.Contains(ii)) continue; // elided int-leaf callee ref / nested make+store
                 var ins = instrs[ii];
                 switch (ins.Kind)
                 {
@@ -198,7 +246,6 @@ namespace DScript.Jit
                         if (!TryConstLong(ins.Constant, out _)) return null;
                         break;
                     case JitOpKind.PushVar:
-                        if (calleeSkip.Contains(ii)) break;   // elided int-leaf callee ref
                         GetReg(false, 0, ins.Name);
                         break;
                     case JitOpKind.SetVar:
@@ -208,6 +255,13 @@ namespace DScript.Jit
                     case JitOpKind.GetLocal:
                     case JitOpKind.SetLocal:
                         GetReg(true, ins.IntValue, null);
+                        break;
+                    case JitOpKind.EnterBlock:
+                    case JitOpKind.LeaveBlock:
+                        // A block scope is a no-op for the register frame only when its
+                        // locals are flat positional slots; without slots they are named
+                        // vars in a child environment the register model does not track.
+                        if (!ScriptEngine.EnableLocalSlots) return null;
                         break;
                     case JitOpKind.Call:                       // inlinable int leaf (validated above)
                     case JitOpKind.PushIntLiteral:
@@ -234,13 +288,23 @@ namespace DScript.Jit
                 foreach (var ri in regInfo)
                     if (ri.isSlot) return null;
 
-            // Binary sites must all be profiled integer-only (avoid speculating int on a
-            // loop already seen running on strings/doubles).
+            // Binary sites must all be profiled numeric — never strings or objects. A double
+            // operand is admitted (e.g. a loop bound written as 1e7): the entry guards load
+            // only genuine integers (a real double register fails IsAnyInt and falls back),
+            // and every constant is integral (eligibility requires TryConstLong), so every
+            // operand is a long at runtime regardless of the profiled double. At least one
+            // integer operand must have been seen, so a purely floating-point loop (which
+            // would always miss the entry guard) is declined cheaply rather than compiled.
             var profiles = chunk.GetBinaryOpProfiles();
             if (profiles.Count == 0) return null;
+            const Chunk.BinaryTypeFlags nonNumeric = Chunk.BinaryTypeFlags.String | Chunk.BinaryTypeFlags.Other;
+            var sawInt = false;
             foreach (var (_, p) in profiles)
-                if (p.LeftTypes != Chunk.BinaryTypeFlags.Int || p.RightTypes != Chunk.BinaryTypeFlags.Int)
-                    return null;
+            {
+                if (((p.LeftTypes | p.RightTypes) & nonNumeric) != 0) return null;
+                if (((p.LeftTypes | p.RightTypes) & Chunk.BinaryTypeFlags.Int) != 0) sawInt = true;
+            }
+            if (!sawInt) return null;
 
             // Register-promotion soundness (whole-function entry only): a non-parameter
             // variable's first reference must be a write preceding any jump, so it is
@@ -353,7 +417,19 @@ namespace DScript.Jit
             ps = null; body = null;
             if (callee == null || !callee.IsFunction || callee.IsNative) return false;
             if (callee.GetData() is not VmFunction vmfn) return false;
-            var c = vmfn.Body;
+            return TryIntLeafLongChunk(vmfn.Body, argc, out ps, out body);
+        }
+
+        // The chunk-level core of TryIntLeafLong. Resolving a callee straight from its
+        // compiled chunk (rather than a live ScriptVar) is what lets a nested function
+        // declaration be inlined: the body reads only its parameters (free vars are
+        // rejected below), so every per-invocation closure instance is behaviourally
+        // identical and no runtime identity guard is needed.
+        private static bool TryIntLeafLongChunk(Chunk c, int argc,
+                                                out System.Collections.Generic.List<string> ps,
+                                                out List<JitInstruction> body)
+        {
+            ps = null; body = null;
             if (c.MakesClosure || c.IsGenerator || c.IsAsync) return false;
             if (c.RestParamIndex != -1 || c.Parameters.Count != argc) return false;
             var instrs = JitDecoder.Decode(c);
@@ -416,7 +492,8 @@ namespace DScript.Jit
         // call is not an inlinable int leaf (the long tier then declines).
         private static bool AnalyzeLongInlineCalls(List<JitInstruction> instrs, HashSet<int> calleeSkip,
             Dictionary<int, (System.Collections.Generic.List<string> ps, List<JitInstruction> body)> inlineAt,
-            System.Collections.Generic.List<(string name, ScriptVar baked)> calleeGuards)
+            System.Collections.Generic.List<(string name, ScriptVar baked)> calleeGuards,
+            Dictionary<string, Chunk> nestedChunk, HashSet<int> nestedSkip)
         {
             var prod = new List<int>();
             for (var i = 0; i < instrs.Count; i++)
@@ -424,6 +501,13 @@ namespace DScript.Jit
                 var ins = instrs[i];
                 switch (ins.Kind)
                 {
+                    case JitOpKind.MakeClosure:
+                        // Only a recognised nested int-leaf declaration (make+store) is
+                        // allowed; its push is consumed by the following store. Any other
+                        // closure construction declines the tier.
+                        if (!nestedSkip.Contains(i)) return false;
+                        prod.Add(i);
+                        break;
                     case JitOpKind.PushConst:
                     case JitOpKind.PushIntLiteral:
                     case JitOpKind.PushVar:
@@ -452,17 +536,34 @@ namespace DScript.Jit
                     case JitOpKind.DeclareConst:
                     case JitOpKind.Jump:
                         break;
+                    case JitOpKind.EnterBlock:
+                    case JitOpKind.LeaveBlock:
+                        // No stack effect; admitted only under slots (see eligibility scan).
+                        if (!ScriptEngine.EnableLocalSlots) return false;
+                        break;
                     case JitOpKind.Call:
                     {
                         var argc = ins.IntValue;
                         if (prod.Count < argc + 1) return false;
                         var calleeProducer = prod[prod.Count - argc - 1];
-                        if (ins.MonoCallee == null || ins.MonoCallee1 != null) return false;
                         if (instrs[calleeProducer].Kind != JitOpKind.PushVar) return false;
-                        if (!TryIntLeafLong(ins.MonoCallee, argc, out var ps, out var body)) return false;
+                        System.Collections.Generic.List<string> ps; List<JitInstruction> body;
+                        // A nested function declared in this function is resolved from its
+                        // compile-time chunk; its body is pure (no free vars) so no runtime
+                        // identity guard is needed — unlike a free/global callee, which is
+                        // baked by identity and re-checked at entry.
+                        if (nestedChunk.TryGetValue(instrs[calleeProducer].Name, out var nc))
+                        {
+                            if (!TryIntLeafLongChunk(nc, argc, out ps, out body)) return false;
+                        }
+                        else
+                        {
+                            if (ins.MonoCallee == null || ins.MonoCallee1 != null) return false;
+                            if (!TryIntLeafLong(ins.MonoCallee, argc, out ps, out body)) return false;
+                            calleeGuards.Add((instrs[calleeProducer].Name, ins.MonoCallee));
+                        }
                         inlineAt[i] = (ps, body);
                         calleeSkip.Add(calleeProducer);
-                        calleeGuards.Add((instrs[calleeProducer].Name, ins.MonoCallee));
                         for (var k = 0; k < argc + 1; k++) prod.RemoveAt(prod.Count - 1);
                         prod.Add(i);
                         break;
@@ -517,6 +618,11 @@ namespace DScript.Jit
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:   break;
+                    // Block scopes are no-ops on the register frame: under slots, block-scoped
+                    // locals are flat positional slots in the same frame (the eligibility scan
+                    // only admits these when slots are enabled), so no env push/pop is needed.
+                    case JitOpKind.EnterBlock:
+                    case JitOpKind.LeaveBlock:     break;
                     case JitOpKind.Not:            { var x = stack.Pop(); stack.Push(r => x(r) == 0 ? 1L : 0L); break; }
                     case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); var op = instr.Op; stack.Push(r => LongBinaryOp(ll(r), rr(r), op)); break; }
                     case JitOpKind.Pop:            { var x = stack.Pop(); body.Add(r => x(r)); break; }
