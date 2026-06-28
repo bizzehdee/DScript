@@ -157,11 +157,29 @@ namespace DScript.Jit
             var n = instrs.Count;
             if (n == 0 || instrs[n - 1].Kind != JitOpKind.Return) return null;
 
+            // Monomorphic int-leaf calls are inlined as substituted expressions; identify
+            // them (and the callee-push instructions they elide) up front. Any other call
+            // declines the long tier.
+            var calleeSkip = new HashSet<int>();
+            var inlineAt = new Dictionary<int, (System.Collections.Generic.List<string> ps, List<JitInstruction> body)>();
+            var calleeGuards = new System.Collections.Generic.List<(string name, ScriptVar baked)>();
+            if (!AnalyzeLongInlineCalls(instrs, calleeSkip, inlineAt, calleeGuards)) return null;
+
+            // An inlined callee is baked by identity; if its variable is reassigned inside
+            // this function the inline could go stale mid-loop, so decline (the entry guard
+            // below only covers reassignment between invocations).
+            if (calleeGuards.Count > 0)
+                foreach (var ins in instrs)
+                    if (ins.Kind is JitOpKind.SetVar or JitOpKind.SetVarPop)
+                        foreach (var g in calleeGuards)
+                            if (g.name == ins.Name) return null;
+
             // Collect register variables and validate the op set.
             var reg = new Dictionary<string, int>();
             var sawBinary = false;
-            foreach (var ins in instrs)
+            for (var ii = 0; ii < n; ii++)
             {
+                var ins = instrs[ii];
                 switch (ins.Kind)
                 {
                     case JitOpKind.Binary:
@@ -172,10 +190,14 @@ namespace DScript.Jit
                         if (!TryConstLong(ins.Constant, out _)) return null;
                         break;
                     case JitOpKind.PushVar:
+                        if (calleeSkip.Contains(ii)) break;   // elided int-leaf callee ref
+                        if (!reg.ContainsKey(ins.Name)) reg[ins.Name] = reg.Count;
+                        break;
                     case JitOpKind.SetVar:
                     case JitOpKind.SetVarPop:
                         if (!reg.ContainsKey(ins.Name)) reg[ins.Name] = reg.Count;
                         break;
+                    case JitOpKind.Call:                       // inlinable int leaf (validated above)
                     case JitOpKind.PushIntLiteral:
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
@@ -188,7 +210,7 @@ namespace DScript.Jit
                     case JitOpKind.Return:
                         break;
                     default:
-                        return null; // calls, properties, indexing, shifts, etc.
+                        return null; // properties, indexing, shifts, etc.
                 }
             }
             if (!sawBinary) return null;
@@ -213,6 +235,7 @@ namespace DScript.Jit
                 var firstRef = new Dictionary<string, (int idx, bool write)>();
                 for (var i = 0; i < n; i++)
                 {
+                    if (calleeSkip.Contains(i)) continue; // elided callee ref, not a register
                     var ins = instrs[i];
                     if (ins.Name == null || !(ins.Kind is JitOpKind.PushVar or JitOpKind.SetVar or JitOpKind.SetVarPop)) continue;
                     if (!firstRef.ContainsKey(ins.Name))
@@ -249,7 +272,7 @@ namespace DScript.Jit
             {
                 var start = starts[b];
                 var end = b + 1 < starts.Count ? starts[b + 1] : n;
-                var lb = CompileLongBlock(instrs, start, end, idx2blk, reg);
+                var lb = CompileLongBlock(instrs, start, end, idx2blk, reg, calleeSkip, inlineAt);
                 if (lb == null) return null;
                 blocks[b] = lb;
             }
@@ -266,6 +289,13 @@ namespace DScript.Jit
 
             return (vm, args, env) =>
             {
+                // Inlined callees are baked by identity; if a callee variable now resolves
+                // to a different function (reassigned between invocations) run the boxed
+                // path so the new function executes.
+                foreach (var (name, baked) in calleeGuards)
+                    if (!ReferenceEquals(VirtualMachine.JitGetVar(env, name), baked))
+                        return fallback(vm, args, env);
+
                 var regs = new long[regCount];
                 foreach (var (name, idx) in entryRegs)
                 {
@@ -290,13 +320,141 @@ namespace DScript.Jit
             };
         }
 
+        // A straight-line, parameter-only integer leaf callee (e.g. f(a,b,c){return a+b+c})
+        // that the long tier can splice as a single substituted expression. Control flow
+        // in the callee is declined here (the boxed path handles those).
+        private static bool TryIntLeafLong(ScriptVar callee, int argc,
+                                           out System.Collections.Generic.List<string> ps,
+                                           out List<JitInstruction> body)
+        {
+            ps = null; body = null;
+            if (callee == null || !callee.IsFunction || callee.IsNative) return false;
+            if (callee.GetData() is not VmFunction vmfn) return false;
+            var c = vmfn.Body;
+            if (c.MakesClosure || c.IsGenerator || c.IsAsync) return false;
+            if (c.RestParamIndex != -1 || c.Parameters.Count != argc) return false;
+            var instrs = JitDecoder.Decode(c);
+            if (instrs == null || instrs.Count == 0 || instrs[instrs.Count - 1].Kind != JitOpKind.Return) return false;
+            foreach (var ins in instrs)
+            {
+                switch (ins.Kind)
+                {
+                    case JitOpKind.PushIntLiteral:
+                    case JitOpKind.Not:
+                    case JitOpKind.Return:
+                        break;
+                    case JitOpKind.PushConst:
+                        if (!TryConstLong(ins.Constant, out _)) return false;
+                        break;
+                    case JitOpKind.PushVar:
+                        if (!c.Parameters.Contains(ins.Name)) return false; // free var
+                        break;
+                    case JitOpKind.Binary:
+                        if (!IsLongLoopOp(ins.Op)) return false;
+                        break;
+                    default:
+                        return false; // jumps/calls/etc. → not a straight-line int leaf
+                }
+            }
+            ps = c.Parameters;
+            body = instrs;
+            return true;
+        }
+
+        // Build the callee's result as one LongExpr, substituting each argument expression
+        // for the corresponding parameter read (the callee reads only its parameters).
+        private static LongExpr BuildInlinedLong(List<JitInstruction> body, LongExpr[] argExprs,
+                                                 System.Collections.Generic.List<string> ps)
+        {
+            var pidx = new Dictionary<string, int>(ps.Count);
+            for (var i = 0; i < ps.Count; i++) pidx[ps[i]] = i;
+            var stack = new Stack<LongExpr>();
+            foreach (var ins in body)
+            {
+                switch (ins.Kind)
+                {
+                    case JitOpKind.PushConst:      { TryConstLong(ins.Constant, out var c); stack.Push(_ => c); break; }
+                    case JitOpKind.PushIntLiteral: { long v = ins.IntValue; stack.Push(_ => v); break; }
+                    case JitOpKind.PushVar:        stack.Push(argExprs[pidx[ins.Name]]); break;
+                    case JitOpKind.Not:            { var x = stack.Pop(); stack.Push(r => x(r) == 0 ? 1L : 0L); break; }
+                    case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); var op = ins.Op; stack.Push(r => LongBinaryOp(ll(r), rr(r), op)); break; }
+                    case JitOpKind.Return:         return stack.Pop();
+                }
+            }
+            return stack.Pop();
+        }
+
+        // Find inlinable monomorphic int-leaf calls and the callee-push instructions they
+        // elide, by simulating the operand stack of producer indices. Returns false if any
+        // call is not an inlinable int leaf (the long tier then declines).
+        private static bool AnalyzeLongInlineCalls(List<JitInstruction> instrs, HashSet<int> calleeSkip,
+            Dictionary<int, (System.Collections.Generic.List<string> ps, List<JitInstruction> body)> inlineAt,
+            System.Collections.Generic.List<(string name, ScriptVar baked)> calleeGuards)
+        {
+            var prod = new List<int>();
+            for (var i = 0; i < instrs.Count; i++)
+            {
+                var ins = instrs[i];
+                switch (ins.Kind)
+                {
+                    case JitOpKind.PushConst:
+                    case JitOpKind.PushIntLiteral:
+                    case JitOpKind.PushVar:
+                        prod.Add(i);
+                        break;
+                    case JitOpKind.Not:
+                        if (prod.Count > 0) prod[prod.Count - 1] = i;
+                        break;
+                    case JitOpKind.Binary:
+                        if (prod.Count >= 2) { prod.RemoveAt(prod.Count - 1); prod[prod.Count - 1] = i; }
+                        break;
+                    case JitOpKind.SetVar:
+                        if (prod.Count > 0) prod[prod.Count - 1] = i; // pop value, push value
+                        break;
+                    case JitOpKind.SetVarPop:
+                    case JitOpKind.JumpIfFalse:
+                    case JitOpKind.JumpIfTrue:
+                    case JitOpKind.Return:
+                    case JitOpKind.Pop:
+                        if (prod.Count > 0) prod.RemoveAt(prod.Count - 1);
+                        break;
+                    case JitOpKind.DeclareVar:
+                    case JitOpKind.DeclareLocal:
+                    case JitOpKind.DeclareConst:
+                    case JitOpKind.Jump:
+                        break;
+                    case JitOpKind.Call:
+                    {
+                        var argc = ins.IntValue;
+                        if (prod.Count < argc + 1) return false;
+                        var calleeProducer = prod[prod.Count - argc - 1];
+                        if (ins.MonoCallee == null || ins.MonoCallee1 != null) return false;
+                        if (instrs[calleeProducer].Kind != JitOpKind.PushVar) return false;
+                        if (!TryIntLeafLong(ins.MonoCallee, argc, out var ps, out var body)) return false;
+                        inlineAt[i] = (ps, body);
+                        calleeSkip.Add(calleeProducer);
+                        calleeGuards.Add((instrs[calleeProducer].Name, ins.MonoCallee));
+                        for (var k = 0; k < argc + 1; k++) prod.RemoveAt(prod.Count - 1);
+                        prod.Add(i);
+                        break;
+                    }
+                    default:
+                        return false;
+                }
+            }
+            return true;
+        }
+
         private static LongBlock CompileLongBlock(List<JitInstruction> instrs, int start, int end,
-                                                  Dictionary<int, int> idx2blk, Dictionary<string, int> reg)
+                                                  Dictionary<int, int> idx2blk, Dictionary<string, int> reg,
+                                                  HashSet<int> calleeSkip,
+                                                  Dictionary<int, (System.Collections.Generic.List<string> ps, List<JitInstruction> body)> inlineAt)
         {
             var stack = new Stack<LongExpr>();
             var body = new List<LongStep>();
             for (var i = start; i < end; i++)
             {
+                if (calleeSkip.Contains(i)) continue; // elided callee push (inlined int leaf)
                 var instr = instrs[i];
                 if (instr.Kind == JitOpKind.Jump)
                 {
@@ -331,6 +489,15 @@ namespace DScript.Jit
                     case JitOpKind.Not:            { var x = stack.Pop(); stack.Push(r => x(r) == 0 ? 1L : 0L); break; }
                     case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); var op = instr.Op; stack.Push(r => LongBinaryOp(ll(r), rr(r), op)); break; }
                     case JitOpKind.Pop:            { var x = stack.Pop(); body.Add(r => x(r)); break; }
+                    case JitOpKind.Call:
+                    {
+                        var argc = instr.IntValue;
+                        var argExprs = new LongExpr[argc];
+                        for (var j = argc - 1; j >= 0; j--) argExprs[j] = stack.Pop();
+                        var (ps, cbody) = inlineAt[i];
+                        stack.Push(BuildInlinedLong(cbody, argExprs, ps));
+                        break;
+                    }
                     default: return null;
                 }
             }
