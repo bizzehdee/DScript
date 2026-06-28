@@ -73,7 +73,7 @@ namespace DScript.Jit
             // NativeAOT. Falls back to the boxed compile if not eligible or on a type miss.
             if (!DisableLongLoop)
             {
-                var lng = TryCompileLongLoop(instrs, chunk, boxed);
+                var lng = TryCompileLongLoop(instrs, chunk, boxed, resumeIdx: 0, osr: false);
                 if (lng != null) return lng;
             }
             return boxed;
@@ -151,7 +151,8 @@ namespace DScript.Jit
         // (guarded int at entry) or a local first written before any read (so it is
         // unconditionally an int by the time it is read). A guard miss runs the boxed
         // fallback. Returns null to decline.
-        private static JitDelegate TryCompileLongLoop(List<JitInstruction> instrs, Chunk chunk, JitDelegate fallback)
+        private static JitDelegate TryCompileLongLoop(List<JitInstruction> instrs, Chunk chunk,
+                                                      JitDelegate fallback, int resumeIdx, bool osr)
         {
             var n = instrs.Count;
             if (n == 0 || instrs[n - 1].Kind != JitOpKind.Return) return null;
@@ -200,23 +201,28 @@ namespace DScript.Jit
                 if (p.LeftTypes != Chunk.BinaryTypeFlags.Int || p.RightTypes != Chunk.BinaryTypeFlags.Int)
                     return null;
 
-            // Register-promotion soundness: a non-parameter variable's first reference
-            // must be a write that precedes any jump, so it is initialised before any read.
-            var firstJump = n;
-            for (var i = 0; i < n; i++)
-                if (instrs[i].Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue) { firstJump = i; break; }
-            var firstRef = new Dictionary<string, (int idx, bool write)>();
-            for (var i = 0; i < n; i++)
+            // Register-promotion soundness (whole-function entry only): a non-parameter
+            // variable's first reference must be a write preceding any jump, so it is
+            // initialised before any read. Under OSR every register is instead loaded and
+            // guarded from the live frame at the resume point, so this is unnecessary.
+            if (!osr)
             {
-                var ins = instrs[i];
-                if (ins.Name == null || !(ins.Kind is JitOpKind.PushVar or JitOpKind.SetVar or JitOpKind.SetVarPop)) continue;
-                if (!firstRef.ContainsKey(ins.Name))
-                    firstRef[ins.Name] = (i, ins.Kind is JitOpKind.SetVar or JitOpKind.SetVarPop);
-            }
-            foreach (var kv in firstRef)
-            {
-                if (chunk.Parameters.Contains(kv.Key)) continue;     // params guarded at entry
-                if (!kv.Value.write || kv.Value.idx >= firstJump) return null;
+                var firstJump = n;
+                for (var i = 0; i < n; i++)
+                    if (instrs[i].Kind is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue) { firstJump = i; break; }
+                var firstRef = new Dictionary<string, (int idx, bool write)>();
+                for (var i = 0; i < n; i++)
+                {
+                    var ins = instrs[i];
+                    if (ins.Name == null || !(ins.Kind is JitOpKind.PushVar or JitOpKind.SetVar or JitOpKind.SetVarPop)) continue;
+                    if (!firstRef.ContainsKey(ins.Name))
+                        firstRef[ins.Name] = (i, ins.Kind is JitOpKind.SetVar or JitOpKind.SetVarPop);
+                }
+                foreach (var kv in firstRef)
+                {
+                    if (chunk.Parameters.Contains(kv.Key)) continue; // params guarded at entry
+                    if (!kv.Value.write || kv.Value.idx >= firstJump) return null;
+                }
             }
 
             // ── partition into basic blocks (same leader logic as BuildBlocks) ──────
@@ -248,22 +254,26 @@ namespace DScript.Jit
                 blocks[b] = lb;
             }
 
-            // Parameter registers loaded + guarded at entry; non-parameter locals start
-            // at 0 (write-first guarantees a real value before any read).
-            var paramRegs = new List<(string name, int idx)>();
-            foreach (var kv in reg) if (chunk.Parameters.Contains(kv.Key)) paramRegs.Add((kv.Key, kv.Value));
+            if (!idx2blk.TryGetValue(resumeIdx, out var startBlock)) return null;
+
+            // Registers loaded + guarded at entry: under OSR every live register comes
+            // from the resume frame; for a whole-function entry only the parameters do
+            // (non-parameter locals start at 0 and are write-first).
+            var entryRegs = new List<(string name, int idx)>();
+            foreach (var kv in reg)
+                if (osr || chunk.Parameters.Contains(kv.Key)) entryRegs.Add((kv.Key, kv.Value));
             var regCount = reg.Count;
 
             return (vm, args, env) =>
             {
                 var regs = new long[regCount];
-                foreach (var (name, idx) in paramRegs)
+                foreach (var (name, idx) in entryRegs)
                 {
                     var sv = VirtualMachine.JitGetVar(env, name);
                     if (!sv.IsAnyInt) return fallback(vm, args, env); // type miss -> boxed path
                     regs[idx] = sv.Long;
                 }
-                var bb = 0;
+                var bb = startBlock;
                 while (true)
                 {
                     var blk = blocks[bb];
@@ -351,7 +361,16 @@ namespace DScript.Jit
             if (!idxToBlock.TryGetValue(resumeIdx, out var startBlock))
                 return null;
 
-            return RunFromBlock(blocks, startBlock);
+            var boxed = RunFromBlock(blocks, startBlock);
+
+            // Unboxed long-register tier resuming at the loop header: every live register
+            // is loaded and guarded from the frame, then the loop runs on raw longs.
+            if (!DisableLongLoop)
+            {
+                var lng = TryCompileLongLoop(instrs, chunk, boxed, resumeIdx, osr: true);
+                if (lng != null) return lng;
+            }
+            return boxed;
         }
 
         // Partition the decoded instruction stream into basic blocks. Block leaders
