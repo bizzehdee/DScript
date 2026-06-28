@@ -41,7 +41,7 @@ namespace DScript.Vm
         // Operand stack backed by a plain array with an explicit pointer. This is
         // markedly cheaper than List<ScriptVar>: Push/Pop/Peek become bare array
         // indexing with no per-call method dispatch, bounds-clearing, or shifting.
-        private ScriptVar[] stack = new ScriptVar[64];
+        private Value[] stack = new Value[64];
         private int sp;
 
         // Nested script-call depth. Bounded (see MaxCallStackDepth) so runaway or
@@ -286,7 +286,21 @@ namespace DScript.Vm
         /// </summary>
         public static void DrainMicroTasks() => MicroTaskQueue.DrainAll();
 
+        // Phase 1a (Lever 1): the operand stack is a Value[] rather than ScriptVar[].
+        // For now every value is carried as a boxed reference (Value.Ref), so Push/Pop
+        // are a pure pass-through with identical behaviour — this is the structural
+        // checkpoint. Later phases push raw int/double Values for unboxed arithmetic
+        // (PushValue/PopValue) and box only at object-world boundaries.
         private void Push(ScriptVar value)
+        {
+            if (sp == stack.Length)
+            {
+                System.Array.Resize(ref stack, stack.Length * 2);
+            }
+            stack[sp++] = Value.Ref(value);
+        }
+
+        private void PushValue(Value value)
         {
             if (sp == stack.Length)
             {
@@ -295,9 +309,11 @@ namespace DScript.Vm
             stack[sp++] = value;
         }
 
-        private ScriptVar Pop() => stack[--sp];
+        private ScriptVar Pop() => stack[--sp].ToScriptVar();
 
-        private ScriptVar Peek() => stack[sp - 1];
+        private Value PopValue() => stack[--sp];
+
+        private ScriptVar Peek() => stack[sp - 1].ToScriptVar();
 
         /// <summary>
         /// Execute a top-level chunk and return the produced value (the operand
@@ -513,14 +529,14 @@ namespace DScript.Vm
                         Pop();
                         break;
                     case OpCode.Dup:
-                        Push(Peek());
+                        PushValue(stack[sp - 1]);
                         break;
                     case OpCode.Dup2:
                     {
                         var b = stack[sp - 1];
                         var a = stack[sp - 2];
-                        Push(a);
-                        Push(b);
+                        PushValue(a);
+                        PushValue(b);
                         break;
                     }
                     case OpCode.EnumKeys:
@@ -1101,7 +1117,7 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        var callee = stack[sp - argc - 1];
+                        var callee = stack[sp - argc - 1].ToScriptVar();
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
@@ -1121,12 +1137,12 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        var callee = stack[sp - argc - 1];
+                        var callee = stack[sp - argc - 1].ToScriptVar();
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
                             // Fast path: VM function — bind args directly, no ScriptVar[].
-                            var receiver = stack[sp - argc - 2];
+                            var receiver = stack[sp - argc - 2].ToScriptVar();
                             var result = InvokeVmFunctionFromStack(callee, receiver, argc);
                             sp -= 2; // discard callee and receiver below the args
                             Push(result);
@@ -1148,7 +1164,7 @@ namespace DScript.Vm
                         // adding a C# frame — enabling unbounded tail recursion.
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        var callee = stack[sp - argc - 1];
+                        var callee = stack[sp - argc - 1].ToScriptVar();
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
@@ -1157,7 +1173,7 @@ namespace DScript.Vm
                             {
                                 var argBase = sp - argc;
                                 var tArgs = new ScriptVar[argc];
-                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j];
+                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j].ToScriptVar();
                                 sp = argBase - 1; // discard args + callee
                                 _pendingTailCallFn   = vmfn;
                                 _pendingTailCallArgs = tArgs;
@@ -1180,7 +1196,7 @@ namespace DScript.Vm
                         // Tail-position method call — same trampoline logic as TailCall.
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        var callee = stack[sp - argc - 1];
+                        var callee = stack[sp - argc - 1].ToScriptVar();
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
@@ -1189,15 +1205,15 @@ namespace DScript.Vm
                             {
                                 var argBase = sp - argc;
                                 var tArgs = new ScriptVar[argc];
-                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j];
-                                var tThis = stack[sp - argc - 2];
+                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j].ToScriptVar();
+                                var tThis = stack[sp - argc - 2].ToScriptVar();
                                 sp = argBase - 2; // discard args + callee + receiver
                                 _pendingTailCallFn   = vmfn;
                                 _pendingTailCallArgs = tArgs;
                                 _pendingTailCallThis = tThis;
                                 return null; // trampoline signal
                             }
-                            var receiver = stack[sp - argc - 2];
+                            var receiver = stack[sp - argc - 2].ToScriptVar();
                             var result = InvokeVmFunctionFromStack(callee, receiver, argc);
                             sp -= 2;
                             return result ?? SharedUndefined;
@@ -1427,7 +1443,7 @@ namespace DScript.Vm
                     case OpCode.New:
                     {
                         var argc = ReadOperand(code, ref ip);
-                        var ctor = stack[sp - argc - 1];
+                        var ctor = stack[sp - argc - 1].ToScriptVar();
                         // Fast path: compiled constructor with args on the stack —
                         // bind them directly into the call frame (no ScriptVar[]).
                         if (ctor != null && ctor.IsFunction && !ctor.IsNative)
@@ -2585,7 +2601,7 @@ namespace DScript.Vm
             {
                 var asyncGenArgs = new ScriptVar[argc];
                 for (var j = 0; j < argc; j++)
-                    asyncGenArgs[j] = stack[argBase + j];
+                    asyncGenArgs[j] = stack[argBase + j].ToScriptVar();
                 sp = argBase;
                 var asyncGenCallEnv = BuildCallEnvironment(vmfn, thisArg, asyncGenArgs);
                 return CreateAsyncGeneratorIterator(vmfn, asyncGenCallEnv);
@@ -2596,7 +2612,7 @@ namespace DScript.Vm
             {
                 var genArgs = new ScriptVar[argc];
                 for (var j = 0; j < argc; j++)
-                    genArgs[j] = stack[argBase + j];
+                    genArgs[j] = stack[argBase + j].ToScriptVar();
                 sp = argBase;
                 var genCallEnv = BuildCallEnvironment(vmfn, thisArg, genArgs);
                 return CreateGeneratorIterator(vmfn, genCallEnv);
@@ -2607,7 +2623,7 @@ namespace DScript.Vm
             {
                 var asyncArgs = new ScriptVar[argc];
                 for (var j = 0; j < argc; j++)
-                    asyncArgs[j] = stack[argBase + j];
+                    asyncArgs[j] = stack[argBase + j].ToScriptVar();
                 sp = argBase;
                 var asyncCallEnv = BuildCallEnvironment(vmfn, thisArg, asyncArgs);
                 return CreateAsyncPromise(vmfn, asyncCallEnv);
@@ -2628,7 +2644,7 @@ namespace DScript.Vm
             var slots = callEnv.Slots;
             for (var j = 0; j < paramLimit; j++)
             {
-                var arg = j < argc ? stack[argBase + j] : null;
+                var arg = j < argc ? stack[argBase + j].ToScriptVar() : null;
                 var pv = BindArgValue(arg);
                 vars.AddChild(parameters[j], pv);
                 if (slots != null) slots[j] = pv; // param slot (Lever A); unread when the param is name-based
@@ -2641,7 +2657,7 @@ namespace DScript.Vm
                 var restLen = 0;
                 for (var j = restIdx; j < argc; j++)
                 {
-                    restArr.SetArrayIndex(restLen++, BindArgValue(stack[argBase + j]));
+                    restArr.SetArrayIndex(restLen++, BindArgValue(stack[argBase + j].ToScriptVar()));
                 }
                 vars.AddChild(parameters[restIdx], restArr);
             }
@@ -2651,7 +2667,7 @@ namespace DScript.Vm
             {
                 var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < argc; j++)
-                    argObj.SetArrayIndex(j, BindArgValue(stack[argBase + j]));
+                    argObj.SetArrayIndex(j, BindArgValue(stack[argBase + j].ToScriptVar()));
                 if (vmfn.Body.IsStrict) AddStrictArgumentsPoisonPills(argObj);
                 vars.AddChild("arguments", argObj);
             }
