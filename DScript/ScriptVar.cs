@@ -1258,6 +1258,15 @@ namespace DScript
             }
         }
 
+        // Pre-allocate the dense backing store to a known capacity so that a
+        // sequential fill (e.g. Array.from) never triggers repeated Array.Resize.
+        // A no-op when _elements is already allocated or capacity is non-positive.
+        public void PreSizeElements(int capacity)
+        {
+            if (capacity > 0 && _elements == null)
+                _elements = new ScriptVar[capacity];
+        }
+
         // Appends value at the current end of the array in O(1).
         // Unlike SetArrayIndex, this maintains the cached array length so that
         // consecutive appends (e.g. spread operations) never trigger an O(n) walk.

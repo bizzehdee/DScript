@@ -705,5 +705,155 @@ namespace DScript.Test
             Assert.That(result.IsArray, Is.True);
             Assert.That(result.GetArrayLength(), Is.EqualTo(0));
         }
+
+        // ── Array.from pre-sizing + edge cases (task 4.4) ─────────────────────
+
+        [Test]
+        public void From_ZeroLength_ReturnsEmptyArray()
+        {
+            var result = RunScript("var __result__ = Array.from({ length: 0 });");
+            Assert.That(result.IsArray, Is.True);
+            Assert.That(result.GetArrayLength(), Is.EqualTo(0));
+        }
+
+        [Test]
+        public void From_NegativeLength_ReturnsEmptyArray()
+        {
+            var result = RunScript("var __result__ = Array.from({ length: -5 });");
+            Assert.That(result.IsArray, Is.True);
+            Assert.That(result.GetArrayLength(), Is.EqualTo(0));
+        }
+
+        [Test]
+        public void From_MissingLength_ReturnsEmptyArray()
+        {
+            var result = RunScript("var __result__ = Array.from({});");
+            Assert.That(result.IsArray, Is.True);
+            Assert.That(result.GetArrayLength(), Is.EqualTo(0));
+        }
+
+        [Test]
+        public void From_NonIntegerLength_TruncatesToInt()
+        {
+            // JS coerces length to integer — 3.9 → 3; use a mapFn so elements are non-undefined
+            var result = RunScript("var __result__ = Array.from({ length: 3.9 }, function(_, i) { return i; });");
+            Assert.That(result.GetArrayLength(), Is.EqualTo(3));
+        }
+
+        [Test]
+        public void From_ArrayLike_HolesAreUndefined()
+        {
+            // { length: 3 } with no indexed properties → all holes → undefined
+            var result = RunScript(
+                "var a = Array.from({ length: 3 });" +
+                "var __result__ = (a[0] === undefined && a[1] === undefined && a[2] === undefined) ? 1 : 0;");
+            Assert.That(result.Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void From_MapFnArityOne_ReceivesElement()
+        {
+            // mapFn with 1 param: receives element only, not index
+            var result = RunScript(
+                "var a = Array.from([10, 20, 30], function(x) { return x + 1; });" +
+                "var __result__ = a[0] * 100 + a[1] * 10 + a[2];");
+            Assert.That(result.Int, Is.EqualTo(11 * 100 + 21 * 10 + 31));
+        }
+
+        [Test]
+        public void From_MapFnArityTwo_ReceivesElementAndIndex()
+        {
+            // mapFn with 2 params: receives (element, index)
+            var result = RunScript(
+                "var a = Array.from([5, 6, 7], function(v, i) { return v + i; });" +
+                "var __result__ = a[0] * 100 + a[1] * 10 + a[2];");
+            Assert.That(result.Int, Is.EqualTo(5 * 100 + 7 * 10 + 9));
+        }
+
+        [Test]
+        public void From_LargeArrayLike_CorrectLength()
+        {
+            // Exercises pre-sized backing store (no repeated Array.Resize)
+            var result = RunScript(
+                "var a = Array.from({ length: 10000 }, function(_, i) { return i; });" +
+                "var __result__ = a.length * 1000000 + a[9999];");
+            Assert.That(result.Long, Is.EqualTo(10000L * 1000000L + 9999L));
+        }
+
+        [Test]
+        public void From_IterableArray_CopiesAllElements()
+        {
+            var result = RunScript(
+                "var src = [3, 1, 4, 1, 5];" +
+                "var a = Array.from(src);" +
+                "var __result__ = a.length * 100000 + a[0] * 10000 + a[4];");
+            Assert.That(result.Int, Is.EqualTo(5 * 100000 + 3 * 10000 + 5));
+        }
+
+        [Test]
+        public void From_StringSource_SplitsIntoCharacters()
+        {
+            var result = RunScript(
+                "var a = Array.from('hello');" +
+                "var __result__ = a.length * 10 + (a[0] === 'h' ? 1 : 0);");
+            Assert.That(result.Int, Is.EqualTo(5 * 10 + 1));
+        }
+
+        // ── filter shallow-copy semantics (task 4.4) ───────────────────────────
+
+        [Test]
+        public void Filter_PrimitiveValues_ResultIsCorrect()
+        {
+            var result = RunScript(
+                "var a = [1, 2, 3, 4, 5];" +
+                "var b = a.filter(function(x) { return x > 2; });" +
+                "var __result__ = b.length * 100 + b[0] * 10 + b[2];");
+            Assert.That(result.Int, Is.EqualTo(3 * 100 + 3 * 10 + 5));
+        }
+
+        [Test]
+        public void Filter_ObjectElements_SameReferenceInResult()
+        {
+            // filter must return a shallow copy — objects in the result must be
+            // the same references as in the source.
+            var result = RunScript(
+                "var obj = { v: 42 };" +
+                "var a = [obj, { v: 1 }];" +
+                "var b = a.filter(function(x) { return x.v > 10; });" +
+                "b[0].v = 99;" +
+                "var __result__ = obj.v;");
+            Assert.That(result.Int, Is.EqualTo(99));
+        }
+
+        [Test]
+        public void Filter_EmptyArray_ReturnsEmptyArray()
+        {
+            var result = RunScript(
+                "var b = [].filter(function(x) { return true; });" +
+                "var __result__ = b.length;");
+            Assert.That(result.Int, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Filter_AllRejected_ReturnsEmptyArray()
+        {
+            var result = RunScript(
+                "var b = [1, 2, 3].filter(function(x) { return false; });" +
+                "var __result__ = b.length;");
+            Assert.That(result.Int, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Filter_LargeArray_CorrectResultAndLength()
+        {
+            // ~500k odd numbers from 0..999 kept; sum should equal correct value
+            var result = RunScript(
+                "var a = Array.from({ length: 1000 }, function(_, i) { return i; });" +
+                "var b = a.filter(function(x) { return x % 2 === 1; });" +
+                "var sum = b.reduce(function(s, x) { return s + x; }, 0);" +
+                "var __result__ = b.length * 1000000 + sum;");
+            // 500 odd numbers (1,3,...,999), sum = 250000
+            Assert.That(result.Int, Is.EqualTo(500 * 1000000 + 250000));
+        }
     }
 }

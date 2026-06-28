@@ -367,7 +367,7 @@ namespace DScript.Extras.FunctionProviders
             {
                 var element = arr.GetArrayIndex(x);
                 if (InvokeCallback(engine, callback, arity, element, x, arr).Bool)
-                    var.ReturnVar.SetArrayIndex(outIdx++, element.DeepCopy());
+                    var.ReturnVar.SetArrayIndex(outIdx++, element);
             }
         }
 
@@ -759,6 +759,7 @@ namespace DScript.Extras.FunctionProviders
                 getElem = i => iterable.FindChild(i.ToString())?.Var ?? ScriptVar.CreateUndefined();
             }
 
+            result.PreSizeElements(len);
             var mapArity = mapFn.IsFunction ? CallbackArity(mapFn) : 0;
             for (var i = 0; i < len; i++)
             {
