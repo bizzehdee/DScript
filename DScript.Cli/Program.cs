@@ -390,6 +390,10 @@ static string DescribeProfiler(CpuProfiler? cpuProfiler, MemoryProfiler? memProf
 // which emits no IL and is AOT-safe.
 static void RegisterDefaultJit()
 {
+    // Interpreter-only (approximates the AOT path, where Reflection.Emit is unavailable);
+    // for measuring Lever 1.
+    if (System.Environment.GetEnvironmentVariable("DS_NO_JIT") != null)
+        return;
     // A/B measurement hooks for Lever 2c/2d.
     if (System.Environment.GetEnvironmentVariable("DS_NO_FIELD_SPEC") != null)
         ReflectionEmitJitCompiler.DisableFieldReadSpeculation = true;

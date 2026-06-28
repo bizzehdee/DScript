@@ -41,7 +41,7 @@ namespace DScript.Vm
         // Operand stack backed by a plain array with an explicit pointer. This is
         // markedly cheaper than List<ScriptVar>: Push/Pop/Peek become bare array
         // indexing with no per-call method dispatch, bounds-clearing, or shifting.
-        private ScriptVar[] stack = new ScriptVar[64];
+        private Value[] stack = new Value[64];
         private int sp;
 
         // Nested script-call depth. Bounded (see MaxCallStackDepth) so runaway or
@@ -286,7 +286,21 @@ namespace DScript.Vm
         /// </summary>
         public static void DrainMicroTasks() => MicroTaskQueue.DrainAll();
 
+        // Phase 1a (Lever 1): the operand stack is a Value[] rather than ScriptVar[].
+        // For now every value is carried as a boxed reference (Value.Ref), so Push/Pop
+        // are a pure pass-through with identical behaviour — this is the structural
+        // checkpoint. Later phases push raw int/double Values for unboxed arithmetic
+        // (PushValue/PopValue) and box only at object-world boundaries.
         private void Push(ScriptVar value)
+        {
+            if (sp == stack.Length)
+            {
+                System.Array.Resize(ref stack, stack.Length * 2);
+            }
+            stack[sp++] = Value.Ref(value);
+        }
+
+        private void PushValue(Value value)
         {
             if (sp == stack.Length)
             {
@@ -295,9 +309,11 @@ namespace DScript.Vm
             stack[sp++] = value;
         }
 
-        private ScriptVar Pop() => stack[--sp];
+        private ScriptVar Pop() => stack[--sp].ToScriptVar();
 
-        private ScriptVar Peek() => stack[sp - 1];
+        private Value PopValue() => stack[--sp];
+
+        private ScriptVar Peek() => stack[sp - 1].ToScriptVar();
 
         /// <summary>
         /// Execute a top-level chunk and return the produced value (the operand
@@ -494,7 +510,7 @@ namespace DScript.Vm
                 switch (op)
                 {
                     case OpCode.Constant:
-                        Push(chunk.Constants[ReadOperand(code, ref ip)].Materialize());
+                        PushValue(ToValue(chunk.Constants[ReadOperand(code, ref ip)].Materialize()));
                         break;
                     case OpCode.PushUndefined:
                         Push(SharedUndefined);
@@ -513,14 +529,14 @@ namespace DScript.Vm
                         Pop();
                         break;
                     case OpCode.Dup:
-                        Push(Peek());
+                        PushValue(stack[sp - 1]);
                         break;
                     case OpCode.Dup2:
                     {
                         var b = stack[sp - 1];
                         var a = stack[sp - 2];
-                        Push(a);
-                        Push(b);
+                        PushValue(a);
+                        PushValue(b);
                         break;
                     }
                     case OpCode.EnumKeys:
@@ -558,7 +574,7 @@ namespace DScript.Vm
                         var site = ip;
                         var nameIdx = ReadOperand(code, ref ip);
                         var link = ResolveCached(cache, chunk, site, env, nameIdx);
-                        if (link != null) { Push(link.Var); break; }
+                        if (link != null) { PushValue(ToValue(link.Var)); break; }
                         // globalThis is a virtual built-in — not a real scope binding.
                         // Checked here (cache-miss path) so the hot path pays no cost.
                         if (chunk.Names[nameIdx] == "globalThis") { Push(env.Global().Vars); break; }
@@ -590,7 +606,7 @@ namespace DScript.Vm
                     }
                     case OpCode.GetLocal:
                     {
-                        Push(env.Slots[ReadOperand(code, ref ip)]);
+                        PushValue(ToValue(env.Slots[ReadOperand(code, ref ip)]));
                         break;
                     }
                     case OpCode.SetLocal:
@@ -837,17 +853,23 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
-                        var b = Pop();
-                        var a = Pop();
-                        RecordBinaryOpTypes(binProf, site, a, b);
-                        // int-vs-int fast path (e.g. `s + i` between two variables):
-                        // compute directly, skipping MathsOp's flag checks + dispatch.
-                        if (a.IsAnyInt && b.IsAnyInt && IntBinary(a.Long, b.Long, operatorCode, out var fast))
+                        var bv = PopValue();
+                        var av = PopValue();
+                        // int fast path: compute and push an unboxed Value — no MathsOp
+                        // dispatch and no ScriptVar allocation for the result.
+                        if (TryLong(av, out var al) && TryLong(bv, out var bl)
+                            && IntBinaryValue(al, bl, operatorCode, out var fast))
                         {
-                            Push(fast);
+                            ref var bp = ref binProf[site];
+                            bp.LeftTypes  |= Chunk.BinaryTypeFlags.Int;
+                            bp.RightTypes |= Chunk.BinaryTypeFlags.Int;
+                            PushValue(fast);
                         }
                         else
                         {
+                            var a = av.ToScriptVar();
+                            var b = bv.ToScriptVar();
+                            RecordBinaryOpTypes(binProf, site, a, b);
                             Push(a.MathsOp(b, operatorCode));
                         }
                         break;
@@ -859,7 +881,7 @@ namespace DScript.Vm
                         var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var constant = chunk.Constants[ReadOperand(code, ref ip)];
-                        var a = Pop();
+                        var av = PopValue();
                         var rightFlag = constant.Kind switch
                         {
                             ConstantKind.Int    => Chunk.BinaryTypeFlags.Int,
@@ -868,17 +890,19 @@ namespace DScript.Vm
                             _                   => Chunk.BinaryTypeFlags.Other,
                         };
                         ref var bcp = ref binProf[site];
-                        bcp.LeftTypes  |= TypeFlagOf(a);
                         bcp.RightTypes |= rightFlag;
-                        // Int-vs-int-literal fast path: compute directly, skipping
-                        // both the constant ScriptVar materialization and MathsOp.
-                        if (constant.Kind == ConstantKind.Int && a.IsAnyInt &&
-                            IntBinary(a.Long, (long)constant.IntValue, operatorCode, out var fast))
+                        // Int-vs-int-literal fast path: compute directly into an unboxed
+                        // Value, skipping the constant materialization and MathsOp.
+                        if (constant.Kind == ConstantKind.Int && TryLong(av, out var al) &&
+                            IntBinaryValue(al, (long)constant.IntValue, operatorCode, out var fast))
                         {
-                            Push(fast);
+                            bcp.LeftTypes |= Chunk.BinaryTypeFlags.Int;
+                            PushValue(fast);
                         }
                         else
                         {
+                            var a = av.ToScriptVar();
+                            bcp.LeftTypes |= TypeFlagOf(a);
                             Push(a.MathsOp(constant.Materialize(), operatorCode));
                         }
                         break;
@@ -891,14 +915,20 @@ namespace DScript.Vm
                         var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var intValue = ReadOperand(code, ref ip);
-                        var a = Pop();
+                        var av = PopValue();
                         ref var bip = ref binProf[site];
-                        bip.LeftTypes  |= TypeFlagOf(a);
                         bip.RightTypes |= Chunk.BinaryTypeFlags.Int;
-                        if (a.IsAnyInt && IntBinary(a.Long, (long)intValue, operatorCode, out var fast))
-                            Push(fast);
+                        if (TryLong(av, out var al) && IntBinaryValue(al, (long)intValue, operatorCode, out var fast))
+                        {
+                            bip.LeftTypes |= Chunk.BinaryTypeFlags.Int;
+                            PushValue(fast);
+                        }
                         else
+                        {
+                            var a = av.ToScriptVar();
+                            bip.LeftTypes |= TypeFlagOf(a);
                             Push(a.MathsOp(ScriptVar.FromInt(intValue), operatorCode));
+                        }
                         break;
                     }
                     case OpCode.Shift:
@@ -1101,7 +1131,7 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        var callee = stack[sp - argc - 1];
+                        var callee = stack[sp - argc - 1].ToScriptVar();
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
@@ -1121,12 +1151,12 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        var callee = stack[sp - argc - 1];
+                        var callee = stack[sp - argc - 1].ToScriptVar();
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
                             // Fast path: VM function — bind args directly, no ScriptVar[].
-                            var receiver = stack[sp - argc - 2];
+                            var receiver = stack[sp - argc - 2].ToScriptVar();
                             var result = InvokeVmFunctionFromStack(callee, receiver, argc);
                             sp -= 2; // discard callee and receiver below the args
                             Push(result);
@@ -1148,7 +1178,7 @@ namespace DScript.Vm
                         // adding a C# frame — enabling unbounded tail recursion.
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        var callee = stack[sp - argc - 1];
+                        var callee = stack[sp - argc - 1].ToScriptVar();
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
@@ -1157,7 +1187,7 @@ namespace DScript.Vm
                             {
                                 var argBase = sp - argc;
                                 var tArgs = new ScriptVar[argc];
-                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j];
+                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j].ToScriptVar();
                                 sp = argBase - 1; // discard args + callee
                                 _pendingTailCallFn   = vmfn;
                                 _pendingTailCallArgs = tArgs;
@@ -1180,7 +1210,7 @@ namespace DScript.Vm
                         // Tail-position method call — same trampoline logic as TailCall.
                         var site = ip;
                         var argc = ReadOperand(code, ref ip);
-                        var callee = stack[sp - argc - 1];
+                        var callee = stack[sp - argc - 1].ToScriptVar();
                         RecordCallSite(callProf, site, callee);
                         if (callee != null && callee.IsFunction && !callee.IsNative)
                         {
@@ -1189,15 +1219,15 @@ namespace DScript.Vm
                             {
                                 var argBase = sp - argc;
                                 var tArgs = new ScriptVar[argc];
-                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j];
-                                var tThis = stack[sp - argc - 2];
+                                for (var j = 0; j < argc; j++) tArgs[j] = stack[argBase + j].ToScriptVar();
+                                var tThis = stack[sp - argc - 2].ToScriptVar();
                                 sp = argBase - 2; // discard args + callee + receiver
                                 _pendingTailCallFn   = vmfn;
                                 _pendingTailCallArgs = tArgs;
                                 _pendingTailCallThis = tThis;
                                 return null; // trampoline signal
                             }
-                            var receiver = stack[sp - argc - 2];
+                            var receiver = stack[sp - argc - 2].ToScriptVar();
                             var result = InvokeVmFunctionFromStack(callee, receiver, argc);
                             sp -= 2;
                             return result ?? SharedUndefined;
@@ -1427,7 +1457,7 @@ namespace DScript.Vm
                     case OpCode.New:
                     {
                         var argc = ReadOperand(code, ref ip);
-                        var ctor = stack[sp - argc - 1];
+                        var ctor = stack[sp - argc - 1].ToScriptVar();
                         // Fast path: compiled constructor with args on the stack —
                         // bind them directly into the call frame (no ScriptVar[]).
                         if (ctor != null && ctor.IsFunction && !ctor.IsNative)
@@ -2585,7 +2615,7 @@ namespace DScript.Vm
             {
                 var asyncGenArgs = new ScriptVar[argc];
                 for (var j = 0; j < argc; j++)
-                    asyncGenArgs[j] = stack[argBase + j];
+                    asyncGenArgs[j] = stack[argBase + j].ToScriptVar();
                 sp = argBase;
                 var asyncGenCallEnv = BuildCallEnvironment(vmfn, thisArg, asyncGenArgs);
                 return CreateAsyncGeneratorIterator(vmfn, asyncGenCallEnv);
@@ -2596,7 +2626,7 @@ namespace DScript.Vm
             {
                 var genArgs = new ScriptVar[argc];
                 for (var j = 0; j < argc; j++)
-                    genArgs[j] = stack[argBase + j];
+                    genArgs[j] = stack[argBase + j].ToScriptVar();
                 sp = argBase;
                 var genCallEnv = BuildCallEnvironment(vmfn, thisArg, genArgs);
                 return CreateGeneratorIterator(vmfn, genCallEnv);
@@ -2607,7 +2637,7 @@ namespace DScript.Vm
             {
                 var asyncArgs = new ScriptVar[argc];
                 for (var j = 0; j < argc; j++)
-                    asyncArgs[j] = stack[argBase + j];
+                    asyncArgs[j] = stack[argBase + j].ToScriptVar();
                 sp = argBase;
                 var asyncCallEnv = BuildCallEnvironment(vmfn, thisArg, asyncArgs);
                 return CreateAsyncPromise(vmfn, asyncCallEnv);
@@ -2628,7 +2658,7 @@ namespace DScript.Vm
             var slots = callEnv.Slots;
             for (var j = 0; j < paramLimit; j++)
             {
-                var arg = j < argc ? stack[argBase + j] : null;
+                var arg = j < argc ? stack[argBase + j].ToScriptVar() : null;
                 var pv = BindArgValue(arg);
                 vars.AddChild(parameters[j], pv);
                 if (slots != null) slots[j] = pv; // param slot (Lever A); unread when the param is name-based
@@ -2641,7 +2671,7 @@ namespace DScript.Vm
                 var restLen = 0;
                 for (var j = restIdx; j < argc; j++)
                 {
-                    restArr.SetArrayIndex(restLen++, BindArgValue(stack[argBase + j]));
+                    restArr.SetArrayIndex(restLen++, BindArgValue(stack[argBase + j].ToScriptVar()));
                 }
                 vars.AddChild(parameters[restIdx], restArr);
             }
@@ -2651,7 +2681,7 @@ namespace DScript.Vm
             {
                 var argObj = ScriptVar.CreateArray();
                 for (var j = 0; j < argc; j++)
-                    argObj.SetArrayIndex(j, BindArgValue(stack[argBase + j]));
+                    argObj.SetArrayIndex(j, BindArgValue(stack[argBase + j].ToScriptVar()));
                 if (vmfn.Body.IsStrict) AddStrictArgumentsPoisonPills(argObj);
                 vars.AddChild("arguments", argObj);
             }
@@ -3751,6 +3781,65 @@ namespace DScript.Vm
             => value >= int.MinValue && value <= int.MaxValue
                 ? ScriptVar.FromInt((int)value)
                 : ScriptVar.FromLong(value);
+
+        // Phase 1b (Lever 1): classify a ScriptVar for the operand stack, unboxing the
+        // full integer range (int32 and LargeInt) into a Value.Int(long). Doubles and
+        // everything else are carried as a Ref so the exact instance round-trips without
+        // a fresh allocation (doubles gain nothing from unboxing until the double fast
+        // path lands, and re-boxing the shared null/undefined would allocate).
+        private static Value ToValue(ScriptVar sv)
+        {
+            if (sv != null && sv.IsAnyInt) return Value.Int(sv.Long);
+            return Value.Ref(sv);
+        }
+
+        // The Value-native analogue of IntOrDouble. Value.Int carries a 64-bit payload, so
+        // any integer result stays unboxed; ToScriptVar uses FromLong, exactly matching
+        // IntOrDouble's int32/LargeInt promotion.
+        private static Value IntOrDoubleValue(long value) => Value.Int(value);
+
+        // Extract an integer operand from a Value without allocating: a raw Value.Int, or
+        // a boxed int32/LargeInt ScriptVar carried as a Ref (e.g. pushed via Push(ScriptVar)).
+        private static bool TryLong(in Value v, out long value)
+        {
+            if (v.IsInt) { value = v.AsLong; return true; }
+            if (v.IsRef) { var sv = v.AsRef; if (sv != null && sv.IsAnyInt) { value = sv.Long; return true; } }
+            value = 0;
+            return false;
+        }
+
+        // Value-native mirror of IntBinary: identical operator semantics (int64 +,-,*
+        // with int32/LargeInt promotion via IntOrDoubleValue; '/' real-or-even-int; ToInt32
+        // bitwise; '%'; 0/1 comparisons) but producing an unboxed Value with no ScriptVar
+        // allocation on the common int32 path.
+        internal static bool IntBinaryValue(long a, long b, ScriptLex.LexTypes op, out Value result)
+        {
+            switch ((char)op)
+            {
+                case '+': result = IntOrDoubleValue(a + b); return true;
+                case '-': result = IntOrDoubleValue(a - b); return true;
+                case '*': result = IntOrDoubleValue(a * b); return true;
+                case '/':
+                    if (b == 0) { result = Value.Double((double)a / b); return true; }
+                    if (b == -1) { result = IntOrDoubleValue(-a); return true; }
+                    if (a % b == 0) { result = IntOrDoubleValue(a / b); return true; }
+                    result = Value.Double((double)a / b); return true;
+                case '&': result = Value.Int((int)a & (int)b); return true;
+                case '|': result = Value.Int((int)a | (int)b); return true;
+                case '^': result = Value.Int((int)a ^ (int)b); return true;
+                case '%':
+                    if (b == 0) { result = Value.Double(double.NaN); return true; }
+                    if (b == -1) { result = Value.Int(0); return true; }
+                    result = IntOrDoubleValue(a % b); return true;
+                case (char)ScriptLex.LexTypes.Equal:  result = Value.Bool(a == b); return true;
+                case (char)ScriptLex.LexTypes.NEqual: result = Value.Bool(a != b); return true;
+                case '<':                              result = Value.Bool(a <  b); return true;
+                case (char)ScriptLex.LexTypes.LEqual: result = Value.Bool(a <= b); return true;
+                case '>':                              result = Value.Bool(a >  b); return true;
+                case (char)ScriptLex.LexTypes.GEqual: result = Value.Bool(a >= b); return true;
+                default: result = default; return false;
+            }
+        }
 
         internal static bool IntBinary(long a, long b, ScriptLex.LexTypes op, out ScriptVar result)
         {
