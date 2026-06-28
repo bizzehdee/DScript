@@ -510,7 +510,7 @@ namespace DScript.Vm
                 switch (op)
                 {
                     case OpCode.Constant:
-                        Push(chunk.Constants[ReadOperand(code, ref ip)].Materialize());
+                        PushValue(ToValue(chunk.Constants[ReadOperand(code, ref ip)].Materialize()));
                         break;
                     case OpCode.PushUndefined:
                         Push(SharedUndefined);
@@ -574,7 +574,7 @@ namespace DScript.Vm
                         var site = ip;
                         var nameIdx = ReadOperand(code, ref ip);
                         var link = ResolveCached(cache, chunk, site, env, nameIdx);
-                        if (link != null) { Push(link.Var); break; }
+                        if (link != null) { PushValue(ToValue(link.Var)); break; }
                         // globalThis is a virtual built-in — not a real scope binding.
                         // Checked here (cache-miss path) so the hot path pays no cost.
                         if (chunk.Names[nameIdx] == "globalThis") { Push(env.Global().Vars); break; }
@@ -606,7 +606,7 @@ namespace DScript.Vm
                     }
                     case OpCode.GetLocal:
                     {
-                        Push(env.Slots[ReadOperand(code, ref ip)]);
+                        PushValue(ToValue(env.Slots[ReadOperand(code, ref ip)]));
                         break;
                     }
                     case OpCode.SetLocal:
@@ -853,17 +853,23 @@ namespace DScript.Vm
                     {
                         var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
-                        var b = Pop();
-                        var a = Pop();
-                        RecordBinaryOpTypes(binProf, site, a, b);
-                        // int-vs-int fast path (e.g. `s + i` between two variables):
-                        // compute directly, skipping MathsOp's flag checks + dispatch.
-                        if (a.IsAnyInt && b.IsAnyInt && IntBinary(a.Long, b.Long, operatorCode, out var fast))
+                        var bv = PopValue();
+                        var av = PopValue();
+                        // int fast path: compute and push an unboxed Value — no MathsOp
+                        // dispatch and no ScriptVar allocation for the result.
+                        if (TryLong(av, out var al) && TryLong(bv, out var bl)
+                            && IntBinaryValue(al, bl, operatorCode, out var fast))
                         {
-                            Push(fast);
+                            ref var bp = ref binProf[site];
+                            bp.LeftTypes  |= Chunk.BinaryTypeFlags.Int;
+                            bp.RightTypes |= Chunk.BinaryTypeFlags.Int;
+                            PushValue(fast);
                         }
                         else
                         {
+                            var a = av.ToScriptVar();
+                            var b = bv.ToScriptVar();
+                            RecordBinaryOpTypes(binProf, site, a, b);
                             Push(a.MathsOp(b, operatorCode));
                         }
                         break;
@@ -875,7 +881,7 @@ namespace DScript.Vm
                         var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var constant = chunk.Constants[ReadOperand(code, ref ip)];
-                        var a = Pop();
+                        var av = PopValue();
                         var rightFlag = constant.Kind switch
                         {
                             ConstantKind.Int    => Chunk.BinaryTypeFlags.Int,
@@ -884,17 +890,19 @@ namespace DScript.Vm
                             _                   => Chunk.BinaryTypeFlags.Other,
                         };
                         ref var bcp = ref binProf[site];
-                        bcp.LeftTypes  |= TypeFlagOf(a);
                         bcp.RightTypes |= rightFlag;
-                        // Int-vs-int-literal fast path: compute directly, skipping
-                        // both the constant ScriptVar materialization and MathsOp.
-                        if (constant.Kind == ConstantKind.Int && a.IsAnyInt &&
-                            IntBinary(a.Long, (long)constant.IntValue, operatorCode, out var fast))
+                        // Int-vs-int-literal fast path: compute directly into an unboxed
+                        // Value, skipping the constant materialization and MathsOp.
+                        if (constant.Kind == ConstantKind.Int && TryLong(av, out var al) &&
+                            IntBinaryValue(al, (long)constant.IntValue, operatorCode, out var fast))
                         {
-                            Push(fast);
+                            bcp.LeftTypes |= Chunk.BinaryTypeFlags.Int;
+                            PushValue(fast);
                         }
                         else
                         {
+                            var a = av.ToScriptVar();
+                            bcp.LeftTypes |= TypeFlagOf(a);
                             Push(a.MathsOp(constant.Materialize(), operatorCode));
                         }
                         break;
@@ -907,14 +915,20 @@ namespace DScript.Vm
                         var site = ip;
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var intValue = ReadOperand(code, ref ip);
-                        var a = Pop();
+                        var av = PopValue();
                         ref var bip = ref binProf[site];
-                        bip.LeftTypes  |= TypeFlagOf(a);
                         bip.RightTypes |= Chunk.BinaryTypeFlags.Int;
-                        if (a.IsAnyInt && IntBinary(a.Long, (long)intValue, operatorCode, out var fast))
-                            Push(fast);
+                        if (TryLong(av, out var al) && IntBinaryValue(al, (long)intValue, operatorCode, out var fast))
+                        {
+                            bip.LeftTypes |= Chunk.BinaryTypeFlags.Int;
+                            PushValue(fast);
+                        }
                         else
+                        {
+                            var a = av.ToScriptVar();
+                            bip.LeftTypes |= TypeFlagOf(a);
                             Push(a.MathsOp(ScriptVar.FromInt(intValue), operatorCode));
+                        }
                         break;
                     }
                     case OpCode.Shift:
@@ -3767,6 +3781,65 @@ namespace DScript.Vm
             => value >= int.MinValue && value <= int.MaxValue
                 ? ScriptVar.FromInt((int)value)
                 : ScriptVar.FromLong(value);
+
+        // Phase 1b (Lever 1): classify a ScriptVar for the operand stack, unboxing the
+        // full integer range (int32 and LargeInt) into a Value.Int(long). Doubles and
+        // everything else are carried as a Ref so the exact instance round-trips without
+        // a fresh allocation (doubles gain nothing from unboxing until the double fast
+        // path lands, and re-boxing the shared null/undefined would allocate).
+        private static Value ToValue(ScriptVar sv)
+        {
+            if (sv != null && sv.IsAnyInt) return Value.Int(sv.Long);
+            return Value.Ref(sv);
+        }
+
+        // The Value-native analogue of IntOrDouble. Value.Int carries a 64-bit payload, so
+        // any integer result stays unboxed; ToScriptVar uses FromLong, exactly matching
+        // IntOrDouble's int32/LargeInt promotion.
+        private static Value IntOrDoubleValue(long value) => Value.Int(value);
+
+        // Extract an integer operand from a Value without allocating: a raw Value.Int, or
+        // a boxed int32/LargeInt ScriptVar carried as a Ref (e.g. pushed via Push(ScriptVar)).
+        private static bool TryLong(in Value v, out long value)
+        {
+            if (v.IsInt) { value = v.AsLong; return true; }
+            if (v.IsRef) { var sv = v.AsRef; if (sv != null && sv.IsAnyInt) { value = sv.Long; return true; } }
+            value = 0;
+            return false;
+        }
+
+        // Value-native mirror of IntBinary: identical operator semantics (int64 +,-,*
+        // with int32/LargeInt promotion via IntOrDoubleValue; '/' real-or-even-int; ToInt32
+        // bitwise; '%'; 0/1 comparisons) but producing an unboxed Value with no ScriptVar
+        // allocation on the common int32 path.
+        internal static bool IntBinaryValue(long a, long b, ScriptLex.LexTypes op, out Value result)
+        {
+            switch ((char)op)
+            {
+                case '+': result = IntOrDoubleValue(a + b); return true;
+                case '-': result = IntOrDoubleValue(a - b); return true;
+                case '*': result = IntOrDoubleValue(a * b); return true;
+                case '/':
+                    if (b == 0) { result = Value.Double((double)a / b); return true; }
+                    if (b == -1) { result = IntOrDoubleValue(-a); return true; }
+                    if (a % b == 0) { result = IntOrDoubleValue(a / b); return true; }
+                    result = Value.Double((double)a / b); return true;
+                case '&': result = Value.Int((int)a & (int)b); return true;
+                case '|': result = Value.Int((int)a | (int)b); return true;
+                case '^': result = Value.Int((int)a ^ (int)b); return true;
+                case '%':
+                    if (b == 0) { result = Value.Double(double.NaN); return true; }
+                    if (b == -1) { result = Value.Int(0); return true; }
+                    result = IntOrDoubleValue(a % b); return true;
+                case (char)ScriptLex.LexTypes.Equal:  result = Value.Bool(a == b); return true;
+                case (char)ScriptLex.LexTypes.NEqual: result = Value.Bool(a != b); return true;
+                case '<':                              result = Value.Bool(a <  b); return true;
+                case (char)ScriptLex.LexTypes.LEqual: result = Value.Bool(a <= b); return true;
+                case '>':                              result = Value.Bool(a >  b); return true;
+                case (char)ScriptLex.LexTypes.GEqual: result = Value.Bool(a >= b); return true;
+                default: result = default; return false;
+            }
+        }
 
         internal static bool IntBinary(long a, long b, ScriptLex.LexTypes op, out ScriptVar result)
         {

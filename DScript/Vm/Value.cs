@@ -51,11 +51,13 @@ namespace DScript.Vm
     public readonly struct Value
     {
         public ValueKind Kind { get; }
-        private readonly int intValue;
+        // The integer payload is a 64-bit long so the Int kind covers the full DScript
+        // integer range (int32 and LargeInt), matching ScriptVar.FromLong on conversion.
+        private readonly long intValue;
         private readonly double doubleValue;
         private readonly ScriptVar reference;
 
-        private Value(ValueKind kind, int i, double d, ScriptVar r)
+        private Value(ValueKind kind, long i, double d, ScriptVar r)
         {
             Kind = kind;
             intValue = i;
@@ -68,7 +70,7 @@ namespace DScript.Vm
         public static readonly Value Undefined = new(ValueKind.Undefined, 0, 0.0, null);
         public static readonly Value Null = new(ValueKind.Null, 0, 0.0, null);
 
-        public static Value Int(int value) => new(ValueKind.Int, value, 0.0, null);
+        public static Value Int(long value) => new(ValueKind.Int, value, 0.0, null);
         public static Value Double(double value) => new(ValueKind.Double, 0, value, null);
         public static Value Bool(bool value) => new(ValueKind.Int, value ? 1 : 0, 0.0, null);
 
@@ -79,7 +81,7 @@ namespace DScript.Vm
         public static Value From(ScriptVar v)
         {
             if (v == null) return Undefined;
-            if (v.IsInt) return Int(v.Int);
+            if (v.IsAnyInt) return Int(v.Long);
             if (v.IsDouble) return Double(v.Float);
             if (v.IsNull) return Null;
             if (v.IsUndefined) return Undefined;
@@ -95,8 +97,11 @@ namespace DScript.Vm
         public bool IsNumber => Kind is ValueKind.Int or ValueKind.Double;
         public bool IsRef => Kind == ValueKind.Ref;
 
-        /// <summary>The integer payload (valid when <see cref="IsInt"/>).</summary>
-        public int AsInt => intValue;
+        /// <summary>The 64-bit integer payload (valid when <see cref="IsInt"/>).</summary>
+        public long AsLong => intValue;
+
+        /// <summary>The integer payload truncated to int32 (valid when <see cref="IsInt"/>).</summary>
+        public int AsInt => (int)intValue;
 
         /// <summary>The numeric value as a double; an <see cref="ValueKind.Int"/> widens to double.</summary>
         public double AsDouble => Kind == ValueKind.Int ? intValue : doubleValue;
@@ -112,7 +117,7 @@ namespace DScript.Vm
         /// </summary>
         public ScriptVar ToScriptVar() => Kind switch
         {
-            ValueKind.Int => ScriptVar.FromInt(intValue),
+            ValueKind.Int => ScriptVar.FromLong(intValue),
             ValueKind.Double => ScriptVar.FromDouble(doubleValue),
             ValueKind.Null => ScriptVar.CreateNull(),
             ValueKind.Ref => reference,
