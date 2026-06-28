@@ -174,9 +174,17 @@ namespace DScript.Jit
                         foreach (var g in calleeGuards)
                             if (g.name == ins.Name) return null;
 
-            // Collect register variables and validate the op set.
+            // Collect register variables (named vars and positional slots) and validate
+            // the op set. regInfo[i] records how register i is loaded from the frame.
             var reg = new Dictionary<string, int>();
+            var regInfo = new List<(bool isSlot, int slot, string name)>();
             var sawBinary = false;
+            int GetReg(bool isSlot, int slot, string name)
+            {
+                var key = isSlot ? "@" + slot : name;
+                if (!reg.TryGetValue(key, out var idx)) { idx = reg.Count; reg[key] = idx; regInfo.Add((isSlot, slot, name)); }
+                return idx;
+            }
             for (var ii = 0; ii < n; ii++)
             {
                 var ins = instrs[ii];
@@ -191,11 +199,15 @@ namespace DScript.Jit
                         break;
                     case JitOpKind.PushVar:
                         if (calleeSkip.Contains(ii)) break;   // elided int-leaf callee ref
-                        if (!reg.ContainsKey(ins.Name)) reg[ins.Name] = reg.Count;
+                        GetReg(false, 0, ins.Name);
                         break;
                     case JitOpKind.SetVar:
                     case JitOpKind.SetVarPop:
-                        if (!reg.ContainsKey(ins.Name)) reg[ins.Name] = reg.Count;
+                        GetReg(false, 0, ins.Name);
+                        break;
+                    case JitOpKind.GetLocal:
+                    case JitOpKind.SetLocal:
+                        GetReg(true, ins.IntValue, null);
                         break;
                     case JitOpKind.Call:                       // inlinable int leaf (validated above)
                     case JitOpKind.PushIntLiteral:
@@ -214,6 +226,13 @@ namespace DScript.Jit
                 }
             }
             if (!sawBinary) return null;
+
+            // Slot registers are only supported on the OSR entry, where every live slot is
+            // loaded and guarded from the frame. On a whole-function entry the param→slot
+            // mapping isn't modelled here, so decline (the boxed compile handles it).
+            if (!osr)
+                foreach (var ri in regInfo)
+                    if (ri.isSlot) return null;
 
             // Binary sites must all be profiled integer-only (avoid speculating int on a
             // loop already seen running on strings/doubles).
@@ -280,11 +299,15 @@ namespace DScript.Jit
             if (!idx2blk.TryGetValue(resumeIdx, out var startBlock)) return null;
 
             // Registers loaded + guarded at entry: under OSR every live register comes
-            // from the resume frame; for a whole-function entry only the parameters do
-            // (non-parameter locals start at 0 and are write-first).
-            var entryRegs = new List<(string name, int idx)>();
-            foreach (var kv in reg)
-                if (osr || chunk.Parameters.Contains(kv.Key)) entryRegs.Add((kv.Key, kv.Value));
+            // from the resume frame; for a whole-function entry only the (named) parameters
+            // do (non-parameter locals start at 0 and are write-first).
+            var entryRegs = new List<(bool isSlot, int slot, string name, int idx)>();
+            for (var idx = 0; idx < regInfo.Count; idx++)
+            {
+                var ri = regInfo[idx];
+                if (osr || (!ri.isSlot && chunk.Parameters.Contains(ri.name)))
+                    entryRegs.Add((ri.isSlot, ri.slot, ri.name, idx));
+            }
             var regCount = reg.Count;
 
             return (vm, args, env) =>
@@ -297,10 +320,10 @@ namespace DScript.Jit
                         return fallback(vm, args, env);
 
                 var regs = new long[regCount];
-                foreach (var (name, idx) in entryRegs)
+                foreach (var (isSlot, slot, name, idx) in entryRegs)
                 {
-                    var sv = VirtualMachine.JitGetVar(env, name);
-                    if (!sv.IsAnyInt) return fallback(vm, args, env); // type miss -> boxed path
+                    var sv = isSlot ? env.Slots[slot] : VirtualMachine.JitGetVar(env, name);
+                    if (sv == null || !sv.IsAnyInt) return fallback(vm, args, env); // type miss -> boxed path
                     regs[idx] = sv.Long;
                 }
                 var bb = startBlock;
@@ -349,6 +372,9 @@ namespace DScript.Jit
                     case JitOpKind.PushVar:
                         if (!c.Parameters.Contains(ins.Name)) return false; // free var
                         break;
+                    case JitOpKind.GetLocal:
+                        if (ins.IntValue < 0 || ins.IntValue >= argc) return false; // param slots only
+                        break;
                     case JitOpKind.Binary:
                         if (!IsLongLoopOp(ins.Op)) return false;
                         break;
@@ -376,6 +402,7 @@ namespace DScript.Jit
                     case JitOpKind.PushConst:      { TryConstLong(ins.Constant, out var c); stack.Push(_ => c); break; }
                     case JitOpKind.PushIntLiteral: { long v = ins.IntValue; stack.Push(_ => v); break; }
                     case JitOpKind.PushVar:        stack.Push(argExprs[pidx[ins.Name]]); break;
+                    case JitOpKind.GetLocal:       stack.Push(argExprs[ins.IntValue]); break; // param slot = arg index
                     case JitOpKind.Not:            { var x = stack.Pop(); stack.Push(r => x(r) == 0 ? 1L : 0L); break; }
                     case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); var op = ins.Op; stack.Push(r => LongBinaryOp(ll(r), rr(r), op)); break; }
                     case JitOpKind.Return:         return stack.Pop();
@@ -400,6 +427,7 @@ namespace DScript.Jit
                     case JitOpKind.PushConst:
                     case JitOpKind.PushIntLiteral:
                     case JitOpKind.PushVar:
+                    case JitOpKind.GetLocal:
                         prod.Add(i);
                         break;
                     case JitOpKind.Not:
@@ -409,6 +437,7 @@ namespace DScript.Jit
                         if (prod.Count >= 2) { prod.RemoveAt(prod.Count - 1); prod[prod.Count - 1] = i; }
                         break;
                     case JitOpKind.SetVar:
+                    case JitOpKind.SetLocal:
                         if (prod.Count > 0) prod[prod.Count - 1] = i; // pop value, push value
                         break;
                     case JitOpKind.SetVarPop:
@@ -481,7 +510,9 @@ namespace DScript.Jit
                     case JitOpKind.PushConst:      { TryConstLong(instr.Constant, out var c); stack.Push(_ => c); break; }
                     case JitOpKind.PushIntLiteral: { long v = instr.IntValue; stack.Push(_ => v); break; }
                     case JitOpKind.PushVar:        { var idx = reg[instr.Name]; stack.Push(r => r[idx]); break; }
+                    case JitOpKind.GetLocal:       { var idx = reg["@" + instr.IntValue]; stack.Push(r => r[idx]); break; }
                     case JitOpKind.SetVar:         { var idx = reg[instr.Name]; var val = stack.Pop(); stack.Push(r => { var t = val(r); r[idx] = t; return t; }); break; }
+                    case JitOpKind.SetLocal:       { var idx = reg["@" + instr.IntValue]; var val = stack.Pop(); stack.Push(r => { var t = val(r); r[idx] = t; return t; }); break; }
                     case JitOpKind.SetVarPop:      { var idx = reg[instr.Name]; var val = stack.Pop(); body.Add(r => r[idx] = val(r)); break; }
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
