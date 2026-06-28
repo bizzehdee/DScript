@@ -54,6 +54,94 @@ namespace DScript.Test
         }
 
         [Test]
+        public void DeepCopy_Array_PreservesElementsAndLength()
+        {
+            var source = ScriptVar.CreateArray();
+            source.SetArrayIndex(0, ScriptVar.FromInt(10));
+            source.SetArrayIndex(1, ScriptVar.FromInt(20));
+            source.SetArrayIndex(2, ScriptVar.FromInt(30));
+
+            var copy = source.DeepCopy();
+
+            Assert.That(copy.IsArray, Is.True);
+            Assert.That(copy.GetArrayLength(), Is.EqualTo(3));
+            Assert.That(copy.GetArrayIndex(0).Int, Is.EqualTo(10));
+            Assert.That(copy.GetArrayIndex(1).Int, Is.EqualTo(20));
+            Assert.That(copy.GetArrayIndex(2).Int, Is.EqualTo(30));
+        }
+
+        [Test]
+        public void DeepCopy_Array_ProducesIndependentCopy()
+        {
+            // Mutating the copy's elements must not disturb the source: DeepCopy still
+            // clones each element, the dense fast-path only shares the *copied* instance
+            // between the new array's two representations, never with the source.
+            var source = ScriptVar.CreateArray();
+            source.SetArrayIndex(0, ScriptVar.FromInt(1000)); // outside intern range -> distinct node
+            source.SetArrayIndex(1, ScriptVar.FromInt(2000));
+
+            var copy = source.DeepCopy();
+            copy.SetArrayIndex(0, ScriptVar.FromInt(9999));
+
+            Assert.That(source.GetArrayIndex(0).Int, Is.EqualTo(1000), "source must be unaffected by copy mutation");
+            Assert.That(copy.GetArrayIndex(0).Int, Is.EqualTo(9999));
+        }
+
+        [Test]
+        public void DeepCopy_NestedArray_DeepCopiesInnerElements()
+        {
+            var inner = ScriptVar.CreateArray();
+            inner.SetArrayIndex(0, ScriptVar.FromInt(1000));
+
+            var source = ScriptVar.CreateArray();
+            source.SetArrayIndex(0, inner);
+
+            var copy = source.DeepCopy();
+            copy.GetArrayIndex(0).SetArrayIndex(0, ScriptVar.FromInt(7));
+
+            Assert.That(inner.GetArrayIndex(0).Int, Is.EqualTo(1000), "inner array must be deep-copied, not shared");
+            Assert.That(copy.GetArrayIndex(0).GetArrayIndex(0).Int, Is.EqualTo(7));
+        }
+
+        [Test]
+        public void DeepCopy_Array_WithNamedPropertyAndHole_StaysConsistent()
+        {
+            // Array carrying a non-index property plus a sparse index: the dense copy
+            // must skip the named prop and the hole without corrupting either view.
+            var source = ScriptVar.CreateArray();
+            source.SetArrayIndex(0, ScriptVar.FromInt(1000));
+            source.SetArrayIndex(2, ScriptVar.FromInt(3000)); // leaves index 1 as a hole
+            source.AddChild("tag", ScriptVar.FromString("meta"));
+
+            var copy = source.DeepCopy();
+
+            Assert.That(copy.GetArrayIndex(0).Int, Is.EqualTo(1000));
+            Assert.That(copy.GetArrayIndex(2).Int, Is.EqualTo(3000));
+            Assert.That(copy.FindChild("tag").Var.String, Is.EqualTo("meta"));
+        }
+
+        [Test]
+        public void DeepCopy_InternedScalar_ReturnsSharedInstance()
+        {
+            // Small ints are interned and immutable, so the copy may alias the singleton.
+            var interned = ScriptVar.FromInt(5);
+            var copy = interned.DeepCopy();
+
+            Assert.That(copy.Int, Is.EqualTo(5));
+            Assert.That(copy, Is.SameAs(interned), "interned scalar copy should alias the singleton");
+        }
+
+        [Test]
+        public void DeepCopy_NonInternedScalar_ReturnsDistinctInstance()
+        {
+            var value = ScriptVar.FromInt(1000); // outside intern range
+            var copy = value.DeepCopy();
+
+            Assert.That(copy.Int, Is.EqualTo(1000));
+            Assert.That(copy, Is.Not.SameAs(value), "non-interned value must be a fresh node");
+        }
+
+        [Test]
         public void DoubleValue_FormatsAndParsesWithInvariantCulture()
         {
             Assert.That(ScriptVar.FromDouble(1.5).String, Is.EqualTo("1.5"));

@@ -1582,6 +1582,14 @@ namespace DScript
 
         public ScriptVar DeepCopy()
         {
+            // Interned values (small ints, booleans, the shared null/undefined) are
+            // immutable — every setter throws on the Interned flag — so a "copy" can
+            // safely alias the singleton instead of allocating a fresh node. The VM
+            // already shares these everywhere (see BindArgValue), so this introduces
+            // no aliasing that did not already exist.
+            if ((flags & Flags.Interned) != 0)
+                return this;
+
             var newVar = new ScriptVar();
             newVar.CopySimpleData(this);
 
@@ -1593,6 +1601,18 @@ namespace DScript
                 newVar.AddChild(link.Name, copied);
 
                 link = link.Next;
+            }
+
+            // Each AddChild on an array invalidates the length cache, so a freshly
+            // copied array would otherwise recompute its length with an O(n) child walk
+            // on first access. newVar has exactly the same child names as this, so the
+            // source's cached length is authoritative — restore it directly (a -1 source
+            // cache copies through as "recompute on demand", matching prior behaviour).
+            // Rebuilding the dense _elements store here was measured to cost more than it
+            // saved: element reads already resolve through the child-index hash map.
+            if (IsArray)
+            {
+                newVar.cachedArrayLength = cachedArrayLength;
             }
 
             return newVar;
