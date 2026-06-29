@@ -557,6 +557,7 @@ namespace DScript
                 var sv = (ShapedScriptVar)this;
                 sv._shape = null;
                 sv._shapeRoot = null;
+                sv._slots = null;
             }
         }
 
@@ -1061,13 +1062,28 @@ namespace DScript
                 var cur = sv._shape ?? Shape.Empty;
                 if (!cur.Slots.ContainsKey(childName))
                 {
+                    // slotIdx is always cur.Slots.Count (parent count before transition)
+                    // — no need for a second dictionary lookup after the transition.
+                    var slotIdx = cur.Slots.Count;
                     sv._shape = cur.Transition(childName);
-                    // Record the first shape-tracked link; subsequent links are walked
-                    // from this root by slot index (avoids a per-instance array allocation).
                     if (sv._shapeRoot == null) sv._shapeRoot = link;
+
+                    // Flat-slot fast path: store the link at its slot index so reads
+                    // are a single array load instead of a linked-list walk.
+                    // Defer allocation until slot 2 (index ≥ 2) — for 0- or 1-property
+                    // objects the linked-list walk is at most 1 hop and not worth the
+                    // heap allocation.
+                    if (slotIdx >= 2)
+                    {
+                        if (sv._slots == null)
+                            sv._slots = new ScriptVarLink[System.Math.Max(4, slotIdx + 1)];
+                        else if (slotIdx >= sv._slots.Length)
+                            System.Array.Resize(ref sv._slots, System.Math.Max(sv._slots.Length * 2, slotIdx + 1));
+                        sv._slots[slotIdx] = link;
+                    }
                 }
                 // Duplicate name (rare): first occurrence is already at the correct
-                // walk position from _shapeRoot; leave _shape and _shapeRoot unchanged.
+                // slot; leave _shape, _shapeRoot, and _slots unchanged.
             }
 
             // Invalidate array length cache if this is an array, as a numeric

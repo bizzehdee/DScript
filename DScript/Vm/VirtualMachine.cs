@@ -667,8 +667,7 @@ namespace DScript.Vm
                                 var shp = shapedObj?._shape;
                                 if (shp != null && ce.ShapeId == shp.Id)
                                 {
-                                    var sl = shapedObj._shapeRoot;
-                                    for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
+                                    var sl = GetShapedSlot(shapedObj, ce.SlotIndex);
                                     if (sl != null)
                                     {
                                         Push(sl.Getter != null
@@ -697,8 +696,7 @@ namespace DScript.Vm
                             var shp = shapedObj?._shape;
                             if (shp != null && shp.Slots.TryGetValue(name, out var slotIdx))
                             {
-                                var sl = shapedObj._shapeRoot;
-                                for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
+                                var sl = GetShapedSlot(shapedObj, slotIdx);
                                 if (sl != null)
                                 {
                                     var propResult = sl.Getter != null
@@ -1739,8 +1737,7 @@ namespace DScript.Vm
                                 var shp = shapedObj?._shape;
                                 if (shp != null && ce.ShapeId == shp.Id)
                                 {
-                                    var sl = shapedObj._shapeRoot;
-                                    for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
+                                    var sl = GetShapedSlot(shapedObj, ce.SlotIndex);
                                     if (sl != null)
                                     {
                                         Push(sl.Getter != null
@@ -1768,8 +1765,7 @@ namespace DScript.Vm
                             var shp = shapedObj?._shape;
                             if (shp != null && shp.Slots.TryGetValue(name, out var slotIdx))
                             {
-                                var sl = shapedObj._shapeRoot;
-                                for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
+                                var sl = GetShapedSlot(shapedObj, slotIdx);
                                 if (sl != null)
                                 {
                                     var propResult = sl.Getter != null
@@ -1912,8 +1908,7 @@ namespace DScript.Vm
                                 var shp = shapedObj?._shape;
                                 if (shp != null && ce.ShapeId == shp.Id)
                                 {
-                                    var sl = shapedObj._shapeRoot;
-                                    for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
+                                    var sl = GetShapedSlot(shapedObj, ce.SlotIndex);
                                     if (sl != null)
                                     {
                                         Push(sl.Getter != null
@@ -1941,8 +1936,7 @@ namespace DScript.Vm
                             var shp = shapedObj?._shape;
                             if (shp != null && shp.Slots.TryGetValue(propName, out var slotIdx))
                             {
-                                var sl = shapedObj._shapeRoot;
-                                for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
+                                var sl = GetShapedSlot(shapedObj, slotIdx);
                                 if (sl != null)
                                 {
                                     var propResult = sl.Getter != null
@@ -2010,8 +2004,7 @@ namespace DScript.Vm
                                 var shp = shapedObj?._shape;
                                 if (shp != null && ce.ShapeId == shp.Id)
                                 {
-                                    var sl = shapedObj._shapeRoot;
-                                    for (int _i = 0; _i < ce.SlotIndex; _i++) sl = sl?.Next;
+                                    var sl = GetShapedSlot(shapedObj, ce.SlotIndex);
                                     if (sl != null)
                                     {
                                         Push(sl.Getter != null
@@ -2039,8 +2032,7 @@ namespace DScript.Vm
                             var shp = shapedObj?._shape;
                             if (shp != null && shp.Slots.TryGetValue(propName, out var slotIdx))
                             {
-                                var sl = shapedObj._shapeRoot;
-                                for (int _i = 0; _i < slotIdx; _i++) sl = sl?.Next;
+                                var sl = GetShapedSlot(shapedObj, slotIdx);
                                 if (sl != null)
                                 {
                                     var propResult = sl.Getter != null
@@ -3697,6 +3689,20 @@ namespace DScript.Vm
         // (kept on the stack by the interpreter via Peek) plus the value, mutate it,
         // and return it so the emitter can thread the single instance through the
         // remaining initialisers without re-creating it.
+        // Read a shaped slot: O(1) array load for indices covered by _slots, otherwise
+        // walk from _shapeRoot (only 0–1 hops for the common ≤2-property case).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static ScriptVarLink GetShapedSlot(ShapedScriptVar shaped, int slotIdx)
+        {
+            var slots = shaped._slots;
+            if (slots != null && (uint)slotIdx < (uint)slots.Length)
+                return slots[slotIdx];
+            var link = shaped._shapeRoot;
+            for (int i = 0; i < slotIdx; i++) link = link?.Next;
+            return link;
+        }
+
         internal static ScriptVar JitNewObject() => ScriptVar.CreateObject();
 
         internal static ScriptVar JitNewArray() => ScriptVar.CreateArray();

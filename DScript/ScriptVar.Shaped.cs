@@ -42,18 +42,21 @@ namespace DScript
     internal sealed class ShapedScriptVar : ScriptVar
     {
         // Hidden class / shape for this object. Non-null once the first user-visible
-        // property has been added without getters/setters/deletions. Walking
-        // <see cref="_shapeRoot"/> by shape.Slots[name] steps gives the link for that
-        // name, enabling O(1) reads keyed on (shape.Id, name) instead of FindChild.
+        // property has been added without getters/setters/deletions.
         // The child linked list remains the source of truth; these are an
         // acceleration layer only.
         //
-        // _shapeRoot is the FIRST shape-tracked link added to this object
-        // (non-shape-tracked links like "prototype" may precede it in the linked list).
-        // Walking SlotIndex steps from _shapeRoot gives the link at that slot without
-        // allocating any per-instance array.
+        // _slots is a flat array of ScriptVarLink references indexed by slot number
+        // (the same index stored in Shape.Slots[name] and in PropCacheCell.SlotIndex).
+        // A cache hit is therefore a single array load — no linked-list walk.
+        // _slots[i] is always the same object as walking i Next pointers from _shapeRoot,
+        // so the two views are always consistent.
+        //
+        // _shapeRoot is kept for compatibility (identity-keyed fallback, serialisation)
+        // but the hot read/write paths now go through _slots.
         internal Shape _shape;
         internal ScriptVarLink _shapeRoot;
+        internal ScriptVarLink[] _slots;
 
         internal ShapedScriptVar() : base(Flags.Object | Flags.ShapeTracked)
         {

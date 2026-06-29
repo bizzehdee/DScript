@@ -103,23 +103,29 @@ namespace DScript.Vm
                 if (shape != null)
                 {
                     if (ShapeId0 == shape.Id && ShapeId0 > 0)
-                        return WalkShapeRoot(shaped._shapeRoot, SlotIndex0);
+                        return GetSlot(shaped, SlotIndex0);
                     if (ShapeId1 == shape.Id && ShapeId1 > 0)
                     {
                         // promote slot 1 → slot 0
                         (ShapeId0, SlotIndex0, ShapeId1, SlotIndex1) =
                             (ShapeId1, SlotIndex1, ShapeId0, SlotIndex0);
-                        return WalkShapeRoot(shaped._shapeRoot, SlotIndex0);
+                        return GetSlot(shaped, SlotIndex0);
                     }
                 }
             }
             return null;
         }
 
-        private static ScriptVarLink WalkShapeRoot(ScriptVarLink root, int steps)
+        // Slot load: flat array for indices ≥ 2 (O(1)); _shapeRoot walk for indices
+        // 0–1 (≤ 1 hop — not worth a heap allocation).
+        private static ScriptVarLink GetSlot(ShapedScriptVar shaped, int slotIdx)
         {
-            var link = root;
-            for (int i = 0; i < steps; i++) link = link?.Next;
+            var slots = shaped._slots;
+            if (slots != null && (uint)slotIdx < (uint)slots.Length)
+                return slots[slotIdx];
+            // Flat array not populated for this slot — walk from _shapeRoot (fast for small indices).
+            var link = shaped._shapeRoot;
+            for (int i = 0; i < slotIdx; i++) link = link?.Next;
             return link;
         }
 
