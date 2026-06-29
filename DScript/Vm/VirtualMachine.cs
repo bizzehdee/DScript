@@ -2778,6 +2778,75 @@ namespace DScript.Vm
             }
         }
 
+        // Sort <paramref name="values"/> in place with a script comparator, reusing ONE
+        // call frame across every comparison instead of building a fresh frame per
+        // comparison. The dominant cost of a comparator-driven sort is the per-call frame
+        // setup on the native→script boundary (a new Environment, slot array, and per-param
+        // AddChild, every comparison). A comparator that only reads its two parameters keeps
+        // no per-call frame state, so the frame is built once and just the two parameter
+        // values are rebound per comparison. Returns false (caller falls back to the
+        // per-call path) for any comparator not provably safe to reuse a frame for.
+        internal bool TrySortReusingFrame(List<ScriptVar> values, ScriptVar compare)
+        {
+            if (compare == null || !compare.IsFunction || compare.IsNative) return false;
+            if (compare.GetData() is not VmFunction vmfn) return false;
+            var body = vmfn.Body;
+            if (!body.RecyclableFrame || body.IsGenerator || body.IsAsync) return false;
+            if (body.RestParamIndex >= 0 || body.UsesArguments) return false;
+            if (body.Parameters.Count != 2) return false;
+            // A non-arrow strict callee observes `this === undefined`, which the per-call
+            // path binds fresh; the reused frame binds no `this`, so decline it.
+            if (!body.IsArrow && body.IsStrict) return false;
+            // A slot beyond the two parameters is a local: under a reused frame it would
+            // leak its previous value into the next comparison (a conditionally-assigned
+            // local would read stale instead of undefined). This catches locals in slot
+            // mode, where they are slots rather than Declare* opcodes.
+            if (body.UsesSlots && body.SlotCount > body.Parameters.Count) return false;
+
+            // Reuse is sound only if the body carries no per-call frame state beyond its two
+            // parameters: no local declarations, block scopes, or nested closures. Decode
+            // once (cheap against the comparison count) and decline anything else, or any
+            // body the decoder cannot model. (The slot check above covers locals in slot
+            // mode; this covers name-based locals and block scopes when slots are off.)
+            var instrs = DScript.Jit.JitDecoder.Decode(body);
+            if (instrs == null) return false;
+            foreach (var ins in instrs)
+                if (ins.Kind is DScript.Jit.JitOpKind.DeclareVar or DScript.Jit.JitOpKind.DeclareLocal
+                              or DScript.Jit.JitOpKind.DeclareConst or DScript.Jit.JitOpKind.EnterBlock
+                              or DScript.Jit.JitOpKind.LeaveBlock or DScript.Jit.JitOpKind.MakeClosure)
+                    return false;
+
+            var vars = BorrowFrameVars();
+            var env = new Environment(vars, vmfn.Captured);
+            InitSlotFrame(body, env);
+            var slots = env.Slots;
+            // Bind both parameters once; each comparison rebinds their values in place
+            // (matching BindArgValue: the element reference is bound directly, not copied).
+            var linkA = vars.AddChild(body.Parameters[0], SharedUndefined);
+            var linkB = vars.AddChild(body.Parameters[1], SharedUndefined);
+
+            try
+            {
+                values.Sort((a, b) =>
+                {
+                    var av = a ?? SharedUndefined;
+                    var bv = b ?? SharedUndefined;
+                    linkA.ReplaceWith(av);
+                    linkB.ReplaceWith(bv);
+                    if (slots != null) { slots[0] = av; slots[1] = bv; }
+                    // JS comparators may return any number; use the SIGN (a fractional
+                    // result like (a,b)=>a-b on doubles must not truncate to 0). NaN => 0.
+                    var c = (Execute(body, env) ?? SharedUndefined).Float;
+                    return c < 0 ? -1 : c > 0 ? 1 : 0;
+                });
+            }
+            finally
+            {
+                ReturnFrameVars(vars);
+            }
+            return true;
+        }
+
         // Build a call environment for a VmFunction from a ScriptVar[] args array.
         // Used by the generator path to capture args before starting the body thread.
         private static Environment BuildCallEnvironment(VmFunction vmfn, ScriptVar thisArg, ScriptVar[] args)

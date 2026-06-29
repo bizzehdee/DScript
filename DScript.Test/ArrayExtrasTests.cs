@@ -223,6 +223,125 @@ namespace DScript.Test
             Assert.That(result.String, Is.EqualTo("0.1,0.2,0.3"));
         }
 
+        // ── sort: comparator frame-reuse fast path ──────────────────────────────
+        // A script comparator that only reads its two parameters reuses one call frame
+        // across every comparison. These assert the reused frame stays correct over many
+        // comparisons and that ineligible comparators fall back without losing ordering,
+        // under both name-based bindings and positional local slots (AOT).
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void Sort_LargeArray_FrameReuseFullyOrders(bool slots)
+        {
+            var ok = WithSlots(slots, () => RunScript(
+                "var a = []; for (var i = 0; i < 3000; i++) a.push((i * 7919) % 1009);" +
+                "a.sort(function(x, y){ return x - y; });" +
+                "var ok = true; for (var j = 1; j < a.length; j++) if (a[j-1] > a[j]) ok = false;" +
+                "var __result__ = ok;").Bool);
+            Assert.That(ok, Is.True);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void Sort_ObjectKeyComparator_ReuseOrdersAndKeepsIdentity(bool slots)
+        {
+            var result = WithSlots(slots, () => RunScript(
+                "var first = { x: 9 };" +
+                "var a = [first, { x: 4 }, { x: 7 }, { x: 1 }];" +
+                "a.sort(function(p, q){ return p.x - q.x; });" +
+                "var __result__ = a[0].x + ',' + a[3].x + ',' + (a[3] === first ? 'Y' : 'N');").String);
+            Assert.That(result, Is.EqualTo("1,9,Y"));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void Sort_ArrowComparator_Descending(bool slots)
+        {
+            var result = WithSlots(slots, () => RunScript(
+                "var a = [1, 3, 2]; a.sort((x, y) => y - x);" +
+                "var __result__ = a[0] * 100 + a[1] * 10 + a[2];").Int);
+            Assert.That(result, Is.EqualTo(321));
+        }
+
+        // ── decline branches: must fall back to the per-call path and still sort ────
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void Sort_ComparatorWithLocalVar_FallsBackAndSorts(bool slots)
+        {
+            // `var d` is a non-parameter local: ineligible for frame reuse (a slot in slot
+            // mode, a Declare opcode otherwise). Must fall back and order correctly.
+            var result = WithSlots(slots, () => RunScript(
+                "var a = [3, 1, 2]; a.sort(function(x, y){ var d = x - y; return d; });" +
+                "var __result__ = a[0] * 100 + a[1] * 10 + a[2];").Int);
+            Assert.That(result, Is.EqualTo(123));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void Sort_ComparatorWithBlockScopedLet_FallsBackAndSorts(bool slots)
+        {
+            var result = WithSlots(slots, () => RunScript(
+                "var a = [3, 1, 2]; a.sort((x, y) => { let d = x - y; return d; });" +
+                "var __result__ = a[0] * 100 + a[1] * 10 + a[2];").Int);
+            Assert.That(result, Is.EqualTo(123));
+        }
+
+        [Test]
+        public void Sort_ConditionalLocalComparator_FallsBackAndSorts()
+        {
+            // A conditionally-assigned local is exactly the case the eligibility guard must
+            // reject (a reused frame could read a value left over from a previous comparison
+            // instead of `undefined`). It is declined to the per-call path, which gives a
+            // fresh frame each comparison; assert that path still orders correctly.
+            var fallback = RunScript(
+                "var a = [3, 1, 2, 5, 4];" +
+                "a.sort(function(x, y){ var d; if (x !== y) d = x - y; return d; });" +
+                "var __result__ = a.join(',');").String;
+            var direct = RunScript("var __result__ = [1,2,3,4,5].join(',');").String;
+            Assert.That(fallback, Is.EqualTo(direct));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ToSorted_FrameReuse_IsNonMutating(bool slots)
+        {
+            var result = WithSlots(slots, () => RunScript(
+                "var a = [3, 1, 2]; var b = a.toSorted((x, y) => x - y);" +
+                "var __result__ = b.join('') + '|' + a.join('');").String);
+            Assert.That(result, Is.EqualTo("123|312"));
+        }
+
+        [Test]
+        public void Sort_ThreeParamComparator_FallsBackAndSorts()
+        {
+            // Arity != 2 is declined for frame reuse; the per-call path binds the extra
+            // parameter as undefined and orders by the first two.
+            var result = RunScript(
+                "var a = [3, 1, 2]; a.sort(function(x, y, z){ return x - y; });" +
+                "var __result__ = a[0] * 100 + a[1] * 10 + a[2];").Int;
+            Assert.That(result, Is.EqualTo(123));
+        }
+
+        [Test]
+        public void Sort_StrictNonArrowComparator_FallsBackAndSorts()
+        {
+            // A strict non-arrow comparator observes this === undefined, which the reused
+            // frame does not bind; it is declined and sorts via the per-call path.
+            var result = RunScript(
+                "var a = [3, 1, 2]; a.sort(function(x, y){ 'use strict'; return x - y; });" +
+                "var __result__ = a[0] * 100 + a[1] * 10 + a[2];").Int;
+            Assert.That(result, Is.EqualTo(123));
+        }
+
+        private static T WithSlots<T>(bool enabled, System.Func<T> body)
+        {
+            var prev = ScriptEngine.EnableLocalSlots;
+            ScriptEngine.EnableLocalSlots = enabled;
+            try { return body(); }
+            finally { ScriptEngine.EnableLocalSlots = prev; }
+        }
+
         // ── find ──────────────────────────────────────────────────────────────
 
         [Test]

@@ -422,8 +422,10 @@ namespace DScript.Extras.FunctionProviders
 
             if (compare.IsFunction)
             {
-                //use the supplied comparator: negative => a before b
-                values.Sort((a, b) => CompareSign(engine, compare, a, b));
+                //use the supplied comparator: negative => a before b. The frame-reuse
+                //fast path sorts in place when eligible; otherwise fall back per-call.
+                if (!engine.TrySortWithComparator(values, compare))
+                    values.Sort((a, b) => CompareSign(engine, compare, a, b));
             }
             else
             {
@@ -989,7 +991,10 @@ namespace DScript.Extras.FunctionProviders
                 values.Add(arr.GetArrayIndex(x));
 
             if (compare.IsFunction)
-                values.Sort((a, b) => CompareSign(engine, compare, a, b));
+            {
+                if (!engine.TrySortWithComparator(values, compare))
+                    values.Sort((a, b) => CompareSign(engine, compare, a, b));
+            }
             else
                 values.Sort((a, b) => string.CompareOrdinal(a.String, b.String));
 

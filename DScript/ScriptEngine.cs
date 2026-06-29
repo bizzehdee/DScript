@@ -851,6 +851,22 @@ namespace DScript
             return result;
         }
 
+        /// <summary>
+        /// Sort <paramref name="values"/> in place with a script comparator, reusing a
+        /// single call frame across all comparisons (see
+        /// <see cref="VirtualMachine.TrySortReusingFrame"/>). Returns false if the
+        /// comparator is not eligible for frame reuse, leaving <paramref name="values"/>
+        /// untouched so the caller can fall back to a per-comparison invocation.
+        /// </summary>
+        public bool TrySortWithComparator(List<ScriptVar> values, ScriptVar compare)
+        {
+            var vm = _callVmCache; _callVmCache = null;
+            if (vm == null) vm = new VirtualMachine(this);
+            var sorted = vm.TrySortReusingFrame(values, compare);
+            if (_callVmCache == null) _callVmCache = vm;
+            return sorted;
+        }
+
         // Fallback thread-safe pool for async/microtask contexts where concurrency
         // is possible. The hot path above uses the lock-free _callVmCache instead.
         private VirtualMachine _callVmCache;
