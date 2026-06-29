@@ -127,5 +127,39 @@ namespace DScript.Test
             // The += sees strings, so the (relaxed) numeric profile gate must still decline.
             => Matches("function g(n){ var s=\"\"; var i=0; while(i<n){ s = s + \"x\"; i=i+1; } return s.length; }\n" +
                        "__result__ = g(5000);");
+
+        // ── constant folding in the long tier ──────────────────────────────────────
+        // The long tier folds const-const operations and bakes a single constant operand
+        // directly into the arithmetic, removing per-iteration delegate dispatch. The
+        // folded result must equal the interpreter's runtime arithmetic exactly.
+
+        [Test]
+        public void ConstChainFoldedInLoop()
+            // (i + 1) + 2 + 3 — a chain mixing a runtime operand with several constants;
+            // the constant tail must fold without changing the result.
+            => Matches("function f(n){ var s=0; var i=0; while(i<n){ s = s + (i + 1 + 2 + 3); i=i+1; } return s; }\n" +
+                       "__result__ = f(2000000);");
+
+        [Test]
+        public void AllConstantLeafFullyFolded()
+            // Every argument is constant, so the inlined leaf a+b+c folds to a single
+            // constant per iteration (no runtime operand survives in the callee body).
+            => Matches("function f(a,b,c){ return a+b+c; }\n" +
+                       "function bench(n){ var s=0; var i=0; while(i<n){ s = s + f(10,20,30); i=i+1; } return s; }\n" +
+                       "__result__ = bench(2000000);");
+
+        [Test]
+        public void ConstMultiplyFoldWrapsLikeRuntime()
+            // 100000 * 100000 = 1e10 overflows int32; the compile-time fold and the
+            // runtime int64 multiply must wrap identically.
+            => Matches("function f(n){ var s=0; var i=0; while(i<n){ s = s + (100000 * 100000) - i; i=i+1; } return s; }\n" +
+                       "__result__ = f(200000);");
+
+        [Test]
+        public void ConstOnLeftOfSubtraction()
+            // Constant on the left of a non-commutative operator must keep operand order
+            // (1000 - i, not i - 1000).
+            => Matches("function f(n){ var s=0; var i=0; while(i<n){ s = s + (1000 - i); i=i+1; } return s; }\n" +
+                       "__result__ = f(200000);");
     }
 }

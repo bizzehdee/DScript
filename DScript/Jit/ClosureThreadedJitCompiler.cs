@@ -130,6 +130,40 @@ namespace DScript.Jit
             };
         }
 
+        // A long-tier operand: either a compile-time constant or a runtime expression.
+        // Carrying constness lets the binary/not builders fold const-const operations and
+        // capture a constant operand directly into the LongBinaryOp call — removing the
+        // extra `_ => c` delegate dispatch the operand would otherwise cost every
+        // iteration of a hot loop.
+        private readonly struct LongVal
+        {
+            public readonly LongExpr Fn;   // null when IsConst
+            public readonly long Const;
+            public readonly bool IsConst;
+            private LongVal(LongExpr fn, long c, bool isConst) { Fn = fn; Const = c; IsConst = isConst; }
+            public static LongVal Expr(LongExpr fn) => new(fn, 0, false);
+            public static LongVal Lit(long c) => new(null, c, true);
+            public LongExpr AsExpr() { if (!IsConst) return Fn; var c = Const; return _ => c; }
+        }
+
+        // Build a binary node, folding when both operands are constant and specialising
+        // when exactly one is — so a constant operand is baked into the LongBinaryOp call
+        // rather than reached through its own delegate.
+        private static LongVal LongBinary(LongVal l, LongVal r, ScriptLex.LexTypes op)
+        {
+            if (l.IsConst && r.IsConst) return LongVal.Lit(LongBinaryOp(l.Const, r.Const, op));
+            if (r.IsConst) { var a = l.Fn; var c = r.Const; return LongVal.Expr(x => LongBinaryOp(a(x), c, op)); }
+            if (l.IsConst) { var c = l.Const; var b = r.Fn; return LongVal.Expr(x => LongBinaryOp(c, b(x), op)); }
+            { var a = l.Fn; var b = r.Fn; return LongVal.Expr(x => LongBinaryOp(a(x), b(x), op)); }
+        }
+
+        private static LongVal LongNot(LongVal v)
+        {
+            if (v.IsConst) return LongVal.Lit(v.Const == 0 ? 1L : 0L);
+            var x = v.Fn;
+            return LongVal.Expr(r => x(r) == 0 ? 1L : 0L);
+        }
+
         // An int constant, or a double constant that is an exact integer within 2^53
         // (e.g. a loop bound like 1e7). Mirrors the Reflection.Emit tier's TryConstAsLong.
         private static bool TryConstLong(ConstantValue c, out long value)
@@ -465,22 +499,22 @@ namespace DScript.Jit
 
         // Build the callee's result as one LongExpr, substituting each argument expression
         // for the corresponding parameter read (the callee reads only its parameters).
-        private static LongExpr BuildInlinedLong(List<JitInstruction> body, LongExpr[] argExprs,
-                                                 System.Collections.Generic.List<string> ps)
+        private static LongVal BuildInlinedLong(List<JitInstruction> body, LongVal[] argExprs,
+                                                System.Collections.Generic.List<string> ps)
         {
             var pidx = new Dictionary<string, int>(ps.Count);
             for (var i = 0; i < ps.Count; i++) pidx[ps[i]] = i;
-            var stack = new Stack<LongExpr>();
+            var stack = new Stack<LongVal>();
             foreach (var ins in body)
             {
                 switch (ins.Kind)
                 {
-                    case JitOpKind.PushConst:      { TryConstLong(ins.Constant, out var c); stack.Push(_ => c); break; }
-                    case JitOpKind.PushIntLiteral: { long v = ins.IntValue; stack.Push(_ => v); break; }
+                    case JitOpKind.PushConst:      { TryConstLong(ins.Constant, out var c); stack.Push(LongVal.Lit(c)); break; }
+                    case JitOpKind.PushIntLiteral: stack.Push(LongVal.Lit(ins.IntValue)); break;
                     case JitOpKind.PushVar:        stack.Push(argExprs[pidx[ins.Name]]); break;
                     case JitOpKind.GetLocal:       stack.Push(argExprs[ins.IntValue]); break; // param slot = arg index
-                    case JitOpKind.Not:            { var x = stack.Pop(); stack.Push(r => x(r) == 0 ? 1L : 0L); break; }
-                    case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); var op = ins.Op; stack.Push(r => LongBinaryOp(ll(r), rr(r), op)); break; }
+                    case JitOpKind.Not:            stack.Push(LongNot(stack.Pop())); break;
+                    case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); stack.Push(LongBinary(ll, rr, ins.Op)); break; }
                     case JitOpKind.Return:         return stack.Pop();
                 }
             }
@@ -580,7 +614,7 @@ namespace DScript.Jit
                                                   HashSet<int> calleeSkip,
                                                   Dictionary<int, (System.Collections.Generic.List<string> ps, List<JitInstruction> body)> inlineAt)
         {
-            var stack = new Stack<LongExpr>();
+            var stack = new Stack<LongVal>();
             var body = new List<LongStep>();
             for (var i = start; i < end; i++)
             {
@@ -594,27 +628,27 @@ namespace DScript.Jit
                 if (instr.Kind == JitOpKind.JumpIfFalse)
                 {
                     if (stack.Count != 1) return null;
-                    return LongBlock.Branch(body.ToArray(), stack.Pop(), TermKind.BranchFalse, idx2blk[instr.IntValue], idx2blk[i + 1]);
+                    return LongBlock.Branch(body.ToArray(), stack.Pop().AsExpr(), TermKind.BranchFalse, idx2blk[instr.IntValue], idx2blk[i + 1]);
                 }
                 if (instr.Kind == JitOpKind.JumpIfTrue)
                 {
                     if (stack.Count != 1) return null;
-                    return LongBlock.Branch(body.ToArray(), stack.Pop(), TermKind.BranchTrue, idx2blk[instr.IntValue], idx2blk[i + 1]);
+                    return LongBlock.Branch(body.ToArray(), stack.Pop().AsExpr(), TermKind.BranchTrue, idx2blk[instr.IntValue], idx2blk[i + 1]);
                 }
                 if (instr.Kind == JitOpKind.Return)
                 {
                     if (stack.Count != 1) return null;
-                    return LongBlock.Ret(body.ToArray(), stack.Pop());
+                    return LongBlock.Ret(body.ToArray(), stack.Pop().AsExpr());
                 }
                 switch (instr.Kind)
                 {
-                    case JitOpKind.PushConst:      { TryConstLong(instr.Constant, out var c); stack.Push(_ => c); break; }
-                    case JitOpKind.PushIntLiteral: { long v = instr.IntValue; stack.Push(_ => v); break; }
-                    case JitOpKind.PushVar:        { var idx = reg[instr.Name]; stack.Push(r => r[idx]); break; }
-                    case JitOpKind.GetLocal:       { var idx = reg["@" + instr.IntValue]; stack.Push(r => r[idx]); break; }
-                    case JitOpKind.SetVar:         { var idx = reg[instr.Name]; var val = stack.Pop(); stack.Push(r => { var t = val(r); r[idx] = t; return t; }); break; }
-                    case JitOpKind.SetLocal:       { var idx = reg["@" + instr.IntValue]; var val = stack.Pop(); stack.Push(r => { var t = val(r); r[idx] = t; return t; }); break; }
-                    case JitOpKind.SetVarPop:      { var idx = reg[instr.Name]; var val = stack.Pop(); body.Add(r => r[idx] = val(r)); break; }
+                    case JitOpKind.PushConst:      { TryConstLong(instr.Constant, out var c); stack.Push(LongVal.Lit(c)); break; }
+                    case JitOpKind.PushIntLiteral: stack.Push(LongVal.Lit(instr.IntValue)); break;
+                    case JitOpKind.PushVar:        { var idx = reg[instr.Name]; stack.Push(LongVal.Expr(r => r[idx])); break; }
+                    case JitOpKind.GetLocal:       { var idx = reg["@" + instr.IntValue]; stack.Push(LongVal.Expr(r => r[idx])); break; }
+                    case JitOpKind.SetVar:         { var idx = reg[instr.Name]; var val = stack.Pop().AsExpr(); stack.Push(LongVal.Expr(r => { var t = val(r); r[idx] = t; return t; })); break; }
+                    case JitOpKind.SetLocal:       { var idx = reg["@" + instr.IntValue]; var val = stack.Pop().AsExpr(); stack.Push(LongVal.Expr(r => { var t = val(r); r[idx] = t; return t; })); break; }
+                    case JitOpKind.SetVarPop:      { var idx = reg[instr.Name]; var val = stack.Pop().AsExpr(); body.Add(r => r[idx] = val(r)); break; }
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:   break;
@@ -623,13 +657,15 @@ namespace DScript.Jit
                     // only admits these when slots are enabled), so no env push/pop is needed.
                     case JitOpKind.EnterBlock:
                     case JitOpKind.LeaveBlock:     break;
-                    case JitOpKind.Not:            { var x = stack.Pop(); stack.Push(r => x(r) == 0 ? 1L : 0L); break; }
-                    case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); var op = instr.Op; stack.Push(r => LongBinaryOp(ll(r), rr(r), op)); break; }
-                    case JitOpKind.Pop:            { var x = stack.Pop(); body.Add(r => x(r)); break; }
+                    case JitOpKind.Not:            stack.Push(LongNot(stack.Pop())); break;
+                    case JitOpKind.Binary:         { var rr = stack.Pop(); var ll = stack.Pop(); stack.Push(LongBinary(ll, rr, instr.Op)); break; }
+                    // Discarding a pure constant has no effect; only a runtime expression
+                    // can carry a side effect worth keeping as a body step.
+                    case JitOpKind.Pop:            { var x = stack.Pop(); if (!x.IsConst) { var xe = x.Fn; body.Add(r => xe(r)); } break; }
                     case JitOpKind.Call:
                     {
                         var argc = instr.IntValue;
-                        var argExprs = new LongExpr[argc];
+                        var argExprs = new LongVal[argc];
                         for (var j = argc - 1; j >= 0; j--) argExprs[j] = stack.Pop();
                         var (ps, cbody) = inlineAt[i];
                         stack.Push(BuildInlinedLong(cbody, argExprs, ps));
