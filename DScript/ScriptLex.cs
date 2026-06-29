@@ -171,6 +171,8 @@ namespace DScript
             BigIntLiteral,  // BigInt literal: 42n, 0xFFn, 0b101n, 0o77n
             Power,          // **
             PowerEqual,     // **=
+            RVoid,          // void operator (appended at end so reserved-word and
+                            // operator token values baked into bytecode stay stable)
         }
 
         public ScriptLex(string input)
@@ -337,6 +339,7 @@ namespace DScript
                     case "undefined": TokenType = LexTypes.RUndefined; break;
                     case "new": TokenType = LexTypes.RNew; break;
                     case "typeof": TokenType = LexTypes.RTypeOf; break;
+                    case "void": TokenType = LexTypes.RVoid; break;
                     case "try": TokenType = LexTypes.RTry; break;
                     case "catch": TokenType = LexTypes.RCatch; break;
                     case "finally": TokenType = LexTypes.RFinally; break;

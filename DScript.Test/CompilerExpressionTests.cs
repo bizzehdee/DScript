@@ -113,6 +113,36 @@ namespace DScript.Test
         }
 
         [Test]
+        public void Eval_VoidOperator_YieldsUndefined()
+        {
+            // void evaluates its operand and produces undefined — previously the lexer
+            // had no `void` keyword, so `void 0` was a parse error (ES-COMPATIBILITY
+            // listed it as supported). Covers operator forms and that `typeof void` is
+            // "undefined".
+            Assert.That(Eval("void 0").IsUndefined, Is.True);
+            Assert.That(Eval("void \"anything\"").IsUndefined, Is.True);
+            Assert.That(Eval("void 0 === undefined").Bool, Is.True);
+            Assert.That(Eval("typeof void 0").String, Is.EqualTo("undefined"));
+        }
+
+        [Test]
+        public void Eval_VoidOperator_EvaluatesOperandSideEffect()
+        {
+            // The operand must still run (for its side effects); only the value is discarded.
+            var v = Eval("(function(){ var n = 1; var r = void (n = 7); return [r === undefined, n]; })()");
+            Assert.That(v.GetArrayIndex(0).Bool, Is.True);
+            Assert.That(v.GetArrayIndex(1).Int, Is.EqualTo(7));
+        }
+
+        [Test]
+        public void Eval_VoidIsValidPropertyNameAfterDot()
+        {
+            // Reserved words remain usable as member names (MatchPropertyName), so adding
+            // the `void` keyword must not break `obj.void`.
+            Assert.That(Eval("(function(){ var o = {}; o.void = 42; return o.void; })()").Int, Is.EqualTo(42));
+        }
+
+        [Test]
         public void Eval_ArrayLiteral()
         {
             var arr = Eval("[10, 20, 30]");

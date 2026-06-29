@@ -487,6 +487,7 @@ namespace DScript.Compiler
                 (ScriptLex.LexTypes)'-' or
                 (ScriptLex.LexTypes)'+' or
                 ScriptLex.LexTypes.RTypeOf or
+                ScriptLex.LexTypes.RVoid or
                 ScriptLex.LexTypes.PlusPlus or
                 ScriptLex.LexTypes.MinusMinus or
                 ScriptLex.LexTypes.RDelete;
@@ -533,6 +534,13 @@ namespace DScript.Compiler
                     lexer.Match(ScriptLex.LexTypes.RTypeOf);
                     CompileUnary(false);
                     chunk.Emit(OpCode.Typeof);
+                    break;
+                case ScriptLex.LexTypes.RVoid:
+                    // void evaluates its operand for side effects, then yields undefined.
+                    lexer.Match(ScriptLex.LexTypes.RVoid);
+                    CompileUnary(false);
+                    chunk.Emit(OpCode.Pop);
+                    chunk.Emit(OpCode.PushUndefined);
                     break;
                 case ScriptLex.LexTypes.PlusPlus:
                 case ScriptLex.LexTypes.MinusMinus:
