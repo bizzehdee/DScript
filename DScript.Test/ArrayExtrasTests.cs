@@ -855,5 +855,229 @@ namespace DScript.Test
             // 500 odd numbers (1,3,...,999), sum = 250000
             Assert.That(result.Int, Is.EqualTo(500 * 1000000 + 250000));
         }
+
+        // ── Array pipeline fusion adversarial tests (Lever 3) ────────────────────
+        // Each test verifies that the fused and eager paths produce identical results
+        // and side-effect ordering.  These tests also double as regression guards if
+        // DisableArrayFusion is ever toggled.
+
+        [Test]
+        public void Fusion_FilterMapReduce_MatchesEagerResult()
+        {
+            // Core happy-path: filter→map→reduce in one fused pass.
+            var result = RunScript(
+                "var a = Array.from({length:10}, function(_,i){ return i; });" +
+                "var __result__ = a.filter(function(x){ return x%2===0; })" +
+                "                  .map(function(x){ return x*3; })" +
+                "                  .reduce(function(acc,x){ return acc+x; }, 0);");
+            // Even numbers 0,2,4,6,8 → *3 → 0,6,12,18,24 → sum = 60
+            Assert.That(result.Int, Is.EqualTo(60));
+        }
+
+        [Test]
+        public void Fusion_FilterReduce_MatchesEagerResult()
+        {
+            // filter→reduce without a map step.
+            var result = RunScript(
+                "var a = [1,2,3,4,5,6];" +
+                "var __result__ = a.filter(function(x){ return x>3; })" +
+                "                  .reduce(function(acc,x){ return acc+x; }, 0);");
+            // 4+5+6 = 15
+            Assert.That(result.Int, Is.EqualTo(15));
+        }
+
+        [Test]
+        public void Fusion_EscapeIntermediate_LengthQueryMaterialises()
+        {
+            // Observing .length on the intermediate array forces materialisation;
+            // subsequent reduce must still return the correct value.
+            var result = RunScript(
+                "var a = [1,2,3,4,5];" +
+                "var b = a.filter(function(x){ return x%2===1; });" +
+                "var len = b.length;" +           // forces materialisation
+                "var sum = b.reduce(function(acc,x){ return acc+x; }, 0);" +
+                "var __result__ = len * 100 + sum;");
+            // b = [1,3,5], len=3, sum=9
+            Assert.That(result.Int, Is.EqualTo(3 * 100 + 9));
+        }
+
+        [Test]
+        public void Fusion_EscapeIntermediate_IndexReadMaterialises()
+        {
+            // Reading b[0] forces materialisation; b is then a real array.
+            var result = RunScript(
+                "var a = [10,20,30];" +
+                "var b = a.filter(function(x){ return x>=20; });" +
+                "var first = b[0];" +             // forces materialisation
+                "var __result__ = first * 10 + b.length;");
+            // b = [20,30], first=20, length=2
+            Assert.That(result.Int, Is.EqualTo(20 * 10 + 2));
+        }
+
+        [Test]
+        public void Fusion_MutateIntermediate_ElementWritePreserved()
+        {
+            // Writing to b[0] must materialise and then honour the write.
+            var result = RunScript(
+                "var a = [1,2,3,4];" +
+                "var b = a.filter(function(x){ return x>1; });" +
+                "b[0] = 99;" +
+                "var __result__ = b[0] * 100 + b.length;");
+            // After filter: b=[2,3,4]; after write: b[0]=99, length=3
+            Assert.That(result.Int, Is.EqualTo(99 * 100 + 3));
+        }
+
+        [Test]
+        public void Fusion_EscapeToVar_ThenReduce_CorrectResult()
+        {
+            // Capture the filter result in a variable, pass it to a function,
+            // then reduce — all three consumers must see the same materialised array.
+            var result = RunScript(
+                "function sum(arr){ return arr.reduce(function(a,x){ return a+x; },0); }" +
+                "var a = [1,2,3,4,5];" +
+                "var b = a.filter(function(x){ return x>2; });" +
+                "var __result__ = sum(b) + b.length * 100;");
+            // b = [3,4,5], sum=12, length=3
+            Assert.That(result.Int, Is.EqualTo(12 + 3 * 100));
+        }
+
+        [Test]
+        public void Fusion_ThrowingFilterCallback_PropagatesException()
+        {
+            // An exception thrown in the filter callback must escape the fused chain
+            // when the result is consumed.  We verify via in-script try/catch to avoid
+            // depending on whether the host wraps it as ScriptException or JITException.
+            var result = RunScript(
+                "var caught = false;" +
+                "try {" +
+                "  [1,2,3].filter(function(x){ if(x===2) throw new Error('boom'); return true; })" +
+                "          .reduce(function(acc,x){ return acc+x; }, 0);" +
+                "} catch(e) { caught = true; }" +
+                "var __result__ = caught ? 1 : 0;");
+            Assert.That(result.Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Fusion_ThrowingMapCallback_PropagatesException()
+        {
+            // An exception in the map callback (reached after a filter) must propagate
+            // when the fused chain is consumed by reduce.
+            var result = RunScript(
+                "var caught = false;" +
+                "try {" +
+                "  [1,2,3].filter(function(x){ return true; })" +
+                "          .map(function(x){ if(x===2) throw new Error('boom'); return x; })" +
+                "          .reduce(function(acc,x){ return acc+x; }, 0);" +
+                "} catch(e) { caught = true; }" +
+                "var __result__ = caught ? 1 : 0;");
+            Assert.That(result.Int, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Fusion_EmptyArray_FilterMapReduce_ReturnsInitial()
+        {
+            // Empty source → all intermediate steps are no-ops; reduce returns initial.
+            var result = RunScript(
+                "var __result__ = [].filter(function(x){ return true; })" +
+                "                   .map(function(x){ return x*2; })" +
+                "                   .reduce(function(a,b){ return a+b; }, 42);");
+            Assert.That(result.Int, Is.EqualTo(42));
+        }
+
+        [Test]
+        public void Fusion_SingleElement_FilterMapReduce_CorrectResult()
+        {
+            // Single element that passes the filter.
+            var result = RunScript(
+                "var __result__ = [7].filter(function(x){ return x>0; })" +
+                "                    .map(function(x){ return x*2; })" +
+                "                    .reduce(function(a,b){ return a+b; }, 0);");
+            Assert.That(result.Int, Is.EqualTo(14));
+        }
+
+        [Test]
+        public void Fusion_AllFilteredOut_MapReduce_ReturnsInitial()
+        {
+            // No elements pass the filter; reduce must return the initial value.
+            var result = RunScript(
+                "var __result__ = [1,2,3].filter(function(x){ return x>100; })" +
+                "                        .map(function(x){ return x; })" +
+                "                        .reduce(function(a,b){ return a+b; }, 99);");
+            Assert.That(result.Int, Is.EqualTo(99));
+        }
+
+        [Test]
+        public void Fusion_NestedChain_FilterMapFilterReduce_CorrectResult()
+        {
+            // Nested chain: the fused filter→map result is used as input to another filter.
+            // The second filter forces materialisation of the inner chain, then the outer
+            // reduce runs on the fully materialised array.
+            var result = RunScript(
+                "var a = Array.from({length:10}, function(_,i){ return i; });" +
+                "var __result__ = a.filter(function(x){ return x%2===0; })" + // [0,2,4,6,8]
+                "                  .map(function(x){ return x+1; })" +          // [1,3,5,7,9]
+                "                  .filter(function(x){ return x>4; })" +       // [5,7,9] — materialises inner chain
+                "                  .reduce(function(acc,x){ return acc+x; }, 0);");
+            // 5+7+9 = 21
+            Assert.That(result.Int, Is.EqualTo(21));
+        }
+
+        [Test]
+        public void Fusion_CallbackSideEffectOrder_MatchesEager()
+        {
+            // Side effects (writes to an outer array) must occur in the same order as
+            // the eager path: filter callback then map callback for each passing element.
+            var result = RunScript(
+                "var log = [];" +
+                "var a = [1,2,3];" +
+                "a.filter(function(x){ log.push('f'+x); return x!==2; })" +
+                " .map(function(x){ log.push('m'+x); return x; })" +
+                " .reduce(function(acc){ return acc; }, 0);" +
+                "var __result__ = log.join(',');");
+            // Each element hits filter first; only 1 and 3 hit map.
+            Assert.That(result.String, Is.EqualTo("f1,m1,f2,f3,m3"));
+        }
+
+        [Test]
+        public void Fusion_HighArityFilterCallback_EagerFallback_CorrectResult()
+        {
+            // A filter callback with arity 3 (reads the array argument) forces the
+            // eager path.  The result must be identical to arity-1 filter.
+            var result = RunScript(
+                "var a = [10,20,30,40];" +
+                "var __result__ = a.filter(function(x,i,arr){ return arr.length > 2 && x >= 20; })" +
+                "                  .reduce(function(acc,x){ return acc+x; }, 0);");
+            // 20+30+40 = 90
+            Assert.That(result.Int, Is.EqualTo(90));
+        }
+
+        [Test]
+        public void Fusion_ForEachOnDeferredChain_Materialises()
+        {
+            // forEach is not a recognised fusion consumer; accessing the deferred array
+            // via forEach must trigger materialisation transparently.
+            var result = RunScript(
+                "var a = [1,2,3,4];" +
+                "var b = a.filter(function(x){ return x%2===0; });" +
+                "var sum = 0;" +
+                "b.forEach(function(x){ sum += x; });" +
+                "var __result__ = sum;");
+            // b = [2,4], sum = 6
+            Assert.That(result.Int, Is.EqualTo(6));
+        }
+
+        [Test]
+        public void Fusion_ForInOnDeferredChain_Materialises()
+        {
+            // for-in enumeration on a deferred array must trigger materialisation.
+            var result = RunScript(
+                "var a = [5,10,15];" +
+                "var b = a.filter(function(x){ return x>7; });" +
+                "var sum = 0;" +
+                "for (var i in b) { sum += b[i]; }" +
+                "var __result__ = sum;");
+            // b = [10,15], sum = 25
+            Assert.That(result.Int, Is.EqualTo(25));
+        }
     }
 }

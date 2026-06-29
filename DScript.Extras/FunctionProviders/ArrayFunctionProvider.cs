@@ -267,6 +267,109 @@ namespace DScript.Extras.FunctionProviders
             var.ReturnVar = arr;
         }
 
+        // ── Array pipeline fusion (Lever 3) ──────────────────────────────────────
+        // Kill switch: set to true to disable filter→map→reduce fusion and always
+        // use the eager (materialise each intermediate) path. Useful for A/B measurement
+        // and safe rollback. Mirrors DisableLongLoop / DisableMethodInlining in the JIT.
+        public static bool DisableArrayFusion = false;
+
+        // Deferred pipeline chain stored in scriptData of a lazy result array.
+        // Implements IFusedArray so that ScriptVar materialises it on first observation.
+        // Fusion applies only when all callbacks have arity ≤ 2, so the optional `array`
+        // argument to filter/map callbacks is never read — no need to pass a phantom array.
+        private sealed class FusedChain : IFusedArray
+        {
+            internal ScriptEngine Engine;
+            internal ScriptVar Source;       // the original source array
+            internal ScriptVar FilterFn;     // null = no filter step
+            internal int FilterArity;
+            internal ScriptVar MapFn;        // null = no map step
+            internal int MapArity;
+
+            public void Materialize(ScriptVar target)
+            {
+                // Clear chain reference FIRST to prevent re-entrant materialisation.
+                target.SetData(null);
+                target.SetArray();
+
+                var srcLen = Source.GetArrayLength();
+                target.PreSizeElements(srcLen); // upper bound — may over-allocate
+                int outIdx = 0;
+
+                for (var i = 0; i < srcLen; i++)
+                {
+                    var elem = Source.GetArrayIndex(i);
+
+                    if (FilterFn != null)
+                    {
+                        var keep = FilterArity <= 1
+                            ? Engine.CallCallback1(FilterFn, null, elem)
+                            : Engine.CallCallback2(FilterFn, null, elem, ScriptVar.FromInt(i));
+                        if (!keep.Bool) continue;
+                    }
+
+                    if (MapFn != null)
+                    {
+                        elem = MapArity <= 1
+                            ? Engine.CallCallback1(MapFn, null, elem)
+                            : Engine.CallCallback2(MapFn, null, elem, ScriptVar.FromInt(outIdx));
+                    }
+
+                    target.SetArrayIndex(outIdx++, elem);
+                }
+            }
+        }
+
+        // Run a fused filter→map→reduce loop without materialising any intermediate.
+        // Only called when the source (arr) carries a FusedChain in its scriptData.
+        private static ScriptVar RunFusedReduce(ScriptEngine engine, FusedChain chain,
+            ScriptVar reduceFn, ScriptVar initial, int reduceArity)
+        {
+            var src = chain.Source;
+            var srcLen = src.GetArrayLength();
+
+            var accumulator = initial;
+            int outIdx = 0;      // position in the virtual filter/map output (for reduce index arg)
+            bool seeded = !accumulator.IsUndefined;
+
+            for (var i = 0; i < srcLen; i++)
+            {
+                var elem = src.GetArrayIndex(i);
+
+                // Filter step
+                if (chain.FilterFn != null)
+                {
+                    var keep = chain.FilterArity <= 1
+                        ? engine.CallCallback1(chain.FilterFn, null, elem)
+                        : engine.CallCallback2(chain.FilterFn, null, elem, ScriptVar.FromInt(i));
+                    if (!keep.Bool) continue;
+                }
+
+                // Map step
+                if (chain.MapFn != null)
+                {
+                    elem = chain.MapArity <= 1
+                        ? engine.CallCallback1(chain.MapFn, null, elem)
+                        : engine.CallCallback2(chain.MapFn, null, elem, ScriptVar.FromInt(outIdx));
+                }
+
+                // Seed accumulator from first element when no initial value given
+                if (!seeded) { accumulator = elem; seeded = true; outIdx++; continue; }
+
+                // Reduce step
+                if (reduceArity <= 2)
+                    accumulator = engine.CallCallback2(reduceFn, null, accumulator, elem);
+                else if (reduceArity == 3)
+                    accumulator = engine.CallCallback3(reduceFn, null, accumulator, elem, ScriptVar.FromInt(outIdx));
+                else
+                    accumulator = engine.CallFunction(reduceFn, null, accumulator, elem, ScriptVar.FromInt(outIdx));
+
+                outIdx++;
+            }
+
+            return accumulator;
+        }
+
         // Return the declared parameter count of a VM function callback, or int.MaxValue
         // for native/unknown functions. Used to skip passing index/array arguments that
         // the callback never reads — eliminates 2 ScriptVar allocations per iteration on
@@ -342,9 +445,27 @@ namespace DScript.Extras.FunctionProviders
             var engine = (ScriptEngine)userData;
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
-            var len = arr.GetArrayLength();
             var arity = CallbackArity(callback);
 
+            // Extend an existing fused chain: filter→map still deferred.
+            if (!DisableArrayFusion && arity <= 2 && arr.GetData() is FusedChain existingChain && existingChain.MapFn == null)
+            {
+                var chain = new FusedChain
+                {
+                    Engine = engine,
+                    Source = existingChain.Source,
+                    FilterFn = existingChain.FilterFn,
+                    FilterArity = existingChain.FilterArity,
+                    MapFn = callback,
+                    MapArity = arity,
+                };
+                var.ReturnVar.SetArray();
+                var.ReturnVar.SetData(chain);
+                return;
+            }
+
+            // Eager path (or fusion disabled, or source not a filter-only chain).
+            var len = arr.GetArrayLength();
             var.ReturnVar.SetArray();
             for (var x = 0; x < len; x++)
             {
@@ -361,6 +482,26 @@ namespace DScript.Extras.FunctionProviders
             var len = arr.GetArrayLength();
             var arity = CallbackArity(callback);
 
+            // Fusion fast path: return a deferred chain so a subsequent .map() or
+            // .reduce() can run one pass instead of materialising the intermediate.
+            // Fall back to eager when fusion is disabled or callback arity > 2 (the
+            // callback reads the `array` argument, which we cannot pass correctly
+            // for a virtual array).
+            if (!DisableArrayFusion && arity <= 2)
+            {
+                var chain = new FusedChain
+                {
+                    Engine = engine,
+                    Source = arr,
+                    FilterFn = callback,
+                    FilterArity = arity,
+                };
+                var.ReturnVar.SetArray();
+                var.ReturnVar.SetData(chain);
+                return;
+            }
+
+            // Eager path (fusion disabled or high-arity callback).
             var.ReturnVar.SetArray();
             var outIdx = 0;
             for (var x = 0; x < len; x++)
@@ -390,10 +531,22 @@ namespace DScript.Extras.FunctionProviders
             var engine = (ScriptEngine)userData;
             var arr = var.GetParameter("this");
             var callback = var.GetParameter("callback");
-            var len = arr.GetArrayLength();
+            var initial = var.GetParameter("initial");
             var arity = CallbackArity(callback);
 
-            var accumulator = var.GetParameter("initial");
+            // Fused path: run filter→map→reduce in one pass without materialising
+            // intermediate arrays. Only active when all callbacks have arity ≤ 2
+            // (arity > 2 reads the `array` argument, which we cannot provide correctly
+            // for a virtual intermediate).
+            if (!DisableArrayFusion && arity <= 2 && arr.GetData() is FusedChain chain)
+            {
+                var.ReturnVar = RunFusedReduce(engine, chain, callback, initial, arity);
+                return;
+            }
+
+            // Eager path.
+            var len = arr.GetArrayLength();
+            var accumulator = initial;
             var start = 0;
 
             //with no initial value, seed from the first element

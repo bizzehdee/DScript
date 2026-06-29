@@ -542,6 +542,8 @@ namespace DScript.Vm
                     case OpCode.EnumKeys:
                     {
                         var obj = Pop();
+                        // Materialise any deferred (fused) array before enumerating keys.
+                        obj.GetArrayLength(); // no-op for non-arrays; triggers materialise for deferred arrays
                         // Proxy [[OwnKeys]] trap
                         if (obj.IsProxy)
                         {

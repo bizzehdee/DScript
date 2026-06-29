@@ -938,6 +938,18 @@ namespace DScript
 
         public ScriptVarLink FindChild(string childName)
         {
+            // Materialise a deferred (fused) array only when the caller is looking up
+            // a numeric element (e.g. "0", "1").  Method lookups ("reduce", "map", …)
+            // and "length" must NOT trigger materialisation so that the fused reduce
+            // path stays active.  "length" is handled by GetArrayLength(); non-numeric
+            // names resolve through FindInParentClasses → prototype without any
+            // materialisation.  scriptData is cleared by Materialize as its first action,
+            // so this is safe against re-entry (SetArrayIndex inside Materialize calls
+            // FindChild on the same target after scriptData is already null).
+            if (IsArray && scriptData is IFusedArray fusedFC
+                && childName.Length > 0 && (uint)(childName[0] - '0') <= 9u)
+                fusedFC.Materialize(this);
+
             if (FirstChild == null) return null;
 
             // small scopes: a linear scan beats hashing and allocates nothing
@@ -1201,6 +1213,12 @@ namespace DScript
 
         public ScriptVar GetArrayIndex(int idx)
         {
+            // Materialise a deferred (fused) chain before any element access.
+            if (scriptData is IFusedArray fusedIdx)
+            {
+                fusedIdx.Materialize(this);
+                scriptData = null;
+            }
             // Fast path: O(1) array element load from the dense backing store.
             if (_elements != null && (uint)idx < (uint)_elements.Length)
                 return _elements[idx] ?? new ScriptVar(Flags.Null);
@@ -1210,6 +1228,11 @@ namespace DScript
 
         public void SetArrayIndex(int idx, ScriptVar value)
         {
+            // Materialise a deferred (fused) chain before writing, so the write is not
+            // applied to _elements and then wiped when FindChild later triggers Materialize.
+            if (IsArray && scriptData is IFusedArray fusedSAI)
+                fusedSAI.Materialize(this);
+
             // Update the dense backing store for contiguous writes (idx within 1 of length).
             if (idx >= 0 && (_elements != null || idx <= (cachedArrayLength >= 0 ? cachedArrayLength : 0) + 1))
             {
@@ -1288,7 +1311,16 @@ namespace DScript
         public int GetArrayLength()
         {
             if (!IsArray) return 0;
-            
+
+            // Materialise a deferred (fused) chain before reading the length.
+            // Must precede the cache check: a fresh deferred array has cachedArrayLength=0
+            // (set by SetArray), which would short-circuit with the wrong value.
+            if (scriptData is IFusedArray fusedLen)
+            {
+                fusedLen.Materialize(this);
+                scriptData = null;
+            }
+
             // Return cached value if available
             if (cachedArrayLength >= 0)
             {
