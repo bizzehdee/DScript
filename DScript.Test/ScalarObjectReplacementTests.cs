@@ -78,6 +78,32 @@ namespace DScript.Test
             return r1;
         }
 
+        // ── OSR (single-call, large loop) path ──────────────────────────────────
+
+        [Test]
+        public void OsrPath_ScalarReplacedInLongLoop()
+        {
+            // Called once with 100 000 iterations → fires OSR (back-edge threshold = 10 000).
+            // Scalar replacement must engage on the OSR long-loop tier, not the
+            // speculative-int tier. Result must be correct.
+            const string code = @"
+function f() {
+    let s = 0;
+    for (let i = 0; i < 100000; i++) {
+        const o = { a: i, b: i+1, c: i+2, d: i+3 };
+        s = s + o.a + o.b + o.c + o.d;
+    }
+    return s;
+}
+__result__ = f();";
+            var beforeOsr = ReflectionEmitJitCompiler.OsrLongLoopCompilations;
+            var result = RunScript(code);
+            Assert.That(ReflectionEmitJitCompiler.OsrLongLoopCompilations, Is.GreaterThan(beforeOsr),
+                "OSR long-loop tier must compile the function");
+            // sum of (4i+6) for i=0..99999 = 4*(99999*100000/2) + 6*100000 = 19999800000 + 600000
+            Assert.That(result.Long, Is.EqualTo(20000400000L));
+        }
+
         // ── Happy path ───────────────────────────────────────────────────────────
 
         [Test]

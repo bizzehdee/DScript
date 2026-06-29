@@ -882,9 +882,16 @@ namespace DScript.Vm
                         var operatorCode = (ScriptLex.LexTypes)ReadOperand(code, ref ip);
                         var constant = chunk.Constants[ReadOperand(code, ref ip)];
                         var av = PopValue();
+                        // Treat exact-integer doubles (e.g. 1e6 = 1000000.0) as Int in
+                        // the profile so the speculative-int loop tier can engage when
+                        // the loop bound is written as a float literal like 1e6 or 1e4.
                         var rightFlag = constant.Kind switch
                         {
                             ConstantKind.Int    => Chunk.BinaryTypeFlags.Int,
+                            ConstantKind.Double when constant.DoubleValue == System.Math.Floor(constant.DoubleValue)
+                                                 && constant.DoubleValue >= int.MinValue
+                                                 && constant.DoubleValue <= int.MaxValue
+                                                 => Chunk.BinaryTypeFlags.Int,
                             ConstantKind.Double => Chunk.BinaryTypeFlags.Double,
                             ConstantKind.String => Chunk.BinaryTypeFlags.String,
                             _                   => Chunk.BinaryTypeFlags.Other,
@@ -893,8 +900,16 @@ namespace DScript.Vm
                         bcp.RightTypes |= rightFlag;
                         // Int-vs-int-literal fast path: compute directly into an unboxed
                         // Value, skipping the constant materialization and MathsOp.
-                        if (constant.Kind == ConstantKind.Int && TryLong(av, out var al) &&
-                            IntBinaryValue(al, (long)constant.IntValue, operatorCode, out var fast))
+                        // Also covers exact-integer doubles like 1e6 (treated as int above).
+                        bool isExactInt = constant.Kind == ConstantKind.Int
+                            || (constant.Kind == ConstantKind.Double
+                                && constant.DoubleValue == System.Math.Floor(constant.DoubleValue)
+                                && constant.DoubleValue >= int.MinValue
+                                && constant.DoubleValue <= int.MaxValue);
+                        long constInt = isExactInt ? (constant.Kind == ConstantKind.Int
+                            ? (long)constant.IntValue : (long)constant.DoubleValue) : 0L;
+                        if (isExactInt && TryLong(av, out var al) &&
+                            IntBinaryValue(al, constInt, operatorCode, out var fast))
                         {
                             bcp.LeftTypes |= Chunk.BinaryTypeFlags.Int;
                             PushValue(fast);

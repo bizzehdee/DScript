@@ -380,7 +380,7 @@ namespace DScript.Jit
         {
             // Pre-pass: scalar-replace non-escaping object literals so the loop body
             // contains only register ops, making it eligible for the unboxed int tier.
-            var transformed = TryScalarReplaceObjects(instrs) ?? instrs;
+            var transformed = TryScalarReplaceObjects(instrs, out _) ?? instrs;
             var didScalarReplace = !ReferenceEquals(transformed, instrs);
 
             if (!IsIntLoopSpeculable(chunk, transformed))
@@ -497,8 +497,11 @@ namespace DScript.Jit
         // so the existing soundness check (first-ref-must-be-write-before-jump) passes.
         // Jump targets are remapped to account for the removed/merged instructions.
         // Returns a new instruction list, or null if no eligible objects were found.
-        private static List<JitInstruction> TryScalarReplaceObjects(List<JitInstruction> instrs)
+        // oldToNew[i] is the new index of original instruction i (needed to remap OSR resume points).
+        private static List<JitInstruction> TryScalarReplaceObjects(List<JitInstruction> instrs,
+                                                                     out int[] oldToNew)
         {
+            oldToNew = null;
             if (DisableScalarObjectReplacement) return null;
             if (!VerifyStackConsistency(instrs, out var depth)) return null;
 
@@ -605,7 +608,7 @@ namespace DScript.Jit
             // Dummy prologue: 2 instructions (PushIntLiteral 0 + SetVarPop "o:p") per property.
             int prologueCount = 0;
             foreach (var kv in candidates) prologueCount += kv.Value.props.Count * 2;
-            var oldToNew = new int[instrs.Count + 1];
+            oldToNew = new int[instrs.Count + 1];
             int newPos = prologueCount;
             for (var i = 0; i <= instrs.Count; i++)
             {
@@ -950,6 +953,17 @@ namespace DScript.Jit
             // entry). The reason string documents each decline at its call site.
             static JitDelegate Decline(string reason) { LastLongLoopDecline = reason; return null; }
 
+            // Scalar-object pre-pass: replace non-escaping object literals with raw-int
+            // registers before the region is analysed, so NewObject/InitProp no longer
+            // appear in the reachable slice. The resume index is remapped via oldToNew[].
+            var sr = TryScalarReplaceObjects(instrs, out var srMap);
+            if (sr != null)
+            {
+                instrs      = sr;
+                resumeIndex = srMap[resumeIndex];
+                if (!VerifyStackConsistency(instrs, out depth)) return Decline("scalar-replace broke stack");
+            }
+
             // (1) No binary site may have been *observed* with a string/object operand.
             // Sites with no profile yet (None) are allowed: they are typically code after
             // the loop that has not executed when OSR fires, and correctness does not rest
@@ -1046,6 +1060,8 @@ namespace DScript.Jit
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:
+                    case JitOpKind.EnterBlock:     // stack-neutral; JIT holds all vars in IL locals
+                    case JitOpKind.LeaveBlock:
                     case JitOpKind.Not:
                     case JitOpKind.Pop:
                     case JitOpKind.Return:
@@ -1081,8 +1097,16 @@ namespace DScript.Jit
 
             // Entry guard: load every register from the environment; any non-integer
             // hands off to the conservative OSR entry.
+            // Scalar property registers (name contains ':') are synthetic — they don't
+            // exist in the JS environment. Initialise them to 0; they are written before
+            // any read by the loop body (the object literal fires first each iteration).
             foreach (var name in regsOrder)
-                b.EmitResolveGuardedLong(name, regs[name], svTemp, miss);
+            {
+                if (name.Contains(':'))
+                { il.Emit(OpCodes.Ldc_I8, 0L); b.EmitStoreLocal(regs[name]); }
+                else
+                    b.EmitResolveGuardedLong(name, regs[name], svTemp, miss);
+            }
 
             // Resolve each field receiver once and prefetch its numeric field into a long
             // register; a non-integer / accessor / proxy field hands off to the
@@ -1137,7 +1161,9 @@ namespace DScript.Jit
                     case JitOpKind.SetVarPop:      b.EmitStoreLocal(regs[instr.Name]); break;
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
-                    case JitOpKind.DeclareConst:   break;
+                    case JitOpKind.DeclareConst:
+                    case JitOpKind.EnterBlock:
+                    case JitOpKind.LeaveBlock:     break;  // all vars are in IL locals; no env push/pop needed
                     case JitOpKind.Pop:            il.Emit(OpCodes.Pop); break;
                     case JitOpKind.Not:            il.Emit(OpCodes.Ldc_I8, 0L); il.Emit(OpCodes.Ceq); b.EmitConvI8(); break;
                     case JitOpKind.Binary:         EmitLongBinary(b, instr.Op); break;
@@ -1150,7 +1176,9 @@ namespace DScript.Jit
                         // Write registers back so globals/outer locals observe the final
                         // value, then produce the result. A `return undefined`
                         // (PushUndefined immediately before) has no long on the stack.
-                        foreach (var name in regsOrder) b.EmitWriteBackLong(name, regs[name], strict);
+                        // Synthetic scalar property registers (name contains ':') have no
+                        // corresponding JS variable and must not be written back.
+                        foreach (var name in regsOrder) if (!name.Contains(':')) b.EmitWriteBackLong(name, regs[name], strict);
                         if (i > lo && instrs[i - 1].Kind == JitOpKind.PushUndefined)
                             b.EmitPushUndefined();
                         else
@@ -1162,7 +1190,7 @@ namespace DScript.Jit
 
             // Fall-through past the region (dead when the region ends in Return, but
             // keeps the IL well-formed): write back and return undefined.
-            foreach (var name in regsOrder) b.EmitWriteBackLong(name, regs[name], strict);
+            foreach (var name in regsOrder) if (!name.Contains(':')) b.EmitWriteBackLong(name, regs[name], strict);
             b.EmitPushUndefined();
             il.Emit(OpCodes.Ret);
 
@@ -1365,6 +1393,8 @@ namespace DScript.Jit
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:
+                    case JitOpKind.EnterBlock:
+                    case JitOpKind.LeaveBlock:
                     case JitOpKind.Jump:
                         break; // no operand-stack effect
                     default:
