@@ -72,6 +72,20 @@ namespace DScript.Jit
         /// </summary>
         public static bool DisableMethodInlining { get; set; }
 
+        /// <summary>
+        /// Diagnostic counter (Lever 2e): number of int-loop-tier compilations where at
+        /// least one non-escaping object literal was scalar-replaced. Lets tests confirm
+        /// the scalar replacement engaged rather than falling to the conservative tier.
+        /// </summary>
+        public static long ScalarObjectReplacements { get; private set; }
+
+        /// <summary>
+        /// Kill switch for Lever 2e scalar object replacement. When true, object literals
+        /// inside loops are not scalar-replaced and the function falls through to the
+        /// conservative tier. For A/B measurement and as a safety fallback.
+        /// </summary>
+        public static bool DisableScalarObjectReplacement { get; set; }
+
         // True if the decoded stream contains positional local-slot ops (Lever A),
         // which this back-end does not emit.
         private static bool HasSlotOps(System.Collections.Generic.List<JitInstruction> instrs)
@@ -364,10 +378,16 @@ namespace DScript.Jit
         // read — its initialiser dominates all uses. Otherwise the chunk is declined.
         private static JitDelegate TryCompileSpeculativeIntLoop(Chunk chunk, List<JitInstruction> instrs)
         {
-            if (!IsIntLoopSpeculable(chunk, instrs))
+            // Pre-pass: scalar-replace non-escaping object literals so the loop body
+            // contains only register ops, making it eligible for the unboxed int tier.
+            var transformed = TryScalarReplaceObjects(instrs) ?? instrs;
+            var didScalarReplace = !ReferenceEquals(transformed, instrs);
+
+            if (!IsIntLoopSpeculable(chunk, transformed))
                 return null;
 
-            ClassifyFieldReads(instrs, out var receiverVars, out var fieldPairs);
+            ClassifyFieldReads(transformed, out var receiverVars, out var fieldPairs);
+            instrs = transformed; // use transformed list throughout
 
             var b = new DynamicMethodBuilder(chunk.Name ?? "anon");
             var svTemp = b.DeclareLocal(typeof(ScriptVar));
@@ -420,7 +440,12 @@ namespace DScript.Jit
                 var instr = instrs[i];
                 switch (instr.Kind)
                 {
-                    case JitOpKind.PushConst:      b.EmitLdcI4(instr.Constant.IntValue); break;
+                    case JitOpKind.PushConst:
+                        // Exact-integer doubles (e.g. 1e6) are accepted by eligibility and emitted as int.
+                        b.EmitLdcI4(instr.Constant.Kind == ConstantKind.Int
+                            ? instr.Constant.IntValue
+                            : (int)instr.Constant.DoubleValue);
+                        break;
                     case JitOpKind.PushIntLiteral: b.EmitLdcI4(instr.IntValue); break;
                     case JitOpKind.PushVar:
                         if (receiverVars.Contains(instr.Name))
@@ -435,9 +460,12 @@ namespace DScript.Jit
                         break;
                     case JitOpKind.SetVar:         il.Emit(OpCodes.Dup); b.EmitStoreLocal(regs[instr.Name]); break; // expression
                     case JitOpKind.SetVarPop:      b.EmitStoreLocal(regs[instr.Name]); break;
+                    case JitOpKind.Pop:            il.Emit(OpCodes.Pop); break;
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
-                    case JitOpKind.DeclareConst:   break; // register already exists
+                    case JitOpKind.DeclareConst:
+                    case JitOpKind.EnterBlock:
+                    case JitOpKind.LeaveBlock:     break; // register already exists / no-op in the register tier
                     case JitOpKind.Not:            il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); break;
                     case JitOpKind.Binary:         EmitIntBinaryRaw(b, instr.Op); break;
                     case JitOpKind.Jump:           il.Emit(OpCodes.Br, labels[instr.IntValue]); break;
@@ -449,6 +477,7 @@ namespace DScript.Jit
 
             b.EmitDeoptReturn(deopt, chunkIndex);
             if (fieldPairs.Count > 0) SpeculativeFieldReadCompilations++;
+            if (didScalarReplace) ScalarObjectReplacements++;
             return b.Finish(appendRet: false);
         }
 
@@ -457,6 +486,180 @@ namespace DScript.Jit
 
         private static bool IsJump(JitOpKind k) =>
             k is JitOpKind.Jump or JitOpKind.JumpIfFalse or JitOpKind.JumpIfTrue;
+
+        // ── scalar object replacement (Lever 2e) ─────────────────────────────────
+        // For functions that create object literals {p1:v1, …} inside a loop and only
+        // read properties from them, replace the allocation with raw-int registers:
+        //   NewObject + InitProp "a" + … + SetVarPop "o"  →  SetVarPop "o:a" + …
+        //   PushVar "o" + GetProp "a"                      →  PushVar "o:a"
+        //
+        // Adds a synthetic prologue that zero-initialises every scalar property register
+        // so the existing soundness check (first-ref-must-be-write-before-jump) passes.
+        // Jump targets are remapped to account for the removed/merged instructions.
+        // Returns a new instruction list, or null if no eligible objects were found.
+        private static List<JitInstruction> TryScalarReplaceObjects(List<JitInstruction> instrs)
+        {
+            if (DisableScalarObjectReplacement) return null;
+            if (!VerifyStackConsistency(instrs, out var depth)) return null;
+
+            // ── 1. Detect non-escaping constructor sequences ──────────────────────
+            // A sequence NewObject[D] … InitProp*[D+2] … SetVarPop "x"[D+1] where D is
+            // the stack depth entering NewObject. All reads of "x" must be GetProp reads.
+            var candidates = new Dictionary<string, (int newIdx, int setIdx, List<string> props)>();
+            var declined   = new HashSet<string>(); // multiple assignments or non-GetProp read
+
+            for (var i = 0; i < instrs.Count; i++)
+            {
+                if (instrs[i].Kind != JitOpKind.NewObject) continue;
+                var D = depth[i];
+
+                var props    = new List<string>();
+                string vname = null;
+                int    setAt = -1;
+                bool   ok    = true;
+
+                for (var j = i + 1; j < instrs.Count && ok; j++)
+                {
+                    var jd = depth[j];
+                    if (jd < 0) { ok = false; break; } // unreachable instruction
+
+                    if (jd == D + 2 && instrs[j].Kind == JitOpKind.InitProp)
+                    {
+                        props.Add(instrs[j].Name); // property set in construction order
+                    }
+                    else if (jd == D + 1)
+                    {
+                        var k2 = instrs[j].Kind;
+                        if (k2 == JitOpKind.SetVarPop)
+                        {
+                            vname = instrs[j].Name;
+                            setAt = j;
+                            break; // end of constructor
+                        }
+                        // Jumps at this depth would consume the object via control flow → escape.
+                        // Binary/unary at D+1 would consume the object as an operand → escape.
+                        // SetVar (expression form) keeps the object on stack → decline for simplicity.
+                        if (IsJump(k2) || k2 is JitOpKind.Return or JitOpKind.Pop
+                            or JitOpKind.SetVar or JitOpKind.GetProp or JitOpKind.SetProp
+                            or JitOpKind.SetPropPop or JitOpKind.SetIndex or JitOpKind.Call
+                            or JitOpKind.CallMethod or JitOpKind.GetPropCall0 or JitOpKind.GetPropMethod)
+                            ok = false;
+                        // else: first instruction of the next value expression — continue
+                    }
+                    else if (jd < D + 1)
+                    {
+                        ok = false; // stack underflow below object — malformed
+                    }
+                    // jd > D+2: body of a multi-instruction value expression — continue
+                }
+
+                if (!ok || vname == null || setAt < 0) continue;
+                if (declined.Contains(vname)) continue;
+
+                // All reads must be GetProp reads (no aliasing, no identity comparisons, …)
+                if (!AllObjectReadsAreGetProp(instrs, vname)) { declined.Add(vname); continue; }
+
+                if (candidates.ContainsKey(vname))
+                {
+                    declined.Add(vname);     // second NewObject assignment to same var — decline
+                    candidates.Remove(vname);
+                    continue;
+                }
+                candidates[vname] = (i, setAt, props);
+            }
+
+            if (candidates.Count == 0) return null;
+
+            // ── 2. Build instruction-level replacement maps ───────────────────────
+            // removeSet:   indices to skip entirely (NewObject, SetVarPop "o", GetProp reads)
+            // replaceMap:  index → replacement instruction (InitProp→SetVarPop, PushVar→PushVar)
+            var removeSet  = new HashSet<int>();
+            var replaceMap = new Dictionary<int, JitInstruction>();
+
+            foreach (var (vname, (newIdx, setIdx, props)) in candidates)
+            {
+                var D       = depth[newIdx];
+                removeSet.Add(newIdx);  // NewObject: eliminated
+                removeSet.Add(setIdx);  // SetVarPop "o": eliminated
+
+                // InitProp instructions → SetVarPop "o:prop"
+                var propIdx = 0;
+                for (var j = newIdx + 1; j < setIdx && propIdx < props.Count; j++)
+                    if (depth[j] == D + 2 && instrs[j].Kind == JitOpKind.InitProp)
+                        replaceMap[j] = JitInstruction.SetVarPop(vname + ":" + props[propIdx++]);
+            }
+
+            // PushVar "o" + GetProp "field" → PushVar "o:field"  (scan entire list)
+            for (var i = 0; i < instrs.Count - 1; i++)
+            {
+                if (instrs[i].Kind == JitOpKind.PushVar && candidates.ContainsKey(instrs[i].Name)
+                    && instrs[i + 1].Kind == JitOpKind.GetProp)
+                {
+                    replaceMap[i] = JitInstruction.PushVar(instrs[i].Name + ":" + instrs[i + 1].Name);
+                    removeSet.Add(i + 1); // consume the GetProp (i itself is in replaceMap, not removeSet)
+                    i++;                  // skip over the now-consumed GetProp in this loop
+                }
+            }
+
+            // ── 3. Build old→new index remapping for jump-target fixup ────────────
+            // Dummy prologue: 2 instructions (PushIntLiteral 0 + SetVarPop "o:p") per property.
+            int prologueCount = 0;
+            foreach (var kv in candidates) prologueCount += kv.Value.props.Count * 2;
+            var oldToNew = new int[instrs.Count + 1];
+            int newPos = prologueCount;
+            for (var i = 0; i <= instrs.Count; i++)
+            {
+                oldToNew[i] = newPos;
+                if (i < instrs.Count && !removeSet.Contains(i))
+                    newPos++; // removed instructions contribute 0 output; replaced contribute 1
+            }
+
+            // ── 4. Build the transformed instruction list ─────────────────────────
+            var result = new List<JitInstruction>(instrs.Count + prologueCount);
+
+            // Dummy prologue: zero-initialise each scalar property register so the
+            // first-ref-before-jump soundness check in IsIntLoopSpeculable passes.
+            foreach (var (vname, (_, _, props)) in candidates)
+                foreach (var p in props)
+                {
+                    result.Add(JitInstruction.PushIntLiteral(0));
+                    result.Add(JitInstruction.SetVarPop(vname + ":" + p));
+                }
+
+            for (var i = 0; i < instrs.Count; i++)
+            {
+                if (replaceMap.TryGetValue(i, out var replacement)) { result.Add(replacement); continue; }
+                if (removeSet.Contains(i)) continue;
+
+                var instr = instrs[i];
+                // Remap jump targets to account for the removed/merged instructions.
+                if (IsJump(instr.Kind))
+                {
+                    var nt = oldToNew[instr.IntValue];
+                    instr = instr.Kind switch
+                    {
+                        JitOpKind.Jump         => JitInstruction.Jump(nt),
+                        JitOpKind.JumpIfFalse  => JitInstruction.JumpIfFalse(nt),
+                        JitOpKind.JumpIfTrue   => JitInstruction.JumpIfTrue(nt),
+                        _                      => instr,
+                    };
+                }
+                result.Add(instr);
+            }
+
+            return result;
+        }
+
+        // Returns true when every PushVar of <paramref name="varname"/> is immediately
+        // followed by a GetProp, so the variable is used only as a property-read receiver.
+        private static bool AllObjectReadsAreGetProp(List<JitInstruction> instrs, string varname)
+        {
+            for (var i = 0; i < instrs.Count; i++)
+                if (instrs[i].Kind == JitOpKind.PushVar && instrs[i].Name == varname)
+                    if (i + 1 >= instrs.Count || instrs[i + 1].Kind != JitOpKind.GetProp)
+                        return false;
+            return true;
+        }
 
         private static bool IsIntLoopSpeculable(Chunk chunk, List<JitInstruction> instrs)
         {
@@ -482,8 +685,14 @@ namespace DScript.Jit
                 switch (instr.Kind)
                 {
                     case JitOpKind.PushConst:
-                        if (instr.Constant.Kind != ConstantKind.Int) return false;
-                        break;
+                        if (instr.Constant.Kind == ConstantKind.Int) break;
+                        // Accept exact-integer doubles (e.g. 1e6 = 1000000.0) — emitted as int.
+                        if (instr.Constant.Kind == ConstantKind.Double)
+                        {
+                            var d = instr.Constant.DoubleValue;
+                            if (d == System.Math.Floor(d) && d >= int.MinValue && d <= int.MaxValue) break;
+                        }
+                        return false;
                     case JitOpKind.Binary:
                         if (InlineIntOp(instr.Op) == null && !IsIntComparison(instr.Op)) return false; // no /,%, etc.
                         break;
@@ -492,15 +701,18 @@ namespace DScript.Jit
                     case JitOpKind.PushVar:
                     case JitOpKind.SetVar:
                     case JitOpKind.SetVarPop:
+                    case JitOpKind.Pop:            // discards a post-increment expression result (i++)
                     case JitOpKind.DeclareVar:
                     case JitOpKind.DeclareLocal:
                     case JitOpKind.DeclareConst:
+                    case JitOpKind.EnterBlock:     // no-op in the register tier: all variables are in raw-int
+                    case JitOpKind.LeaveBlock:     // registers that bypass the env; closures are declined below
                     case JitOpKind.Not:
                     case JitOpKind.Jump:
                     case JitOpKind.JumpIfFalse:
                     case JitOpKind.JumpIfTrue:
                     case JitOpKind.Return:
-                        break; // EnterBlock/LeaveBlock deliberately absent — block scopes go to the conservative tier
+                        break;
                     default:
                         return false; // calls, prop writes, indexing, conditional-pop jumps, shifts, etc.
                 }
@@ -512,6 +724,16 @@ namespace DScript.Jit
             foreach (var (_, p) in profiles)
                 if (p.LeftTypes != Chunk.BinaryTypeFlags.Int || p.RightTypes != Chunk.BinaryTypeFlags.Int)
                     return false;
+
+            // Shadowing guard: when EnterBlock/LeaveBlock are treated as no-ops, all
+            // variables share a single register pool. Decline if the same name is
+            // declared more than once (which would mean an inner binding shadows an outer
+            // one — the inner SetVarPop would clobber the outer register).
+            var declaredNames = new HashSet<string>();
+            foreach (var instr in instrs)
+                if (instr.Kind is JitOpKind.DeclareConst or JitOpKind.DeclareLocal or JitOpKind.DeclareVar)
+                    if (instr.Name != null && !declaredNames.Add(instr.Name))
+                        return false; // duplicate declaration → potential shadowing
 
             // Register-promotion soundness: every non-parameter variable's first
             // reference must be an assignment in the straight-line prologue (before any
