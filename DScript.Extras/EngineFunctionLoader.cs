@@ -102,13 +102,19 @@ namespace DScript.Extras
             // Error hierarchy: TypeError/RangeError/etc.prototype → Error
             // This enables `new TypeError() instanceof Error` by adding a "prototype"
             // child on each subtype constructor pointing to the Error constructor.
+            // Also add .name to each constructor so assert.throws error messages are useful.
             var errorCtor = engine.Root.FindChild("Error")?.Var;
             if (errorCtor == null) return;
+            if (errorCtor.FindChild("name") == null)
+                errorCtor.AddChild("name", ScriptVar.FromString("Error"));
             foreach (var subtype in new[] { "TypeError", "RangeError", "ReferenceError", "SyntaxError", "URIError", "EvalError", "AggregateError" })
             {
                 var subCtor = engine.Root.FindChild(subtype)?.Var;
-                if (subCtor != null && subCtor.FindChild(ScriptVar.PrototypeClassName) == null)
+                if (subCtor == null) continue;
+                if (subCtor.FindChild(ScriptVar.PrototypeClassName) == null)
                     subCtor.AddChild(ScriptVar.PrototypeClassName, errorCtor);
+                if (subCtor.FindChild("name") == null)
+                    subCtor.AddChild("name", ScriptVar.FromString(subtype));
             }
         }
 

@@ -169,6 +169,10 @@ namespace DScript.Compiler
                 isMatch: (t, d) => d == 0 && t == ScriptLex.LexTypes.RFunction,
                 isStop:  (t, d) => d == 0 && t == (ScriptLex.LexTypes)'}');
 
+        // Lookahead: does the block contain a function declaration whose name conflicts
+        // with a top-level let/const in the enclosing eval scope (Annex B.3.3)?
+        // When true, the block must get its own scope frame so DeclareLocal for the
+        // block function doesn't land in the same env as the let binding.
         private void CompileVarDeclaration()
         {
             var readOnly = lexer.TokenType == ScriptLex.LexTypes.RConst;
@@ -462,14 +466,18 @@ namespace DScript.Compiler
             lexer.Match((ScriptLex.LexTypes)')');
 
             var toElse = chunk.EmitJump(OpCode.JumpIfFalse);
+            _inIfBranch++;
             CompileStatement();
+            _inIfBranch--;
 
             if (lexer.TokenType == ScriptLex.LexTypes.RElse)
             {
                 var toEnd = chunk.EmitJump(OpCode.Jump);
                 chunk.PatchJump(toElse);
                 lexer.Match(ScriptLex.LexTypes.RElse);
+                _inIfBranch++;
                 CompileStatement();
+                _inIfBranch--;
                 chunk.PatchJump(toEnd);
             }
             else
@@ -850,6 +858,13 @@ namespace DScript.Compiler
                         chunk.PatchJumpTo(catchVarSlot, catchVarIdx); // EnterTry.catchVarIdx
                         lexer.Match(ScriptLex.LexTypes.Id);
                     }
+                    else if (lexer.TokenType == (ScriptLex.LexTypes)'{' ||
+                             lexer.TokenType == (ScriptLex.LexTypes)'[')
+                    {
+                        // Destructuring catch parameter — not yet fully implemented;
+                        // consume and discard the pattern so parsing can continue.
+                        SkipBalanced();
+                    }
                     lexer.Match((ScriptLex.LexTypes)')');
                 }
 
@@ -903,13 +918,26 @@ namespace DScript.Compiler
 
             var idx = CompileFunctionRest(name, isGenerator);
 
-            // In strict mode inside a nested block, function declarations are block-scoped.
-            var declOp = chunk.IsStrict && _blockDepth > 0 ? OpCode.DeclareLocal : OpCode.DeclareVar;
+            // Strict mode inside a block → block-scoped.
+            // Non-strict inside a block but a let/const binding claims this name in
+            // the enclosing eval scope (Annex B.3.3) → the var-hoisting extension does
+            // not apply; isolate the function in its own throw-away scope so it cannot
+            // clobber the lexical binding.
+            // letConflict: a let/const in the enclosing eval scope claims this name, so
+            // var-hoisting would produce an Early Error → Annex B.3.3 extension skipped.
+            // Applies when inside a block (_blockDepth > 0) OR inside an if-statement
+            // branch without a wrapping block (_inIfBranch > 0).
+            bool letConflict = (_blockDepth > 0 || _inIfBranch > 0) &&
+                               (_evalLetConflicts?.Contains(name) ?? false);
+            var declOp = (_blockDepth > 0 && chunk.IsStrict) || letConflict
+                ? OpCode.DeclareLocal : OpCode.DeclareVar;
+            if (letConflict) chunk.Emit(OpCode.EnterBlock);
             chunk.Emit(declOp, nameIndex);
             chunk.Emit(OpCode.MakeClosure, idx);  // captures the current environment
             chunk.MakesClosure = true;
             chunk.Emit(OpCode.SetVar, nameIndex);
             chunk.Emit(OpCode.Pop);
+            if (letConflict) chunk.Emit(OpCode.LeaveBlock);
         }
 
         private void CompileAsyncFunctionDeclaration()
@@ -1374,11 +1402,29 @@ namespace DScript.Compiler
             }
         }
 
+        // Consumes a balanced { } or [ ] token group starting at the current token,
+        // discarding all tokens inside. Used to skip destructuring patterns that are
+        // syntactically valid but not yet fully compiled (e.g. catch ({e})).
+        private void SkipBalanced()
+        {
+            var open  = lexer.TokenType;
+            var close = open == (ScriptLex.LexTypes)'{' ? (ScriptLex.LexTypes)'}' : (ScriptLex.LexTypes)']';
+            lexer.GetNextToken(); // consume the opening delimiter
+            int depth = 1;
+            while (depth > 0 && lexer.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                if      (lexer.TokenType == open)  depth++;
+                else if (lexer.TokenType == close) depth--;
+                lexer.GetNextToken();
+            }
+        }
+
         // Parse an optional `with { key: "value", ... }` clause after `from "specifier"`.
         // Returns an empty dict (not null) if no clause is present.
         private Dictionary<string, string> ParseWithClause()
         {
             var attrs = new Dictionary<string, string>();
+
             if (lexer.TokenType != ScriptLex.LexTypes.Id || lexer.TokenString != "with")
                 return attrs;
             lexer.Match(ScriptLex.LexTypes.Id); // consume "with"

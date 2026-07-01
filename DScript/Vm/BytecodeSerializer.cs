@@ -333,6 +333,9 @@ namespace DScript.Vm
 
         // Set UsesSlots/SlotCount from the presence of GetLocal/SetLocal in the loaded
         // bytecode (their operand is the slot index), so a frame is allocated on calls.
+        // Also recover MakesClosure so RecyclableFrame stays false for closures — without
+        // this, a deserialized outer function recycles its frame vars before the inner
+        // function has a chance to read captured variables.
         private static void RecoverSlotMetadata(Chunk chunk)
         {
             var maxSlot = -1;
@@ -344,6 +347,8 @@ namespace DScript.Vm
                     var slot = chunk.ReadInt(i + 1);
                     if (slot > maxSlot) maxSlot = slot;
                 }
+                if (op is OpCode.MakeClosure)
+                    chunk.MakesClosure = true;
                 i += Chunk.InstructionSize(op);
             }
             if (maxSlot >= 0)

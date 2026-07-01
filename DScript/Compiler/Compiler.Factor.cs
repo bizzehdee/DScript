@@ -1164,7 +1164,7 @@ namespace DScript.Compiler
                     if (lexer.TokenType == ScriptLex.LexTypes.Str)
                         lexer.Match(ScriptLex.LexTypes.Str);
                     else
-                        lexer.Match(ScriptLex.LexTypes.Id);
+                        lexer.MatchPropertyName();
 
                     // get/set accessors — contextual: "get"/"set" is only an accessor keyword
                     // when the next token is another identifier (the property name).

@@ -42,6 +42,13 @@ namespace DScript.Compiler
         private int _destructureCounter;
         private int _importCounter;
         private int _blockDepth;
+        // Counter that is >0 while compiling the branch body of an if/else statement
+        // that has no wrapping block. Used by Annex B.3.3 to detect function
+        // declarations that need their own scope.
+        private int _inIfBranch;
+        // Names bound by let/const in the enclosing eval scope. Set only when
+        // compiling an eval program; null otherwise.
+        private System.Collections.Generic.HashSet<string> _evalLetConflicts;
         // Private names declared in the class currently being compiled.
         // Null when not inside a class body. Used to validate #name access.
         private System.Collections.Generic.HashSet<string> _currentClassPrivateNames;
@@ -169,6 +176,75 @@ namespace DScript.Compiler
                 _constScopes = null;
             }
             return chunk;
+        }
+
+        /// <summary>
+        /// Compile <paramref name="source"/> as an eval program. Like
+        /// <see cref="CompileProgram"/> but uses eval-mode semantics (strict detection,
+        /// let/const conflict tracking for Annex B.3.3).
+        /// </summary>
+        public Chunk CompileEvalProgram(string source)
+        {
+            lexer = new ScriptLex(source);
+            chunk = new Chunk { Name = "<eval>" };
+            if (EnableOptimizer)
+            {
+                _constScopes = new Stack<Dictionary<string, ConstantValue>>();
+                _constScopes.Push(new Dictionary<string, ConstantValue>());
+            }
+
+            ConsumeUseStrictIfPresent();
+
+            // Pre-scan for let/const bindings so Annex B.3.3 can avoid hoisting
+            // function declarations that would conflict with them.
+            _evalLetConflicts = CollectLetConstNames(source);
+
+            while (lexer.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                CompileStatement();
+            }
+
+            chunk.Emit(OpCode.PushUndefined);
+            chunk.Emit(OpCode.Return);
+
+            AnalyzeSlotsAndCaptures(chunk);
+
+            if (ScriptEngine.EnableLocalSlots) chunk.PromoteLocalSlots();
+
+            if (EnableOptimizer)
+            {
+                chunk.CollapseJumpChains();
+                chunk.FoldConstantBranches();
+                chunk.EliminateDeadCode();
+                chunk.FuseSuperInstructions();
+                chunk.NarrowEncodePass();
+                _constScopes = null;
+            }
+            _evalLetConflicts = null;
+            return chunk;
+        }
+
+        // Collect all top-level let/const binding names from a source string.
+        // Used by CompileEvalProgram to detect Annex B.3.3 conflicts.
+        private static System.Collections.Generic.HashSet<string> CollectLetConstNames(string source)
+        {
+            var names = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+            try
+            {
+                using var scan = new ScriptLex(source);
+                while (scan.TokenType != ScriptLex.LexTypes.Eof)
+                {
+                    if (scan.TokenType is ScriptLex.LexTypes.RLet or ScriptLex.LexTypes.RConst)
+                    {
+                        scan.Match(scan.TokenType);
+                        if (scan.TokenType == ScriptLex.LexTypes.Id)
+                            names.Add(scan.TokenString);
+                    }
+                    scan.Match(scan.TokenType);
+                }
+            }
+            catch { /* ignore scanner errors in the pre-pass */ }
+            return names;
         }
 
         // ----- Lever A: local-slot analysis (phase A1, metadata only) ----------

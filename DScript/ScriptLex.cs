@@ -69,6 +69,9 @@ namespace DScript
         private readonly int dataEnd;
         private int dataPos;
         private readonly StringBuilder tokenBuilder = new(64);
+        // True at start-of-file and after any line terminator, allowing --> to be
+        // recognised as an Annex B HTML close comment on that line.
+        private bool _htmlCloseCommentAllowedHere;
 
         public char CurrentChar { get; private set; }
         public char NextChar { get; private set; }
@@ -227,6 +230,7 @@ namespace DScript
 
             LineNumber = 1;
             ColumnNumber = 1;
+            _htmlCloseCommentAllowedHere = true;
 
             GetNextChar();
             GetNextChar();
@@ -250,7 +254,7 @@ namespace DScript
 
             ColumnNumber++;
 
-            if (CurrentChar == '\n')
+            if (CurrentChar is '\n' or '\u2028' or '\u2029')
             {
                 LineNumber++;
                 ColumnNumber = 1;
@@ -273,9 +277,13 @@ namespace DScript
             // per comment block and a function-call overhead per whitespace run).
             while (true)
             {
-                while (CurrentChar != (char)0 && CurrentChar.IsWhitespace())
+                while (CurrentChar != (char)0 && (CurrentChar.IsWhitespace() || CurrentChar is '\u2028' or '\u2029'))
                 {
-                    if (CurrentChar == '\n') NewlineBeforeToken = true;
+                    if (CurrentChar is '\n' or '\u2028' or '\u2029')
+                    {
+                        NewlineBeforeToken = true;
+                        _htmlCloseCommentAllowedHere = true;
+                    }
                     GetNextChar();
                 }
 
@@ -289,7 +297,8 @@ namespace DScript
                 {
                     while (CurrentChar != 0 && CurrentChar != '\n') GetNextChar();
                     GetNextChar();
-                    NewlineBeforeToken = true; // a line comment is ended by a newline
+                    NewlineBeforeToken = true;
+                    _htmlCloseCommentAllowedHere = true;
                     continue;
                 }
 
@@ -297,7 +306,11 @@ namespace DScript
                 {
                     while (CurrentChar != 0 && (CurrentChar != '*' || NextChar != '/'))
                     {
-                        if (CurrentChar == '\n') NewlineBeforeToken = true;
+                        if (CurrentChar is '\n' or '\u2028' or '\u2029')
+                        {
+                            NewlineBeforeToken = true;
+                            _htmlCloseCommentAllowedHere = true;
+                        }
                         GetNextChar();
                     }
                     GetNextChar();
@@ -305,8 +318,35 @@ namespace DScript
                     continue;
                 }
 
+                // Annex B.1.3: SingleLineHTMLOpenComment — <!-- acts as a line comment anywhere.
+                if (CurrentChar == '<' && NextChar == '!' &&
+                    dataPos < dataEnd && data[dataPos] == '-' &&
+                    dataPos + 1 < dataEnd && data[dataPos + 1] == '-')
+                {
+                    while (CurrentChar != 0 && CurrentChar != '\n') GetNextChar();
+                    GetNextChar();
+                    NewlineBeforeToken = true;
+                    _htmlCloseCommentAllowedHere = true;
+                    continue;
+                }
+
+                // Annex B.1.3: SingleLineHTMLCloseComment — --> acts as a line comment
+                // only at the start of a line (after optional whitespace/block-comments).
+                if (CurrentChar == '-' && NextChar == '-' &&
+                    dataPos < dataEnd && data[dataPos] == '>' &&
+                    _htmlCloseCommentAllowedHere)
+                {
+                    while (CurrentChar != 0 && CurrentChar != '\n') GetNextChar();
+                    GetNextChar();
+                    NewlineBeforeToken = true;
+                    _htmlCloseCommentAllowedHere = true;
+                    continue;
+                }
+
                 break;
             }
+
+            _htmlCloseCommentAllowedHere = false;
 
             TokenStart = dataPos - 2;
 

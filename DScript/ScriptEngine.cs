@@ -162,7 +162,17 @@ namespace DScript
             Root = (ScriptVar.CreateObject()).Ref();
 
             objectClass = (ScriptVar.CreateObject()).Ref();
-            stringClass = (ScriptVar.CreateObject()).Ref();
+            // String is both callable (String(x) → type coercion) and a property
+            // container (String.prototype.indexOf etc. as children).
+            // The "value" child must be added FIRST so InvokeCallable binds args[0]
+            // to it before the method children are appended by the extras layer.
+            stringClass = ScriptVar.CreateNativeFunction().Ref();
+            stringClass.AddChild("value", ScriptVar.CreateUndefined());
+            stringClass.SetCallback(static (scope, _) =>
+            {
+                var val = scope.GetParameter("value");
+                scope.ReturnVar = ScriptVar.FromString(val.String);
+            }, null);
             arrayClass = (ScriptVar.CreateObject()).Ref();
             functionClass = (ScriptVar.CreateObject()).Ref();
 
@@ -575,8 +585,33 @@ namespace DScript
         }
 
         /// <summary>
+        /// Compile and run <paramref name="code"/> as a Script (statement sequence),
+        /// matching ECMAScript <c>eval()</c> semantics. Returns the completion value.
+        /// Parse/syntax errors are caught, logged to stderr, and return null.
+        /// Runtime errors and script <c>throw</c> statements propagate to the caller.
+        /// </summary>
+        public ScriptVar EvalScript(string code)
+        {
+            Chunk chunk;
+            try
+            {
+                using var compiler = new DScriptCompiler { EnableOptimizer = EnableOptimizer };
+                chunk = compiler.CompileEvalProgram(code);
+            }
+            catch (ScriptException ex)
+            {
+                // Parse/syntax error — log and return undefined (matches SyntaxError semantics).
+                Console.Error.WriteLine($"ERROR [{ex.Message}]");
+                return ScriptVar.FromString(null);
+            }
+
+            // Runtime errors (ScriptException) and script throws (JITException) propagate.
+            return new VirtualMachine(this).Run(chunk, globalEnvironment);
+        }
+
+        /// <summary>
         /// Evaluate <paramref name="code"/> as an expression and return its value
-        /// (used by eval / JSON.parse).
+        /// (used by the REPL and optimizer tests).
         /// </summary>
         public ScriptVarLink EvalComplex(string code)
         {

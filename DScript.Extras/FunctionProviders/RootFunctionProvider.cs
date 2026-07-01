@@ -33,8 +33,8 @@ namespace DScript.Extras.FunctionProviders
         {
             var engine = (ScriptEngine)userData;
             var script = var.GetParameter("str").String;
-            var returnVal = engine.EvalComplex(script);
-            var.ReturnVar = returnVal.Var;
+            var returnVal = engine.EvalScript(script);
+            var.ReturnVar = returnVal;
         }
 
         [ScriptMethod("exec", "str", AppearAtRoot = true)]
