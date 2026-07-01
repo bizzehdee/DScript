@@ -71,7 +71,7 @@ Status legend: ✅ Implemented · ⚠️ Partial · ❌ Not implemented
 | `Error` (and subclasses `TypeError`, `RangeError`, etc.) | ✅ | Constructable via `new` or call; `message`, `name`, `stack` set; `instanceof Error` works through prototype chain; `Error.cause` (ES2022) not implemented |
 | `Function.prototype.bind` / `call` / `apply` | ✅ | |
 | Strict mode (`"use strict"`) | ✅ | Directive detected; compile-time errors (dup params, `eval`/`arguments` as binding, `delete <id>`, octals); `this=undefined` in plain calls; `arguments.callee`/`caller` poison pills; undeclared assignment `ReferenceError`; non-writable property write `TypeError`; block-scoped function declarations |
-| Eval | ⚠️ | `eval(str)` executes code; indirect eval semantics not guaranteed |
+| Eval | ⚠️ | `eval(str)` compiles/runs `str` as a Script (statements, not just an expression); top-level `function` declarations are hoisted (visible with their closure value before the first statement runs); Annex B.3.3 block-scoped function declarations; completion value is returned when the last statement is an expression statement (not threaded through intervening control-flow statements); indirect eval semantics not guaranteed |
 
 ---
 

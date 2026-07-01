@@ -330,7 +330,14 @@ namespace DScript.Vm
         // recurse to a useful depth, with MaxCallStackDepth (default 10000) bounding
         // it well short of overflow — leaving room for the error to unwind from that
         // depth — so runaway recursion throws a catchable error instead of crashing.
-        private const int ExecutionStackBytes = 256 * 1024 * 1024;
+        //
+        // Sized against unoptimized (Debug) JIT output: an un-inlined Execute/
+        // InvokeVmFunctionFromStack pair is measured at ~33 KB per recursion level
+        // there (vs. comfortably less once Release inlining/register allocation
+        // kick in). 10000 levels at that size is ~330 MB; this leaves roughly 2x
+        // headroom above that so the depth guard trips well before the real stack
+        // does, on both build configurations.
+        private const int ExecutionStackBytes = 768 * 1024 * 1024;
 
         // True while running on a spawned execution thread, so nested/reentrant Run
         // calls (e.g. a host callback that re-enters the engine) execute inline rather

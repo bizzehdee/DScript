@@ -199,12 +199,51 @@ namespace DScript.Compiler
             // function declarations that would conflict with them.
             _evalLetConflicts = CollectLetConstNames(source);
 
+            // ECMAScript function hoisting: a top-level `function` binding is visible
+            // with its closure value before the first statement runs (unlike `var`,
+            // which is only visible-but-undefined). Declarations nested in blocks/if
+            // branches are excluded here — they keep their existing Annex B.3.3
+            // handling in CompileFunctionDeclaration, which assigns to the outer
+            // binding only when the enclosing block actually executes.
+            var hoistedFunctionStarts = HoistTopLevelFunctionDeclarations();
+
+            // eval's completion value is the value of its last top-level expression
+            // statement (ECMA-262 Script/eval completion-value semantics). This is a
+            // simplified subset: the value only survives if that expression statement
+            // is literally the final statement in the source — it is not threaded
+            // through intervening control-flow statements the way a fully spec-
+            // compliant implementation would.
+            var completionValuePending = false;
+
             while (lexer.TokenType != ScriptLex.LexTypes.Eof)
             {
+                if (hoistedFunctionStarts != null &&
+                    lexer.TokenType == ScriptLex.LexTypes.RFunction &&
+                    hoistedFunctionStarts.Contains(lexer.TokenStart))
+                {
+                    SetLine();
+                    SkipHoistedFunctionDeclaration();
+                    continue;
+                }
+
+                if (StartsExpressionStatement(lexer.TokenType))
+                {
+                    SetLine();
+                    CompileExpression();
+                    MatchStatementTerminator();
+
+                    if (lexer.TokenType == ScriptLex.LexTypes.Eof)
+                        completionValuePending = true;
+                    else
+                        chunk.Emit(OpCode.Pop);
+
+                    continue;
+                }
+
                 CompileStatement();
             }
 
-            chunk.Emit(OpCode.PushUndefined);
+            if (!completionValuePending) chunk.Emit(OpCode.PushUndefined);
             chunk.Emit(OpCode.Return);
 
             AnalyzeSlotsAndCaptures(chunk);
@@ -245,6 +284,72 @@ namespace DScript.Compiler
             }
             catch { /* ignore scanner errors in the pre-pass */ }
             return names;
+        }
+
+        // True for a token that starts CompileStatement's default (expression
+        // statement) branch — i.e. every statement-leading token NOT explicitly
+        // handled by one of its other cases. Kept in sync with that switch.
+        private static bool StartsExpressionStatement(ScriptLex.LexTypes t) => t is not (
+            (ScriptLex.LexTypes)'{' or (ScriptLex.LexTypes)';' or
+            ScriptLex.LexTypes.RVar or ScriptLex.LexTypes.RConst or ScriptLex.LexTypes.RLet or
+            ScriptLex.LexTypes.RClass or ScriptLex.LexTypes.RIf or ScriptLex.LexTypes.RWhile or
+            ScriptLex.LexTypes.RDo or ScriptLex.LexTypes.RFor or ScriptLex.LexTypes.RReturn or
+            ScriptLex.LexTypes.RBreak or ScriptLex.LexTypes.RContinue or ScriptLex.LexTypes.RSwitch or
+            ScriptLex.LexTypes.RFunction or ScriptLex.LexTypes.RAsync or ScriptLex.LexTypes.RExport or
+            ScriptLex.LexTypes.RImport or ScriptLex.LexTypes.RThrow or ScriptLex.LexTypes.RTry
+        ) && t != ScriptLex.LexTypes.Eof;
+
+        // Pre-scan the upcoming token stream (from the current lexer position to
+        // EOF) for `function` declarations that sit at depth 0 — i.e. directly in
+        // the eval program's top-level statement list, not nested inside a block,
+        // if-branch, loop body, etc. For each one found, compile it immediately
+        // (via a throwaway clone positioned at its start) so the closure is
+        // created and assigned before any other top-level statement runs. Returns
+        // the set of token-start offsets that were hoisted, so the main compile
+        // loop can recognise and skip them when it reaches them in source order;
+        // null if there was nothing to hoist.
+        private System.Collections.Generic.HashSet<int> HoistTopLevelFunctionDeclarations()
+        {
+            var starts = new List<int>();
+            var scan = lexer.CloneToEnd(lexer.TokenStart);
+            var depth = 0;
+            while (scan.TokenType != ScriptLex.LexTypes.Eof)
+            {
+                if (depth == 0 && scan.TokenType == ScriptLex.LexTypes.RFunction)
+                    starts.Add(scan.TokenStart);
+
+                if (scan.TokenType is (ScriptLex.LexTypes)'(' or (ScriptLex.LexTypes)'[' or (ScriptLex.LexTypes)'{')
+                    depth++;
+                else if (scan.TokenType is (ScriptLex.LexTypes)')' or (ScriptLex.LexTypes)']' or (ScriptLex.LexTypes)'}')
+                { if (depth > 0) depth--; }
+
+                scan.GetNextToken();
+            }
+
+            if (starts.Count == 0) return null;
+
+            var hoisted = new System.Collections.Generic.HashSet<int>();
+            var saved = lexer;
+            foreach (var start in starts)
+            {
+                lexer = saved.CloneToEnd(start);
+                SetLine();
+                CompileFunctionDeclaration();
+                hoisted.Add(start);
+            }
+            lexer = saved;
+            return hoisted;
+        }
+
+        // Consume the tokens of a function declaration already handled by
+        // HoistTopLevelFunctionDeclarations without re-emitting it — its closure
+        // creation and assignment already ran before the first statement.
+        private void SkipHoistedFunctionDeclaration()
+        {
+            var savedChunk = chunk;
+            chunk = new Chunk { Name = "<hoisted>" };
+            CompileFunctionDeclaration();
+            chunk = savedChunk;
         }
 
         // ----- Lever A: local-slot analysis (phase A1, metadata only) ----------
